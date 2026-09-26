@@ -1,0 +1,22 @@
+id: market_size
+label: Market size
+value:
+  type: quantity
+  cardinality: temporal_many
+storage:
+  mode: assertion
+semantics:
+  description: Market size for the qualified geography, segment, and currency.
+policy:
+  temporal: required
+  evidence: required
+  history: full
+  embedding: false
+  write: reviewed
+  freshness: research_180d
+  authority: research_sources
+  provenance_tier: B
+status:
+  lifecycle: active
+  equivalent_to:
+

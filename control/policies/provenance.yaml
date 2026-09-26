@@ -1,0 +1,15 @@
+provenance_policies:
+  - id: A
+    source_ref_required: true
+    locator_required: true
+    evidence_or_snapshot_required: true
+    high_risk_eligible: true
+  - id: B
+    source_ref_required: true
+    locator_required: false
+    evidence_or_snapshot_required: false
+    high_risk_eligible: false
+  - id: C
+    origin_required: true
+    high_risk_eligible: false
+

@@ -1,0 +1,10 @@
+/runtime/*.db
+/runtime/*.db-*
+/runtime/cache/*
+/runtime/indexes/*
+/tmp/
+/.bundle/
+/vendor/bundle/
+.DS_Store
+
+!.gitkeep

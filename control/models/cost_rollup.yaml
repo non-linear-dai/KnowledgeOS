@@ -1,0 +1,29 @@
+id: cost_rollup
+version: "1.0.0"
+description: Deterministic unit cost roll-up.
+inputs:
+  - id: material_cost
+    unit: currency_per_unit
+  - id: labor_hours
+    unit: hour_per_unit
+  - id: labor_rate
+    unit: currency_per_hour
+  - id: overhead
+    unit: currency_per_unit
+formula:
+  op: add
+  args:
+    - op: input
+      id: material_cost
+    - op: multiply
+      args:
+        - op: input
+          id: labor_hours
+        - op: input
+          id: labor_rate
+    - op: input
+      id: overhead
+precision: 2
+rounding: half_up
+output_unit: currency_per_unit
+

@@ -1,0 +1,17 @@
+id: pm
+label: Project management
+workflow:
+  - resolve_project_task_milestone
+  - traverse_dependencies_and_gates
+  - compare_baseline_current_as_of
+  - execute_schedule_and_risk_logic
+  - explain_status_and_actions
+retrieval:
+  depth: 3
+  relation_types: [contains, depends_on, threatens]
+  predicate_priority: [task_status, risk_level, finding]
+required_models: []
+tool_policy:
+  allow: [resolve, get, query, neighbors, history, calculate, explain, propose]
+  durable_writes: changeset_only
+

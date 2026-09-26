@@ -1,0 +1,22 @@
+id: legal_name
+label: Legal name
+value:
+  type: string
+  cardinality: one
+storage:
+  mode: attr
+semantics:
+  description: Registered or authoritative organization name.
+policy:
+  temporal: none
+  evidence: optional
+  history: git_only
+  embedding: false
+  write: reviewed
+  freshness: stable
+  authority: organization_master
+  provenance_tier: B
+status:
+  lifecycle: active
+  equivalent_to:
+

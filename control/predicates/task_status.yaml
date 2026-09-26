@@ -1,0 +1,22 @@
+id: task_status
+label: Task status
+value:
+  type: enum
+  cardinality: temporal_many
+storage:
+  mode: assertion
+semantics:
+  description: Current operational task status.
+policy:
+  temporal: required
+  evidence: required
+  history: full
+  embedding: false
+  write: auto
+  freshness: operational_7d
+  authority: pm_operational
+  provenance_tier: A
+status:
+  lifecycle: active
+  equivalent_to:
+

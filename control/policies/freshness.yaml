@@ -1,0 +1,10 @@
+freshness_policies:
+  - id: stable
+    stale_after_days:
+  - id: operational_7d
+    stale_after_days: 7
+  - id: operational_30d
+    stale_after_days: 30
+  - id: research_180d
+    stale_after_days: 180
+

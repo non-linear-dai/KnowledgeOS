@@ -1,0 +1,22 @@
+id: risk_level
+label: Risk level
+value:
+  type: enum
+  cardinality: temporal_many
+storage:
+  mode: assertion
+semantics:
+  description: Assessed risk severity under a declared method.
+policy:
+  temporal: required
+  evidence: required
+  history: preserve
+  embedding: false
+  write: reviewed
+  freshness: operational_30d
+  authority: project_governance
+  provenance_tier: A
+status:
+  lifecycle: active
+  equivalent_to:
+

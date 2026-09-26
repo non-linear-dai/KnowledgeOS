@@ -1,0 +1,17 @@
+id: industry
+label: Industry research
+workflow:
+  - resolve_company_market_technology
+  - retrieve_claims_and_findings
+  - retrieve_supporting_and_contradicting_evidence
+  - apply_time_and_source_policy
+  - synthesize_with_citations
+retrieval:
+  depth: 1
+  relation_types: [participates_in, supplies, uses]
+  predicate_priority: [finding, market_size, risk_level]
+required_models: []
+tool_policy:
+  allow: [resolve, get, query, neighbors, history, search, explain, propose]
+  durable_writes: changeset_only
+

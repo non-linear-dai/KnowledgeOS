@@ -1,0 +1,22 @@
+id: country
+label: Country or region
+value:
+  type: string
+  cardinality: one
+storage:
+  mode: attr
+semantics:
+  description: Primary country or region associated with a node.
+policy:
+  temporal: none
+  evidence: optional
+  history: git_only
+  embedding: false
+  write: reviewed
+  freshness: stable
+  authority: organization_master
+  provenance_tier: B
+status:
+  lifecycle: active
+  equivalent_to:
+

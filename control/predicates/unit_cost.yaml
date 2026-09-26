@@ -1,0 +1,22 @@
+id: unit_cost
+label: Unit cost
+value:
+  type: quantity
+  cardinality: temporal_many
+storage:
+  mode: assertion
+semantics:
+  description: Cost per declared unit and currency.
+policy:
+  temporal: required
+  evidence: required
+  history: full
+  embedding: false
+  write: reviewed
+  freshness: operational_30d
+  authority: erp_operational
+  provenance_tier: A
+status:
+  lifecycle: active
+  equivalent_to:
+

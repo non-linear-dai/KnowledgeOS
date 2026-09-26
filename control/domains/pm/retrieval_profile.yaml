@@ -1,0 +1,3 @@
+mode: temporal_graph_first
+allow_cold_by_default: false
+

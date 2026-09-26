@@ -1,0 +1,18 @@
+id: cost
+label: Cost analysis
+workflow:
+  - resolve_target
+  - traverse_components_materials_processes
+  - verify_authoritative_inputs
+  - apply_as_of
+  - execute_deterministic_model
+  - explain_trace_and_gaps
+retrieval:
+  depth: 2
+  relation_types: [contains, uses, supplies]
+  predicate_priority: [unit_cost, lead_time_days, risk_level]
+required_models: [cost_rollup]
+tool_policy:
+  allow: [resolve, get, query, neighbors, history, calculate, explain]
+  durable_writes: changeset_only
+

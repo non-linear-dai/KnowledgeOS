@@ -1,0 +1,30 @@
+concept_types:
+  - id: organization
+    label: Organization
+  - id: market
+    label: Market
+  - id: product
+    label: Product
+  - id: project
+    label: Project
+  - id: task
+    label: Task
+  - id: relation
+    label: Reified Relation
+  - id: decision
+    label: Decision
+
+relation_types:
+  - id: participates_in
+    label: participates in
+  - id: supplies
+    label: supplies
+  - id: contains
+    label: contains
+  - id: depends_on
+    label: depends on
+  - id: uses
+    label: uses
+  - id: threatens
+    label: threatens
+

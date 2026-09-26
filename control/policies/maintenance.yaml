@@ -1,0 +1,19 @@
+budgets:
+  daily_review_items: 20
+  weekly_review_items: 100
+priority:
+  P0:
+    minimum_score: 90
+  P1:
+    minimum_score: 70
+  P2:
+    minimum_score: 40
+  P3:
+    minimum_score: 0
+hot_warm_cold:
+  warm_retention_days: 365
+assertion_externalization:
+  inline_count: 50
+  frontmatter_bytes: 102400
+  historical_count: 30
+

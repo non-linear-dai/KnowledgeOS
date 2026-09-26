@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knowledgeos.local/schemas/canonical-node.schema.json",
+  "title": "KnowledgeOS Canonical Node Envelope",
+  "type": "object",
+  "required": ["base", "knowledge"],
+  "properties": {
+    "base": {
+      "type": "object",
+      "required": ["schema", "node", "lifecycle", "version"]
+    },
+    "knowledge": {
+      "type": "object",
+      "required": ["attrs", "assertions", "relations", "logic_refs"]
+    },
+    "external": { "type": "object" }
+  },
+  "additionalProperties": true
+}
+

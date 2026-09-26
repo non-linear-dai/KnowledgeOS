@@ -1,0 +1,38 @@
+authority_policies:
+  - id: organization_master
+    primary: [erp]
+    secondary: [git_authored]
+    supporting: [research]
+    conflict:
+      strategy: review_equal_authority
+  - id: git_authored
+    primary: [git_authored]
+    secondary: []
+    supporting: []
+    conflict:
+      strategy: review_equal_authority
+  - id: erp_operational
+    primary: [erp]
+    secondary: [git_authored]
+    supporting: []
+    conflict:
+      strategy: prefer_primary
+  - id: pm_operational
+    primary: [pm]
+    secondary: [git_authored]
+    supporting: []
+    conflict:
+      strategy: prefer_primary
+  - id: project_governance
+    primary: [pm, git_authored]
+    secondary: []
+    supporting: []
+    conflict:
+      strategy: review_equal_authority
+  - id: research_sources
+    primary: [research, git_authored]
+    secondary: []
+    supporting: [web]
+    conflict:
+      strategy: preserve_all
+

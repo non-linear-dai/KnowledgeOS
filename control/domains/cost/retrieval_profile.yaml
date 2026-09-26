@@ -1,0 +1,3 @@
+mode: structured_first
+allow_cold_by_default: false
+

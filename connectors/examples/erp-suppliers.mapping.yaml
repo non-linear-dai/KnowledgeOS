@@ -1,0 +1,22 @@
+source_system: erp
+source_object: supplier_master
+record_id_field: supplier_id
+version_field: version
+timestamp_field: updated_at
+authority_class: erp
+locator_prefix: "erp://supplier/"
+node:
+  id_prefix: org
+  id_field: canonical_id
+  kind: entity
+  type: organization
+  key_field: supplier_id
+  label_field: legal_name
+attrs:
+  legal_name: legal_name
+  country: country
+assertions:
+  lead_time_days:
+    field: lead_time_days
+    kind: measurement
+

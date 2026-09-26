@@ -1,0 +1,22 @@
+id: finding
+label: Research finding
+value:
+  type: text
+  cardinality: temporal_many
+storage:
+  mode: assertion
+semantics:
+  description: A supported analytical or research finding.
+policy:
+  temporal: optional
+  evidence: optional
+  history: full
+  embedding: true
+  write: reviewed
+  freshness: research_180d
+  authority: research_sources
+  provenance_tier: B
+status:
+  lifecycle: active
+  equivalent_to:
+

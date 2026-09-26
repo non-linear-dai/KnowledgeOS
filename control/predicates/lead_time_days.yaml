@@ -1,0 +1,22 @@
+id: lead_time_days
+label: Lead time
+value:
+  type: quantity
+  cardinality: temporal_many
+storage:
+  mode: assertion
+semantics:
+  description: Operational lead time measured in calendar days.
+policy:
+  temporal: required
+  evidence: required
+  history: full
+  embedding: false
+  write: auto
+  freshness: operational_30d
+  authority: erp_operational
+  provenance_tier: A
+status:
+  lifecycle: active
+  equivalent_to:
+
