@@ -9,9 +9,11 @@ module KnowledgeOS
       @clock = clock
     end
 
-    def assertion_temperature(predicate_id:, status:, observed_at: nil, valid_to: nil)
+    def assertion_temperature(predicate_id:, status:, observed_at: nil, valid_from: nil, valid_to: nil)
       return "warm" unless status == "confirmed"
-      return "warm" if timestamp(valid_to) && timestamp(valid_to) < now
+      return 'warm' if timestamp(observed_at) && timestamp(observed_at) > now
+      return "warm" if timestamp(valid_from) && timestamp(valid_from) > now
+      return "warm" if timestamp(valid_to) && timestamp(valid_to) <= now
 
       age = age_days(observed_at)
       stale_after = freshness_days(predicate_id)

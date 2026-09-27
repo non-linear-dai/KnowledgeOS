@@ -44,6 +44,12 @@ module KnowledgeOS
       end
       @server.mount_proc("/v1/resolve") { |request, response| dispatch(response, request: request) { @service.resolve(param(request, "query"), scope: request.query["scope"]) } }
       @server.mount_proc("/v1/control") { |request, response| dispatch(response, request: request) { @service.control_plane } }
+      @server.mount_proc('/v1/session') do |request, response|
+        dispatch(response, request: request) do |principal|
+          { 'principal' => principal.id, 'roles' => principal.roles,
+            'permissions' => principal.roles.flat_map { |role| AccessControl::ROLE_PERMISSIONS.fetch(role, []) }.uniq }
+        end
+      end
       @server.mount_proc("/v1/studio") { |request, response| dispatch(response, request: request) { @service.studio } }
       @server.mount_proc("/v1/agent/capabilities") do |request, response|
         dispatch(response, request: request) { @service.agent_capabilities(domain: request.query["domain"]) }
@@ -119,13 +125,13 @@ module KnowledgeOS
       @server.mount_proc("/v1/neighbors") do |request, response|
         dispatch(response, request: request) do
           @service.neighbors(param(request, "id"), relation_types: csv(request.query["relation_types"]),
-                             depth: request.query.fetch("depth", 1), as_of: request.query["as_of"])
+                             depth: request.query.fetch("depth", 1), as_of: request.query["as_of"], recorded_as_of: request.query['recorded_as_of'])
         end
       end
       @server.mount_proc("/v1/history") { |request, response| dispatch(response, request: request) { @service.history(param(request, "id"), predicate: request.query["predicate"]) } }
       @server.mount_proc("/v1/explain") { |request, response| dispatch(response, request: request) { @service.explain(param(request, "target"), field_or_assertion: request.query["item"]) } }
       @server.mount_proc("/v1/context") do |request, response|
-        dispatch(response, request: request) { @service.context(param(request, "id"), domain: param(request, "domain"), as_of: request.query["as_of"]) }
+        dispatch(response, request: request) { @service.context(param(request, "id"), domain: param(request, "domain"), as_of: request.query["as_of"], recorded_as_of: request.query['recorded_as_of']) }
       end
       @server.mount_proc("/v1/query") do |request, response|
         dispatch(response, request: request) do
@@ -147,7 +153,8 @@ module KnowledgeOS
           body = json_body(request)
           @service.propose(actor: principal.id, target_source: body.fetch("target_source"),
                            patch: body.fetch("patch"), reason: body.fetch("reason"), risk: body.fetch("risk", "normal"),
-                           title: body["title"], operations: body.fetch("operations", []))
+                           title: body["title"], operations: body.fetch("operations", []),
+                           base_revision: body['base_revision'], idempotency_key: body['idempotency_key'])
         end
       end
       @server.mount_proc("/v1/review") { |request, response| dispatch(response, request: request, permission: "review") { @service.review(priority: request.query["priority"], limit: request.query.fetch("limit", 100)) } }
@@ -157,7 +164,10 @@ module KnowledgeOS
       principal = @auth.authenticate(request)
       @auth.authorize!(principal, permission)
       response["X-KnowledgeOS-Principal"] = principal.id
-      respond(response, success, yield(principal))
+      @service.database.synchronize do
+        @service.refresh_registry!
+        respond(response, success, yield(principal))
+      end
     rescue AuthenticationError => e
       response["WWW-Authenticate"] = 'Bearer realm="KnowledgeOS"'
       respond(response, 401, { "error" => e.message })
@@ -167,6 +177,11 @@ module KnowledgeOS
       respond(response, 405, { "error" => e.message })
     rescue NotFoundError => e
       respond(response, 404, { "error" => e.message })
+    rescue ConflictError => e
+      respond(response, 409, { 'error' => e.message, 'code' => 'CONFLICT' })
+    rescue SQLite3::BusyException
+      response['Retry-After'] = '1'
+      respond(response, 503, { 'error' => 'database busy; retry the same idempotent request', 'code' => 'BUSY' })
     rescue KeyError, ValidationError => e
       respond(response, 422, { "error" => e.message })
     rescue StandardError => e

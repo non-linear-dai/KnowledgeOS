@@ -26,6 +26,7 @@ module KnowledgeOS
     def connectors_dir; root.join("connectors"); end
     def index_path; runtime_dir.join("knowledge.index.db"); end
     def ledger_path; runtime_dir.join("knowledge.ledger.db"); end
+    def state_path; runtime_dir.join("knowledge.state.db"); end
 
     def ensure_runtime!
       runtime_dir.mkpath

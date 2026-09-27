@@ -45,8 +45,8 @@ class APITest < Minitest::Test
       payload = JSON.parse(response.body)
 
       assert_equal 200, response.status
-      assert_equal "3.4", payload.dig("data", "contract_version")
-      assert_equal 35, payload.dig("data", "definitions").length
+      assert_equal "3.5", payload.dig("data", "contract_version")
+      assert_equal 36, payload.dig("data", "definitions").length
       assert_equal "git_authored", payload.dig("source_status", "class")
     ensure
       service&.close

@@ -299,8 +299,8 @@ module KnowledgeOS
 
     def existing_entities
       limit = @profile.fetch("existing_entity_limit", 500).to_i
-      @database.execute("SELECT id, type, natural_key, label, aliases_json FROM node ORDER BY id LIMIT ?", [limit]).map do |row|
-        { "id" => row["id"], "type" => row["type"], "key" => row["natural_key"],
+      @database.execute("SELECT id, type, natural_key, key_namespace, label, aliases_json FROM node ORDER BY id LIMIT ?", [limit]).map do |row|
+        { "id" => row["id"], "type" => row["type"], "key" => row["natural_key"], 'key_namespace' => row['key_namespace'],
           "label" => row["label"], "aliases" => JSON.parse(row["aliases_json"]) }
       end
     end
@@ -328,6 +328,7 @@ module KnowledgeOS
       properties = {
         "type" => { "const" => concept["id"] }, "existing_id" => { "type" => "string" },
         "suggested_id" => { "type" => "string" }, "key" => { "type" => "string" },
+        'key_namespace' => { 'type' => 'string', 'minLength' => 1 },
         "label" => { "type" => "string", "minLength" => 1 },
         "aliases" => { "type" => "array", "items" => { "type" => "string" } },
         "attrs" => { "type" => "object",
@@ -346,12 +347,15 @@ module KnowledgeOS
 
     def assertion_schema(predicate_id)
       predicate = @registry.predicate(predicate_id)
+      value = if %w[quantity currency].include?(predicate.dig('value', 'type'))
+                value_schema(predicate)
+              else
+                { 'oneOf' => [value_schema(predicate), { 'type' => 'object', 'required' => ['literal'], 'properties' => { 'literal' => value_schema(predicate) }, 'additionalProperties' => true }] }
+              end
       { "type" => "object", "required" => %w[predicate value],
         "properties" => {
           "predicate" => { "const" => predicate_id },
-          "value" => { "oneOf" => [value_schema(predicate),
-                                     { "type" => "object", "required" => ["literal"],
-                                       "properties" => { "literal" => value_schema(predicate) }, "additionalProperties" => true }] },
+          'value' => value,
           "qualifiers" => { "type" => "object" }, "temporal" => { "type" => "object" },
           "confidence" => { "type" => "number", "minimum" => 0, "maximum" => 1 },
           "evidence" => { "type" => "array", "items" => evidence_schema }
@@ -381,8 +385,17 @@ module KnowledgeOS
     end
 
     def value_schema(predicate)
+      if %w[quantity currency].include?(predicate.dig('value', 'type'))
+        numeric = predicate.dig('value', 'type') == 'currency' ? { 'type' => ['number', 'string'] } : { 'type' => 'number' }
+        object = { 'type' => 'object', 'required' => ['literal', 'unit'],
+                   'properties' => { 'literal' => numeric, 'unit' => { 'type' => 'string', 'minLength' => 1 } }, 'additionalProperties' => true }
+        return predicate.dig('value', 'default_unit') ? { 'oneOf' => [numeric, object] } : object
+      end
       schema = case predicate.dig("value", "type")
-      when "string", "text", "date", "enum", "node_ref" then { "type" => "string" }
+      when "string", "text", "enum", "node_ref" then { "type" => "string" }
+      when 'date' then { 'type' => 'string', 'format' => 'date' }
+      when 'datetime' then { 'type' => 'string', 'format' => 'date-time' }
+      when 'decimal' then { 'type' => ['number', 'string'] }
       when "number", "quantity" then { "type" => "number" }
       when "boolean" then { "type" => "boolean" }
       else {}
@@ -537,11 +550,13 @@ module KnowledgeOS
         row = @database.first("SELECT * FROM node WHERE id = ?", [entity["existing_id"]])
         raise ValidationError, "existing_id not found: #{entity['existing_id']}" unless row
         raise ValidationError, "existing_id type mismatch: #{row['type']} != #{type}" unless row["type"] == type
+        raise ValidationError, 'existing_id namespace mismatch' if entity['key_namespace'] && entity['key_namespace'] != row['key_namespace']
         return row
       end
       terms = [entity["key"], entity["label"]] + Array(entity["aliases"])
       normalized = terms.compact.map { |value| value.to_s.strip.downcase }.reject(&:empty?).uniq
       matches = @database.execute("SELECT * FROM node WHERE type = ?", [type]).select do |row|
+        next false if entity['key_namespace'] && entity['key_namespace'] != row['key_namespace']
         values = [row["natural_key"], row["label"]] + JSON.parse(row["aliases_json"])
         !(values.compact.map { |value| value.to_s.strip.downcase } & normalized).empty?
       end
@@ -591,6 +606,7 @@ module KnowledgeOS
       slug = seed.downcase.gsub(/[^a-z0-9]+/, "-").gsub(/\A-+|-+\z/, "")
       slug = Digest::SHA256.hexdigest(seed)[0, 12] if slug.empty?
       id = "#{prefix}:#{slug}"
+      id = "#{prefix}:#{Digest::SHA256.hexdigest(entity['key_namespace'])[0, 12]}-#{slug}" if entity['key_namespace']
       raise ValidationError, "generated identity already exists; provide existing_id: #{id}" if @database.first("SELECT id FROM node WHERE id = ?", [id])
       id
     end
@@ -605,6 +621,7 @@ module KnowledgeOS
                              "key" => key, "label" => plan["entity"]["label"], "aliases" => [] },
                  "classification" => { "tags" => [] }, "lifecycle" => { "state" => "draft" },
                  "version" => { "entity_revision" => 1 } }
+        base['node']['key_namespace'] = plan['entity']['key_namespace'] if plan['entity']['key_namespace']
         return [base, {}, [], []]
       end
       base = { "schema" => { "ckm" => canonical_schema_version },
@@ -614,6 +631,7 @@ module KnowledgeOS
                "classification" => { "tags" => JSON.parse(existing["tags_json"]) },
                "lifecycle" => { "state" => existing["lifecycle"] },
                "version" => { "entity_revision" => existing["revision"] } }
+      base['node']['key_namespace'] = existing['key_namespace'] unless existing['key_namespace'].to_s.empty?
       [base, JSON.parse(existing["attrs_json"]), existing_assertions(existing["id"]), existing_relations(existing["id"])]
     end
 
@@ -644,7 +662,7 @@ module KnowledgeOS
       predicate_id = item["predicate"].to_s
       predicate = @registry.predicate(predicate_id)
       raw_value = item["value"]
-      value = raw_value.is_a?(Hash) ? raw_value : { "type" => predicate.dig("value", "type"), "literal" => raw_value }
+      value = ValueContract.normalize(predicate, raw_value.is_a?(Hash) ? raw_value : { "type" => predicate.dig("value", "type"), "literal" => raw_value })
       evidence = Array(item["evidence"])
       evidence = Array(inherited_evidence) if evidence.empty?
       validate_evidence!(evidence)

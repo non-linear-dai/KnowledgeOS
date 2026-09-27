@@ -23,6 +23,7 @@
             "kind": { "type": "string", "minLength": 1 },
             "type": { "type": "string", "minLength": 1 },
             "key": { "type": "string", "minLength": 1 },
+            "key_namespace": { "type": "string", "minLength": 1 },
             "label": { "type": "string", "minLength": 1 },
             "aliases": { "type": "array", "items": { "type": "string" } }
           }
@@ -67,8 +68,12 @@
         "predicate": { "type": "string", "minLength": 1 },
         "value": {},
         "qualifiers": { "type": "object" },
-        "temporal": { "type": "object" },
-        "epistemic": { "type": "object" },
+        "temporal": { "$ref": "#/$defs/temporal" },
+        "epistemic": { "type": "object", "properties": {
+          "status": { "enum": ["proposed", "confirmed", "superseded", "rejected", "stale"] },
+          "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+          "assertion_kind": { "type": "string" }
+        } },
         "provenance": { "type": "object" },
         "version": { "type": "object" }
       }
@@ -80,9 +85,18 @@
         "id": { "type": "string" },
         "predicate": { "type": "string", "minLength": 1 },
         "target": { "type": "string", "minLength": 1 },
-        "temporal": { "type": "object" },
+        "temporal": { "$ref": "#/$defs/temporal" },
         "weight": { "type": "number" }
       }
+    },
+    "temporal": {
+      "type": "object",
+      "properties": {
+        "observed_at": { "anyOf": [{"type":"null"}, {"type":"string", "format":"date-time"}] },
+        "valid_from": { "anyOf": [{"type":"null"}, {"type":"string", "format":"date-time"}] },
+        "valid_to": { "anyOf": [{"type":"null"}, {"type":"string", "format":"date-time"}] }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": true

@@ -43,6 +43,8 @@ module KnowledgeOS
       when "review-changeset" then review_changeset
       when "publish-changeset" then publish_changeset
       when "verify-ledger" then verify_ledger
+      when 'backup' then print_json(Recovery.new(config).backup(required_arg('new backup directory'))); 0
+      when 'restore' then print_json(Recovery.new(config).restore(required_arg('backup directory'))); 0
       when "serve" then serve
       when "version", "--version", "-v" then puts KnowledgeOS::VERSION
       when "help", "--help", "-h" then puts help
@@ -101,7 +103,7 @@ module KnowledgeOS
     def context
       id = required_arg("id")
       domain = option("--domain") || raise(ValidationError, "--domain is required")
-      with_service { |service| print_json(service.context(id, domain: domain, as_of: option("--as-of"))) }
+      with_service { |service| print_json(service.context(id, domain: domain, as_of: option("--as-of"), recorded_as_of: option('--recorded-as-of'))) }
     end
 
     def calculate
@@ -116,7 +118,7 @@ module KnowledgeOS
       mapping = option("--mapping") || raise(ValidationError, "--mapping is required")
       service = Service.new(config: config)
       connector = Connector.new(config: config, registry: service.registry, database: service.database, ledger: service.ledger)
-      print_json(connector.ingest_ndjson(input, mapping))
+      print_json(connector.ingest_ndjson(input, mapping, isolate_errors: flag?('--isolate-errors')))
       0
     ensure
       service.close if service
@@ -315,6 +317,8 @@ module KnowledgeOS
           review-changeset ID ...        Record a governance decision
           publish-changeset ID ...       Record source publication after approval
           verify-ledger                  Verify the immutable hash chain
+          backup NEW_DIRECTORY           Back up durable state and ledger (services stopped)
+          restore BACKUP_DIRECTORY       Restore into an empty runtime, then run rebuild
           serve [--bind HOST --port N]   Start the authenticated JSON API (requires auth env)
       TEXT
     end

@@ -9,4 +9,5 @@ module KnowledgeOS
   class AuthenticationError < Error; end
   class AuthorizationError < Error; end
   class MethodNotAllowedError < Error; end
+  class ConflictError < ValidationError; end
 end

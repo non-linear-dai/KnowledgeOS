@@ -22,14 +22,21 @@ module KnowledgeOS
     end
 
     def compile(rebuild: false)
+      registry_snapshot = registry.snapshot
+      committed = false
       registry.reload!
-      database.reset_projection! if rebuild
+      @validator = Validator.new(registry)
+      control_hash = registry.fingerprint
+      previous_control = database.first("SELECT value FROM metadata WHERE key = 'control_fingerprint'")
+      control_changed = !previous_control || previous_control['value'] != control_hash
       paths = entity_paths
       present = paths.map { |path| relative(path) }.to_set
       changed = []
       skipped = []
 
       database.transaction do
+        previous_ids = database.execute('SELECT id FROM node').map { |row| row['id'] }
+        database.reset_projection! if rebuild
         remove_deleted_sources!(present) unless rebuild
         paths.each do |path|
           document = Frontmatter.parse(path)
@@ -37,7 +44,7 @@ module KnowledgeOS
           full_hash = source_hash(document, assertions)
           rel = relative(path)
           prior = database.first("SELECT value FROM metadata WHERE key = ?", "source:#{rel}")
-          if !rebuild && prior && prior["value"] == full_hash
+          if !rebuild && !control_changed && prior && prior["value"] == full_hash
             skipped << rel
             next
           end
@@ -50,15 +57,20 @@ module KnowledgeOS
           )
           changed << rel
         end
+        Connector.new(config: config, registry: registry, database: database, ledger: ledger).replay! if rebuild
         validate_projected_relations!
-        reclassify_assertions!
-        rebuild_cards!
+        remaining_ids = database.execute('SELECT id FROM node').map { |row| row['id'] }
+        (previous_ids - remaining_ids).each { |id| SnapshotStore.new(database).record(id, { 'id' => id, 'deleted' => true }) }
+        temperature_changes = reclassify_assertions!
+        impacted = changed.flat_map { |rel| database.execute('SELECT id FROM node WHERE source_path=?', [rel]).map { |row| row['id'] } }
+        rebuild_cards!(rebuild || control_changed ? nil : (impacted + temperature_changes).uniq)
         scan_maintenance!
         generation = Time.now.utc.iso8601(6)
         database.execute(
           "INSERT INTO metadata(key, value) VALUES('index_generation', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
           [generation]
         )
+        database.execute("INSERT INTO metadata(key,value) VALUES('control_fingerprint',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [control_hash])
         changed.each do |rel|
           hash = database.first("SELECT value FROM metadata WHERE key = ?", "source:#{rel}")["value"]
           @audit.stage(
@@ -75,13 +87,24 @@ module KnowledgeOS
           event_id: rebuild ? nil : Digest::SHA256.hexdigest("index_compile:#{changed.sort.join(',')}:#{generation}")
         )
       end
+      committed = true
       @audit.flush!
       { "files" => paths.length, "changed" => changed, "skipped" => skipped, "rebuild" => rebuild }
+    rescue StandardError
+      registry.restore!(registry_snapshot) if registry_snapshot && !committed
+      raise
     end
 
     def close
       database.close
       ledger.close
+    end
+
+    def refresh_nodes!(ids)
+      validate_projected_relations!
+      reclassify_assertions!
+      rebuild_cards!(ids)
+      scan_maintenance!
     end
 
     private
@@ -122,16 +145,19 @@ module KnowledgeOS
       now = Time.now.utc.iso8601(6)
       attrs = normalize_attrs(knowledge["attrs"] || {})
 
+      duplicate = database.first("SELECT source_path FROM node WHERE id = ? AND source_class = 'git_authored' AND source_path <> ?", [node['id'], rel])
+      raise ValidationError, "duplicate authored node id #{node['id']}" if duplicate
+
       old = database.first("SELECT id FROM node WHERE source_path = ?", rel)
       database.execute("DELETE FROM node WHERE id = ?", old["id"]) if old && old["id"] != node["id"]
       database.execute(
         <<~SQL,
           INSERT INTO node (
             id, kind, type, natural_key, label, aliases_json, tags_json, attrs_json,
-            lifecycle, revision, source_class, source_path, source_hash, narrative, compiled_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            lifecycle, revision, source_class, source_path, source_hash, narrative, compiled_at, key_namespace
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
-            kind=excluded.kind, type=excluded.type, natural_key=excluded.natural_key,
+            kind=excluded.kind, type=excluded.type, natural_key=excluded.natural_key, key_namespace=excluded.key_namespace,
             label=excluded.label, aliases_json=excluded.aliases_json, tags_json=excluded.tags_json,
             attrs_json=excluded.attrs_json, lifecycle=excluded.lifecycle, revision=excluded.revision,
             source_class=excluded.source_class, source_path=excluded.source_path,
@@ -140,7 +166,7 @@ module KnowledgeOS
         [node["id"], node["kind"], node["type"], node["key"], node["label"],
          database.json(Array(node["aliases"])), database.json(Array(base.dig("classification", "tags"))),
          database.json(attrs), base.dig("lifecycle", "state"), base.dig("version", "entity_revision") || 1,
-         "git_authored", rel, hash, document.body, now]
+         "git_authored", rel, hash, document.body, now, node.fetch('key_namespace', '')]
       )
       sync_git_attr_candidates!(node["id"], attrs, rel, hash, now)
       recompute_effective_attrs!(node["id"])
@@ -152,7 +178,8 @@ module KnowledgeOS
 
     def normalize_attrs(attrs)
       attrs.each_with_object({}) do |(predicate, value), out|
-        out[registry.normalize_predicate(predicate)] = value
+        id = registry.normalize_predicate(predicate)
+        out[id] = ValueContract.normalize(registry.predicate(id), value)
       end
     end
 
@@ -160,10 +187,15 @@ module KnowledgeOS
       predicate_id = registry.normalize_predicate(assertion["predicate"])
       predicate = registry.predicate(predicate_id)
       temporal = assertion["temporal"] || {}
+      temporal = Temporal.normalize(temporal)
       epistemic = assertion["epistemic"] || {}
       provenance = assertion["provenance"] || {}
       version = assertion["version"] || {}
       status = epistemic["status"] || "proposed"
+      prior = database.first("SELECT node_id, source_path FROM assertion WHERE id = ?", [assertion['id']])
+      if prior && (prior['node_id'] != node_id || prior['source_path'] != source_path)
+        raise ValidationError, "assertion id #{assertion['id']} belongs to another source"
+      end
       tier = predicate.dig("policy", "provenance_tier") || "C"
       database.execute(
         <<~SQL,
@@ -182,7 +214,7 @@ module KnowledgeOS
             provenance_tier=excluded.provenance_tier, temperature=excluded.temperature,
             source_path=excluded.source_path, source_hash=excluded.source_hash
         SQL
-        [assertion["id"], node_id, predicate_id, database.json(assertion["value"]),
+        [assertion["id"], node_id, predicate_id, database.json(ValueContract.normalize(predicate, assertion["value"])),
          database.json(assertion["qualifiers"] || {}), temporal["observed_at"], temporal["valid_from"], temporal["valid_to"],
          epistemic["assertion_kind"] || "claim", status, epistemic["confidence"],
          database.json(Array(provenance["evidence_refs"])), database.json(Array(provenance["source_refs"])),
@@ -195,6 +227,7 @@ module KnowledgeOS
 
     def project_relation!(node_id, relation, source_path)
       temporal = relation["temporal"] || {}
+      temporal = Temporal.normalize(temporal)
       database.execute(
         <<~SQL,
           INSERT OR REPLACE INTO edge(src, predicate, dst, rel_id, valid_from, valid_to, weight, source_path)
@@ -206,6 +239,12 @@ module KnowledgeOS
     end
 
     def validate_projected_relations!
+      database.execute('SELECT attrs_json FROM node').each do |row|
+        JSON.parse(row['attrs_json']).each { |id, value| ValueContract.validate!(registry.predicate(id), value, database: database) }
+      end
+      database.execute('SELECT predicate,value_json FROM assertion').each do |row|
+        ValueContract.validate!(registry.predicate(row['predicate']), JSON.parse(row['value_json']), database: database)
+      end
       database.execute(<<~SQL).each do |row|
         SELECT e.src, source.type AS source_type, e.predicate, e.dst, target.type AS target_type
         FROM edge e
@@ -265,19 +304,25 @@ module KnowledgeOS
     end
 
     def reclassify_assertions!
-      database.execute("SELECT id, predicate, status, observed_at, valid_to FROM assertion").each do |row|
+      changed = []
+      database.execute("SELECT id, node_id, predicate, status, observed_at, valid_from, valid_to, temperature FROM assertion").each do |row|
         value = @policy_engine.assertion_temperature(
           predicate_id: row["predicate"], status: row["status"],
-          observed_at: row["observed_at"], valid_to: row["valid_to"]
+          observed_at: row["observed_at"], valid_from: row['valid_from'], valid_to: row["valid_to"]
         )
-        database.execute("UPDATE assertion SET temperature = ? WHERE id = ?", [value, row["id"]])
+        if value != row['temperature']
+          database.execute("UPDATE assertion SET temperature = ? WHERE id = ?", [value, row["id"]])
+          changed << row['node_id']
+        end
       end
+      changed.uniq
     end
 
-    def rebuild_cards!
-      database.execute("DELETE FROM entity_card")
-      database.execute("DELETE FROM node_fts") if database.fts_enabled
-      database.execute("SELECT * FROM node ORDER BY id").each do |node|
+    def rebuild_cards!(ids = nil)
+      nodes = ids ? ids.map { |id| database.first('SELECT * FROM node WHERE id=?', [id]) }.compact : database.execute('SELECT * FROM node ORDER BY id')
+      nodes.each do |node|
+        database.execute('DELETE FROM entity_card WHERE node_id=?', [node['id']])
+        database.execute('DELETE FROM node_fts WHERE node_id=?', [node['id']]) if database.fts_enabled
         assertions = database.execute(
           "SELECT * FROM assertion WHERE node_id = ? AND temperature = 'hot' AND status = 'confirmed' ORDER BY predicate, id",
           [node["id"]]
@@ -301,6 +346,7 @@ module KnowledgeOS
         end
         semantic_text = [node["label"], node["narrative"], searchable_assertions(assertions)].join("\n")
         @semantic_index.index(node_id: node["id"], text: semantic_text, source_hash: node["source_hash"])
+        SnapshotStore.new(database).record(node['id'], card)
       end
     end
 
@@ -439,6 +485,10 @@ module KnowledgeOS
       database.execute("SELECT key FROM metadata WHERE key LIKE 'source:%'").each do |row|
         rel = row["key"].sub(/\Asource:/, "")
         next if present.include?(rel)
+        database.execute('SELECT id FROM node WHERE source_path=?', [rel]).each do |node|
+          database.execute('DELETE FROM node_fts WHERE node_id=?', [node['id']]) if database.fts_enabled
+        end
+        database.execute("DELETE FROM edge WHERE source_path = ?", [rel])
         database.execute("DELETE FROM node WHERE source_path = ?", rel)
         database.execute("DELETE FROM metadata WHERE key = ?", row["key"])
       end

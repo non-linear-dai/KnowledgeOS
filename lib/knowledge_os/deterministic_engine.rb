@@ -20,7 +20,12 @@ module KnowledgeOS
       model = load_model(model_id)
       validate_inputs!(model, inputs)
       normalized = normalize_inputs(model, inputs)
-      input_hash = Digest::SHA256.hexdigest(JSON.generate(normalized.transform_values(&:to_s)))
+      currencies = inputs.values.select { |v| v.is_a?(Hash) }.map { |v| v['currency'] || v['unit'].to_s[/\A([A-Z]{3})_/, 1] }.compact.uniq
+      raise ValidationError, 'mixed currencies require an explicit exchange-rate model' if currencies.length > 1
+      if !currencies.empty? && model.fetch('inputs').any? { |input| input['unit'].to_s.start_with?('currency_') && !(inputs[input['id']] || inputs[input['id'].to_sym]).is_a?(Hash) }
+        raise ValidationError, 'all monetary inputs must declare currency when using typed currency values'
+      end
+      input_hash = Digest::SHA256.hexdigest(JSON.generate([normalized.transform_values(&:to_s), currencies, model]))
       existing = @database.first(
         "SELECT * FROM derived_result WHERE model_id = ? AND model_version = ? AND input_hash = ? AND scenario = ?",
         [model_id, model.fetch("version").to_s, input_hash, scenario]
@@ -34,6 +39,7 @@ module KnowledgeOS
       now = Time.now.utc.iso8601(6)
       run_id = SecureRandom.uuid
       result = { "value" => rounded.to_s("F"), "unit" => model["output_unit"], "precision" => precision }
+      result['currency'] = currencies.first unless currencies.empty?
       result["classification"] = classify(model, rounded) if model["bands"]
       id = Digest::SHA256.hexdigest([model_id, model["version"], input_hash, scenario].join(":"))
       @database.transaction do
@@ -70,7 +76,7 @@ module KnowledgeOS
         id = input.fetch("id")
         raise ValidationError, "missing model input: #{id}" unless inputs.key?(id) || inputs.key?(id.to_sym)
         raw = inputs.key?(id) ? inputs[id] : inputs[id.to_sym]
-        input["type"] == "date" ? Time.iso8601(raw.to_s) : decimal(raw)
+        input["type"] == "date" ? Time.iso8601(raw.to_s) : ValueContract.model_number(raw, input['unit'])
       rescue ArgumentError
         raise ValidationError, "invalid #{input['type'] || 'number'} model input: #{id}"
       end
@@ -80,7 +86,7 @@ module KnowledgeOS
       Array(model["inputs"]).sort_by { |input| input.fetch("id") }.each_with_object({}) do |input, output|
         id = input.fetch("id")
         raw = inputs.key?(id) ? inputs[id] : inputs[id.to_sym]
-        output[id] = input["type"] == "date" ? Time.iso8601(raw.to_s).utc : decimal(raw)
+        output[id] = input["type"] == "date" ? Time.iso8601(raw.to_s).utc : ValueContract.model_number(raw, input['unit'])
       end
     end
 

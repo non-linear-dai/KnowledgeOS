@@ -75,7 +75,7 @@ class ServiceTest < Minitest::Test
       service = KnowledgeOS::Service.new(config: config)
       control = service.control_plane["data"]
 
-      assert_equal "3.4", control["contract_version"]
+      assert_equal "3.5", control["contract_version"]
       assert_equal 7, control.dig("ontology", "concept_types").length
       assert_equal 6, control.dig("ontology", "relation_types").length
       assert_equal 9, control["predicates"].length
@@ -97,8 +97,8 @@ class ServiceTest < Minitest::Test
       service = KnowledgeOS::Service.new(config: config)
       studio = service.studio["data"]
 
-      assert_equal "3.4", studio["contract_version"]
-      assert_equal 35, studio["definitions"].length
+      assert_equal "3.5", studio["contract_version"]
+      assert_equal 36, studio["definitions"].length
       assert_equal 7, studio.dig("coverage", "concept")
       assert_equal 6, studio.dig("coverage", "relation")
       assert_equal 9, studio.dig("coverage", "predicate")

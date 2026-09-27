@@ -10,6 +10,8 @@ The UI must treat this response as read-only source state. Durable edits continu
 
 All `/v1/*` routes require `Authorization: Bearer <token>`. `KNOWLEDGEOS_AUTH_TOKENS` is an environment-only JSON object mapping tokens to principals and roles. `reader` can query, `agent` can prepare/invoke/extract/propose, `reviewer` can govern, `publisher` can publish, and `admin` has all permissions. HTTP mutation actors are always derived from the authenticated principal.
 
+`GET /v1/session` returns the current principal, roles, and permissions. Studio forwards the user's bearer token, never a server-wide admin token. The proxy rejects cross-origin writes, bounds request bodies, and times out upstream requests. Credentials remain in browser memory only. Service tokens and user tokens are not substituted for one another.
+
 ## Canonical node
 
 Every authored node is one Markdown file with YAML frontmatter:
@@ -24,6 +26,7 @@ base:
     kind: entity
     type: organization
     key: EXAMPLE
+    key_namespace: example-system
     label: Example Organization
     aliases: []
   classification:
@@ -80,13 +83,25 @@ Durable agent-originated changes remain ChangeSets. The lifecycle is `proposed` 
 
 Every projection mutation stages its audit event in `audit_outbox` within the same SQLite transaction. Delivery to the append-only ledger is idempotent; service startup replays pending events and reconciles ledger references.
 
+Contract 3.5 adds `base_revision` and `idempotency_key` to proposals. Studio submits its registry fingerprint as the baseline. Supported publishable patches are JSON-pointer add/replace/remove, complete-file deletion, and complete Studio concept/relation/predicate operations. A proposal without a verifiable result may be rejected, but cannot be approved. Upstream proposals require `expected_source_hash`. Approval captures the complete expected semantic contents of target files; unrelated semantic changes invalidate publication. Identical publication retries are idempotent; competing transitions use `lock_version`, return conflict, and cannot overwrite one another. Pre-3.5 approvals without an expectation must be replaced and reapproved.
+
+ChangeSets, the outbox, model results and maintenance workflow state live in `knowledge.state.db`; they are not removed when the index is rebuilt. The state schema records migrations and upgrades legacy index-resident governance tables automatically.
+
 ## Temporal and retrieval policy
 
 Freshness windows classify confirmed assertions as Hot, Warm, or Cold at compile and service startup. `context?as_of=` reconstructs assertions from observed/valid time and supersession rather than returning the current card. Domain retrieval profiles control the reported plan and cold-data policy. Search supports `keyword`, `vector`, `hybrid`, `hybrid_research`, `structured_first`, and `temporal_graph_first`; vector retrieval uses the deterministic local `knowledgeos-hash-embedding-v1` index.
 
+Timestamps require an explicit UTC offset and normalize to UTC. Valid intervals are half-open `[valid_from, valid_to)`, including relations. Current reads refresh freshness during long-running service operation. `recorded_as_of` selects durable snapshots representing what the system had recorded at that time; it may be combined with `as_of` for business validity. Historical attributes without a recorded snapshot are returned as unknown with a knowledge gap, never filled from today's attributes. Historical context intentionally does not invent data predating the first captured snapshot.
+
+Quantities require an explicit unit or a registered predicate default. Decimal/currency values use exact decimal normalization; node references are validated after all nodes are projected. Models accept legacy scalar inputs in declared model units, or typed `{literal, unit}` inputs. Supported unit conversions are explicit. Mixed currencies are rejected; a dedicated exchange-rate model is required. Date and datetime are distinct value types.
+
+The local JSON Schema validator implements an explicit subset, not every Draft 2020-12 feature. It supports local JSON pointers, types, const/enum, required/properties/additionalProperties, array/string/numeric bounds, uniqueness, patterns, date/date-time/URI formats, multipleOf, allOf/anyOf/oneOf/not. Unsupported keywords and formats fail configuration validation instead of being ignored. The shared Studio snapshot schema is under `control/schemas/studio-snapshot.schema.json`; frontend runtime validation and inferred wire types live in `app/studio-contract.ts`.
+
 ## Connector rule
 
 A connector mapping must provide a stable source record ID, source timestamp/version or content hash, deterministic node identity, canonical predicate mappings, and authority class. Replaying the same record/version is idempotent.
+
+Connectors validate normalized canonical documents with the same validator as authored files, then use the compiler's card/FTS/vector projection. Predicate embedding policy applies to both. Accepted records and their mappings are durable, support rebuild replay, and never become Markdown copies. Older observed versions cannot overwrite newer ones; same-time conflicting payloads require a higher numeric source version. `deleted_field` names an explicit boolean tombstone field. `ingest --isolate-errors` collects invalid records while accepting independent valid records. Connector business keys default to a source-system namespace; authored nodes may explicitly set `base.node.key_namespace`.
 
 ## Candidate extraction protocol
 

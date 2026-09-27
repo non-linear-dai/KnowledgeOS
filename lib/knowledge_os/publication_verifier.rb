@@ -23,7 +23,13 @@ module KnowledgeOS
       source && (source["source_version"].to_s.empty? ? source["source_hash"] : source["source_version"])
     end
 
-    def verify!(target_source:, source_revision:, base_revision: nil)
+    def expectation(target_source, patch, operations)
+      paths = source_entries(target_source)
+      return { 'upstream_hash' => patch['expected_source_hash'] } if paths.empty? && patch.is_a?(Hash) && patch['expected_source_hash']
+      ChangePlan.new(@config, @registry).prepare(paths, patch, operations)
+    end
+
+    def verify!(target_source:, source_revision:, base_revision: nil, expected: nil)
       paths = source_entries(target_source)
       unless paths.empty?
         actual = current_revision(target_source)
@@ -33,13 +39,19 @@ module KnowledgeOS
         if base_revision && secure_compare(base_revision, actual)
           raise ValidationError, "target source has not changed since the ChangeSet was proposed"
         end
+        ChangePlan.new(@config, @registry).verify!(paths, expected)
         validate_and_compile!
+        ChangePlan.new(@config, @registry).verify!(source_entries(target_source), expected)
+        raise ConflictError, 'source changed during compilation' unless actual == current_revision(target_source)
         return { "kind" => "git_authored", "verified_revision" => source_revision,
                  "paths" => paths.map { |relative, _path| relative } }
       end
 
       source = upstream_source(target_source)
       raise ValidationError, "target_source cannot be verified: #{target_source}" unless source
+      unless expected && expected['upstream_hash'] == source['source_hash']
+        raise ConflictError, 'upstream result does not match approved content hash'
+      end
       accepted = [source["source_version"], source["source_hash"]].compact.map(&:to_s)
       raise ValidationError, "source_revision does not match the authoritative source record" unless accepted.include?(source_revision.to_s)
       if base_revision && secure_compare(base_revision, source_revision)
@@ -54,17 +66,18 @@ module KnowledgeOS
     def source_entries(target_source)
       values = target_source.to_s.split(",").map(&:strip).reject(&:empty?)
       return [] if values.empty?
-      root = @config.root.realpath.to_s
       values.map do |value|
         relative = Pathname.new(value)
         return [] if relative.absolute? || !GIT_ROOTS.include?(relative.each_filename.first)
+        return [] unless relative.cleanpath == relative
         path = @config.root.join(relative).cleanpath
+        allowed_root = @config.root.join(relative.each_filename.first).realpath.to_s
         if path.exist?
-          return [] unless path.file? && path.realpath.to_s.start_with?(root + File::SEPARATOR)
+          return [] unless path.file? && path.realpath.to_s.start_with?(allowed_root + File::SEPARATOR)
           [relative.to_s, path]
         else
           parent = path.parent
-          return [] unless parent.exist? && parent.realpath.to_s.start_with?(root + File::SEPARATOR)
+          return [] unless parent.exist? && (parent.realpath.to_s == allowed_root || parent.realpath.to_s.start_with?(allowed_root + File::SEPARATOR))
           [relative.to_s, nil]
         end
       end
@@ -101,7 +114,6 @@ module KnowledgeOS
     end
 
     def validate_and_compile!
-      @registry.reload!
       compiler = Compiler.new(config: @config, registry: @registry, database: @database, ledger: @ledger)
       compiler.compile(rebuild: false)
     end

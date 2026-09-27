@@ -14,8 +14,8 @@ This repository implements the final architecture frozen in the “企业知识�
 
 1. `control/` and `knowledge/` are Git-authored truth for ontology, predicates, policies, models, decisions, research, context, and reviewed knowledge.
 2. Enterprise applications remain authoritative for operational facts. Connectors map their records directly into the canonical runtime projection and ledger.
-3. `runtime/knowledge.ledger.db` is append-only audit, evidence, and recovery history. It does not replace Git or source systems.
-4. `runtime/knowledge.index.db` is a disposable query projection. It can be deleted and rebuilt.
+3. `runtime/knowledge.ledger.db` is append-only audit. `runtime/knowledge.state.db` contains durable governance, pending audit deliveries, connector records, model results and recorded-time snapshots. They are backed up together and do not replace Git or source systems.
+4. `runtime/knowledge.index.db` is a disposable query projection. Rebuild replays Git sources and durable connector records. Projection/state commits use attached SQLite databases with rollback journals and FULL synchronization so a super-journal can commit them together; the ledger receives committed outbox events separately and idempotently.
 
 ## Frozen decisions
 
@@ -30,6 +30,9 @@ This repository implements the final architecture frozen in the “企业知识�
 - Human governance is exception-based; maintenance queues are budgeted and prioritized.
 - API identities are authenticated from environment-managed bearer tokens and authorized by explicit roles; caller-supplied actor names are never trusted at the HTTP boundary.
 - Projection mutations and ledger writes use a transactional outbox. Pending events are replayed idempotently after interruption.
+- Full rebuild is transactional; control fingerprints invalidate dependent projections. A failed validation preserves the previous usable index. State migration moves legacy governance tables out of the index before normal operation.
+- ChangeSet approval binds expected semantic source content. Publication requires that exact result, source revision verification, compilation, and a conditional state transition in one transaction.
+- Local business keys are scoped by namespace and concept type; global node IDs remain canonical. Ontology definitions retain their actual authored file paths.
 - The non-instance control plane is itself a validated contract. Schemas, ontology shapes, predicate policies, deterministic models, domain/retrieval behavior, and connector mappings must resolve through one registry snapshot.
 - Concept-property bindings and relation domain/range/reification declarations are compiler-enforced contracts, not UI-only metadata.
 

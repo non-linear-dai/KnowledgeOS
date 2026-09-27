@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Studio snapshot contract",
+  "type": "object",
+  "required": ["data"],
+  "properties": {
+    "data": {
+      "type": "object",
+      "required": ["contract_version", "registry_fingerprint", "definitions", "changesets", "coverage", "extensions", "capabilities"],
+      "properties": {
+        "contract_version": {"type": "string"},
+        "registry_fingerprint": {"type": "string", "minLength": 1},
+        "definitions": {"type": "array", "items": {"$ref": "#/$defs/definition"}},
+        "changesets": {"type": "array", "items": {"type": "object", "required": ["id", "status"], "properties": {"id": {"type": "string"}, "status": {"enum": ["proposed", "review_required", "approved", "rejected", "changes_requested", "published"]}}}},
+        "coverage": {"type": "object"}, "extensions": {"type": "object"}, "capabilities": {"type": "object"}
+      }
+    }
+  },
+  "$defs": {
+    "definition": {
+      "type": "object", "required": ["id", "kind", "label", "description", "lifecycle", "source_path", "config"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["schema", "domain", "concept", "relation", "predicate", "model", "policy", "connector"]},
+        "label": {"type": "string"}, "description": {"type": "string"},
+        "lifecycle": {"enum": ["draft", "active", "deprecated", "merged", "retired"]},
+        "source_path": {"type": "string"}, "config": {"type": "object"}
+      }
+    }
+  }
+}

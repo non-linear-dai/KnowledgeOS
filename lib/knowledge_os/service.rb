@@ -9,7 +9,7 @@ module KnowledgeOS
   class Service
     attr_reader :config, :registry, :database, :ledger
 
-    def initialize(config: Config.new)
+    def initialize(config: Config.new, clock: -> { Time.now.utc })
       @config = config
       @config.ensure_runtime!
       @registry = Registry.new(config)
@@ -19,7 +19,8 @@ module KnowledgeOS
       @audit.flush!
       @engine = DeterministicEngine.new(config: config, database: database, ledger: ledger)
       @agent_service = AgentService.new(service: self, registry: registry)
-      @policy_engine = PolicyEngine.new(registry: registry)
+      @clock = clock
+      @policy_engine = PolicyEngine.new(registry: registry, clock: clock)
       @semantic_index = SemanticIndex.new(database: database)
       @publication_verifier = PublicationVerifier.new(config: config, registry: registry,
                                                       database: database, ledger: ledger)
@@ -29,6 +30,10 @@ module KnowledgeOS
     def close
       database.close
       ledger.close
+    end
+
+    def refresh_registry!
+      registry.reload! if registry.source_fingerprint != registry.fingerprint
     end
 
     def resolve(query, scope: nil)
@@ -114,9 +119,12 @@ module KnowledgeOS
     end
 
     def studio
-      data = registry.studio_catalog.merge("changesets" => changesets["data"])
-      envelope(data, source: { "class" => "git_authored", "roots" => ["control", "connectors"] },
-               quality: { "registry_valid" => true })
+      refresh_registry!
+      data = registry.studio_catalog.merge("changesets" => changesets["data"], 'registry_fingerprint' => registry.fingerprint)
+      result = envelope(data, source: { "class" => "git_authored", "roots" => ["control", "connectors"] },
+                        quality: { "registry_valid" => true })
+      SchemaValidator.new.validate!(result, registry.schemas.fetch('studio-snapshot.schema'))
+      result
     end
 
     def changesets(status: nil, limit: 100)
@@ -139,6 +147,7 @@ module KnowledgeOS
     end
 
     def get(id, include_history: false)
+      refresh_temperatures!(id)
       card = database.first("SELECT card_json, updated_at FROM entity_card WHERE node_id = ?", id)
       raise NotFoundError, "node not found: #{id}" unless card
       data = JSON.parse(card["card_json"])
@@ -151,6 +160,7 @@ module KnowledgeOS
     end
 
     def query(template, params = {})
+      refresh_temperatures!(params['node_id']) if template.to_s == 'current_assertions'
       data = case template.to_s
              when "nodes_by_type"
                required = params.fetch("type")
@@ -166,7 +176,9 @@ module KnowledgeOS
       envelope(data)
     end
 
-    def neighbors(id, relation_types: nil, depth: 1, as_of: nil)
+    def neighbors(id, relation_types: nil, depth: 1, as_of: nil, recorded_as_of: nil)
+      as_of = Temporal.instant(as_of || recorded_as_of || @clock.call.iso8601)
+      return historical_neighbors(id, relation_types, depth, as_of, recorded_as_of) if recorded_as_of
       depth = [[depth.to_i, 1].max, 5].min
       types = Array(relation_types).compact
       visited = { id => 0 }
@@ -183,7 +195,7 @@ module KnowledgeOS
             binds.concat(types)
           end
           if as_of
-            sql += " AND (valid_from = '' OR valid_from <= ?) AND (valid_to = '' OR valid_to >= ?)"
+            sql += " AND (valid_from = '' OR julianday(valid_from) <= julianday(?)) AND (valid_to = '' OR julianday(valid_to) > julianday(?))"
             binds.concat([as_of, as_of])
           end
           database.execute(sql, binds).each do |row|
@@ -231,12 +243,13 @@ module KnowledgeOS
     end
 
     def search(query, filters: {}, mode: "hybrid")
+      refresh_temperatures!
       type = filters && filters["type"]
       mode = mode.to_s
       allowed = %w[keyword vector hybrid hybrid_research structured_first temporal_graph_first]
       raise ValidationError, "unsupported search mode: #{mode}" unless allowed.include?(mode)
       lexical = keyword_search(query, type)
-      vector = query.to_s.strip.empty? ? [] : @semantic_index.search(query, type: type, limit: 50)
+      vector = mode == 'keyword' || query.to_s.strip.empty? ? [] : @semantic_index.search(query, type: type, limit: 50)
       rows = case mode
              when "keyword" then lexical
              when "vector" then vector
@@ -267,10 +280,17 @@ module KnowledgeOS
       envelope(result, traces: [result["run_id"]])
     end
 
-    def context(id, domain:, max_items: 25, as_of: nil)
+    def context(id, domain:, max_items: 25, as_of: nil, recorded_as_of: nil)
+      as_of = Temporal.instant(as_of) if as_of
+      recorded_as_of = Temporal.instant(recorded_as_of) if recorded_as_of
+      as_of ||= recorded_as_of
       pack = registry.domain(domain)
-      card = get(id)["data"]
-      relations = neighbors(id, relation_types: pack.dig("retrieval", "relation_types"), depth: pack.dig("retrieval", "depth") || 1, as_of: as_of)["data"]
+      card = if recorded_as_of
+               SnapshotStore.new(database).at(id, recorded_as_of) || { 'id' => id, 'knowledge_gaps' => ['no_recorded_snapshot'] }
+             else
+               get(id)['data']
+             end
+      relations = neighbors(id, relation_types: pack.dig("retrieval", "relation_types"), depth: pack.dig("retrieval", "depth") || 1, as_of: as_of, recorded_as_of: recorded_as_of)["data"]
       profile = registry.retrieval_profiles[domain] || {}
       assertions = if as_of
                      assertions_as_of(id, as_of)
@@ -292,15 +312,32 @@ module KnowledgeOS
         { "dimension" => "P", "action" => "verify", "result" => provenance_summary(ordered) }
       ]
       gaps = Array(card["knowledge_gaps"])
-      card = card.merge("current_assertions" => assertions, "as_of" => as_of) if as_of
+      if as_of || recorded_as_of
+        snapshot = SnapshotStore.new(database).at(id, recorded_as_of || as_of)
+        attrs = snapshot ? snapshot['attrs'] : {}
+        gaps << 'historical_attributes_unavailable' unless snapshot
+        if recorded_as_of
+          historical = Array(snapshot && snapshot['assertion_history'])
+          assertions = historical.select { |row| assertion_valid_at?(row, as_of || recorded_as_of) }.map { |row| decode_assertion(row) }
+          superseded = assertions.map { |item| item['supersedes'] }.compact
+          assertions.reject! { |item| superseded.include?(item['id']) }
+          priorities = Array(pack.dig('retrieval', 'predicate_priority'))
+          ordered = assertions.sort_by { |item| priorities.index(item['predicate']) || priorities.length }.first(max_items.to_i)
+          steps.last['result'] = provenance_summary(ordered)
+        end
+        card = { 'id' => id, 'attrs' => attrs, 'label' => snapshot && snapshot['label'], 'type' => snapshot && snapshot['type'],
+                 'current_assertions' => assertions, 'key_relations' => relations['edges'], 'as_of' => as_of,
+                 'recorded_as_of' => recorded_as_of, 'knowledge_gaps' => gaps }
+      end
       envelope({ "domain" => domain, "workflow" => pack["workflow"], "steps" => steps,
                  "retrieval_profile" => profile, "entity_card" => card,
                  "assertions" => ordered, "relations" => relations },
-               temporal: { "as_of" => as_of || "current", "assertion_projection" => as_of ? "historical" : "current" },
+               temporal: { "as_of" => as_of || "current", 'recorded_as_of' => recorded_as_of,
+                           "assertion_projection" => as_of || recorded_as_of ? "historical" : "current" },
                gaps: gaps)
     end
 
-    def propose(actor:, target_source:, patch:, reason:, risk: "normal", title: nil, operations: [])
+    def propose(actor:, target_source:, patch:, reason:, risk: "normal", title: nil, operations: [], base_revision: nil, idempotency_key: nil)
       raise ValidationError, "risk must be low, normal, or high" unless %w[low normal high].include?(risk)
       raise ValidationError, "actor is required" if actor.to_s.strip.empty?
       raise ValidationError, "target_source is required" if target_source.to_s.strip.empty?
@@ -308,15 +345,31 @@ module KnowledgeOS
       id = SecureRandom.uuid
       now = Time.now.utc.iso8601(6)
       status = risk == "low" ? "proposed" : "review_required"
-      base_revision = @publication_verifier.current_revision(target_source)
+      expected_base = base_revision
       database.transaction do
+        existing = idempotency_key && database.first('SELECT * FROM changeset WHERE actor=? AND request_key=?', [actor, idempotency_key])
+        if existing
+          unless existing['patch_json'] == JSON.generate(patch) && existing['operations_json'] == JSON.generate(operations) && existing['target_source'] == target_source && existing['risk'] == risk && existing['reason'] == reason
+            raise ConflictError, 'idempotency key was already used with different content'
+          end
+          id, status, base_revision = existing.values_at('id', 'status', 'base_revision')
+          next
+        end
+        refresh_registry!
+        base_revision = @publication_verifier.current_revision(target_source)
+        if expected_base && expected_base != registry.fingerprint && expected_base != base_revision
+          raise ConflictError, 'proposal baseline has changed; refresh and merge your draft'
+        end
+        expectation = @publication_verifier.expectation(target_source, patch, operations)
+        raise ConflictError, 'source changed while preparing proposal' unless base_revision == @publication_verifier.current_revision(target_source)
         database.execute(
-          "INSERT INTO changeset(id, actor, title, target_source, risk, status, patch_json, operations_json, reason, created_at, base_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [id, actor, title, target_source, risk, status, JSON.generate(patch), JSON.generate(operations), reason, now, base_revision]
+          "INSERT INTO changeset(id, actor, title, target_source, risk, status, patch_json, operations_json, reason, created_at, base_revision, expected_json, request_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [id, actor, title, target_source, risk, status, JSON.generate(patch), JSON.generate(operations), reason, now, base_revision, expectation && JSON.generate(expectation), idempotency_key]
         )
         @audit.stage(event_type: "agent_proposal", actor: actor, target_id: id, source_ref: target_source,
                      before_hash: base_revision, reason: reason,
-                     payload: { "actor" => actor, "risk" => risk, "patch" => patch })
+                     payload: { "actor" => actor, "risk" => risk, "patch" => patch, 'operations' => operations,
+                                'expected' => expectation, 'title' => title, 'base_revision' => base_revision })
       end
       @audit.flush!
       envelope({ "id" => id, "status" => status, "target_source" => target_source,
@@ -340,41 +393,59 @@ module KnowledgeOS
 
     def review_changeset(id:, reviewer:, decision:, note: nil)
       raise ValidationError, "decision must be approved, rejected, or changes_requested" unless %w[approved rejected changes_requested].include?(decision)
-      row = database.first("SELECT * FROM changeset WHERE id = ?", id)
-      raise NotFoundError, "changeset not found: #{id}" unless row
-      unless %w[proposed review_required].include?(row["status"])
-        raise ValidationError, "changeset in #{row['status']} cannot be reviewed"
-      end
-      now = Time.now.utc.iso8601(6)
-      review_note = note.to_s.strip
-      review_note = "governance decision: #{decision}" if review_note.empty?
       database.transaction do
-        database.execute("UPDATE changeset SET status = ?, reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?", [decision, reviewer, now, review_note, id])
+        row = database.first("SELECT * FROM changeset WHERE id = ?", id)
+        raise NotFoundError, "changeset not found: #{id}" unless row
+        unless %w[proposed review_required].include?(row["status"])
+          raise ValidationError, "changeset in #{row['status']} cannot be reviewed"
+        end
+        if decision == 'approved' && row['expected_json'].nil?
+          raise ValidationError, 'approval requires a verifiable patch; submit a replacement proposal'
+        end
+        now = Time.now.utc.iso8601(6)
+        review_note = note.to_s.strip
+        review_note = "governance decision: #{decision}" if review_note.empty?
+        database.execute("UPDATE changeset SET status = ?, reviewed_by = ?, reviewed_at = ?, review_note = ?, lock_version=lock_version+1 WHERE id = ? AND lock_version=?",
+                         [decision, reviewer, now, review_note, id, row['lock_version']])
+        raise ConflictError, 'ChangeSet changed concurrently' unless database.connection.changes == 1
         @audit.stage(event_type: "changeset_#{decision}", actor: reviewer, target_id: id,
                      source_ref: row["target_source"], reason: "review decision",
-                     payload: { "reviewer" => reviewer })
+                     payload: { "reviewer" => reviewer, 'note' => review_note })
       end
       @audit.flush!
       envelope({ "id" => id, "status" => decision, "note" => "Approval records governance only; apply the patch to the real source of truth, then compile." })
     end
 
     def publish_changeset(id:, publisher:, source_revision:)
-      row = database.first("SELECT * FROM changeset WHERE id = ?", id)
-      raise NotFoundError, "changeset not found: #{id}" unless row
-      raise ValidationError, "changeset must be approved before publication" unless row["status"] == "approved"
-      raise ValidationError, "source_revision is required" if source_revision.to_s.empty?
-      verification = @publication_verifier.verify!(target_source: row["target_source"],
-                                                    source_revision: source_revision,
-                                                    base_revision: row["base_revision"])
-      now = Time.now.utc.iso8601(6)
-      database.transaction do
-        database.execute("UPDATE changeset SET status = 'published', published_by = ?, published_at = ?, source_revision = ?, publication_json = ? WHERE id = ?",
-                         [publisher, now, source_revision, JSON.generate(verification), id])
-        @audit.stage(event_type: "changeset_published", actor: publisher, target_id: id,
-                     source_ref: row["target_source"], before_hash: row["base_revision"], after_hash: source_revision,
-                     reason: "source of truth updated, verified, and compiled",
-                     payload: { "publisher" => publisher, "source_revision" => source_revision,
-                                "verification" => verification })
+      verification = nil
+      snapshot = registry.snapshot
+      begin
+        database.transaction do
+          row = database.first("SELECT * FROM changeset WHERE id = ?", id)
+          raise NotFoundError, "changeset not found: #{id}" unless row
+          if row['status'] == 'published' && row['source_revision'] == source_revision
+            verification = JSON.parse(row['publication_json'])
+            next
+          end
+          raise ValidationError, "changeset must be approved before publication" unless row["status"] == "approved"
+          raise ValidationError, "source_revision is required" if source_revision.to_s.empty?
+          verification = @publication_verifier.verify!(target_source: row["target_source"],
+                                                        source_revision: source_revision,
+                                                        base_revision: row["base_revision"],
+                                                        expected: row['expected_json'] && JSON.parse(row['expected_json']))
+          now = Time.now.utc.iso8601(6)
+          database.execute("UPDATE changeset SET status = 'published', published_by = ?, published_at = ?, source_revision = ?, publication_json = ?, lock_version=lock_version+1 WHERE id = ? AND status='approved' AND lock_version=?",
+                           [publisher, now, source_revision, JSON.generate(verification), id, row['lock_version']])
+          raise ConflictError, 'ChangeSet changed concurrently' unless database.connection.changes == 1
+          @audit.stage(event_type: "changeset_published", actor: publisher, target_id: id,
+                       source_ref: row["target_source"], before_hash: row["base_revision"], after_hash: source_revision,
+                       reason: "approved source result verified and compiled",
+                       payload: { "publisher" => publisher, "source_revision" => source_revision,
+                                  "verification" => verification })
+        end
+      rescue StandardError
+        registry.restore!(snapshot)
+        raise
       end
       @audit.flush!
       envelope({ "id" => id, "status" => "published", "source_revision" => source_revision,
@@ -453,13 +524,13 @@ module KnowledgeOS
     end
 
     def assertions_as_of(node_id, as_of)
-      Time.iso8601(as_of.to_s)
+      as_of = Temporal.instant(as_of)
       rows = assertion_rows(
         <<~SQL, [node_id, as_of, as_of, as_of]
           node_id = ? AND status IN ('confirmed','superseded','stale')
-          AND (valid_from IS NULL OR valid_from = '' OR valid_from <= ?)
-          AND (valid_to IS NULL OR valid_to = '' OR valid_to > ?)
-          AND (observed_at IS NULL OR observed_at = '' OR observed_at <= ?)
+          AND (valid_from IS NULL OR valid_from = '' OR julianday(valid_from) <= julianday(?))
+          AND (valid_to IS NULL OR valid_to = '' OR julianday(valid_to) > julianday(?))
+          AND (observed_at IS NULL OR observed_at = '' OR julianday(observed_at) <= julianday(?))
         SQL
       )
       superseded = rows.map { |item| item["supersedes"] }.compact
@@ -477,14 +548,62 @@ module KnowledgeOS
       { "tiers" => counts, "checked" => assertions.length }
     end
 
-    def refresh_temperatures!
-      database.execute("SELECT id, predicate, status, observed_at, valid_to, temperature FROM assertion").each do |row|
+    def refresh_temperatures!(id = nil)
+      changed = []
+      rows = database.execute("SELECT id, node_id, predicate, status, observed_at, valid_from, valid_to, temperature FROM assertion" + (id ? ' WHERE node_id=?' : ''), id ? [id] : [])
+      rows.each do |row|
         temperature = @policy_engine.assertion_temperature(
           predicate_id: row["predicate"], status: row["status"], observed_at: row["observed_at"],
-          valid_to: row["valid_to"]
+          valid_from: row['valid_from'], valid_to: row["valid_to"]
         )
         database.execute("UPDATE assertion SET temperature = ? WHERE id = ?", [temperature, row["id"]]) if temperature != row["temperature"]
+        changed << row['node_id'] if temperature != row['temperature']
       end
+      unless changed.empty?
+        database.transaction do
+          Compiler.new(config: config, registry: registry, database: database, ledger: ledger, clock: @clock).refresh_nodes!(changed.uniq)
+        end
+      end
+    end
+
+    def interval_valid_at?(row, time)
+      time = Temporal.instant(time)
+      (row['valid_from'].to_s.empty? || Temporal.instant(row['valid_from']) <= time) &&
+        (row['valid_to'].to_s.empty? || Temporal.instant(row['valid_to']) > time)
+    end
+
+    def historical_neighbors(id, relation_types, depth, valid_time, recorded_time)
+      snapshots = SnapshotStore.new(database).all_at(recorded_time).to_h { |item| [item['id'], item] }
+      edges = snapshots.values.flat_map { |item| Array(item['edge_history']) }.select do |row|
+        interval_valid_at?(row, valid_time) && (Array(relation_types).empty? || Array(relation_types).include?(row['predicate']))
+      end
+      visited = { id => 0 }
+      found = []
+      frontier = [id]
+      [[depth.to_i, 1].max, 5].min.times do |level|
+        next_frontier = []
+        edges.each do |edge|
+          next unless frontier.include?(edge['src']) || frontier.include?(edge['dst'])
+          found << edge
+          [edge['src'], edge['dst']].each do |node|
+            next if visited.key?(node)
+            visited[node] = level + 1
+            next_frontier << node
+          end
+        end
+        frontier = next_frontier
+      end
+      nodes = visited.map do |node, distance|
+        snapshot = snapshots[node]
+        { 'id' => node, 'label' => snapshot && snapshot['label'], 'type' => snapshot && snapshot['type'],
+          'distance' => distance, 'missing' => snapshot.nil? }
+      end
+      envelope({ 'nodes' => nodes, 'edges' => found.uniq, 'as_of' => valid_time, 'recorded_as_of' => Temporal.instant(recorded_time) })
+    end
+
+    def assertion_valid_at?(row, time)
+      %w[confirmed superseded stale].include?(row['status']) && interval_valid_at?(row, time) &&
+        (row['observed_at'].to_s.empty? || Temporal.instant(row['observed_at']) <= time)
     end
 
     def card_assertion(row)

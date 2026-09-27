@@ -19,6 +19,8 @@ module KnowledgeOS
     end
 
     def reload!
+      previous = instance_variables.to_h { |name| [name, instance_variable_get(name)] }
+      before = source_fingerprint
       @predicates = load_keyed(@config.predicates_dir, "id")
       @ontology = merge_yaml(@config.ontology_dir)
       @authority_policies = keyed_policy("authority.yaml")
@@ -35,7 +37,30 @@ module KnowledgeOS
       @rules = load_documents(@config.rules_dir)
       @skills = load_skill_packages(@config.skills_dir)
       validate_control_plane!
+      after = source_fingerprint
+      raise ConflictError, 'control sources changed while loading; retry' unless before == after
+      @fingerprint = after
       self
+    rescue StandardError
+      previous.each { |name, value| instance_variable_set(name, value) }
+      raise
+    end
+
+    def fingerprint
+      @fingerprint
+    end
+
+    def source_fingerprint
+      paths = (@config.control_dir.glob("**/*").select(&:file?) + @config.connectors_dir.glob('**/*.mapping.{yaml,yml}')).sort
+      Digest::SHA256.hexdigest(paths.map { |path| [path.relative_path_from(@config.root).to_s, Digest::SHA256.file(path).hexdigest] }.to_json)
+    end
+
+    def snapshot
+      instance_variables.to_h { |name| [name, instance_variable_get(name)] }
+    end
+
+    def restore!(snapshot)
+      snapshot.each { |name, value| instance_variable_set(name, value) }
     end
 
     def predicate(id)
@@ -96,7 +121,7 @@ module KnowledgeOS
 
     def control_plane
       {
-        "contract_version" => "3.4",
+        "contract_version" => "3.5",
         "ontology" => ontology,
         "predicates" => predicates.transform_values { |item| without_internal(item) },
         "policies" => {
@@ -135,7 +160,7 @@ module KnowledgeOS
       definitions.concat(schemas.map { |name, item| studio_schema(name, item) })
 
       {
-        "contract_version" => "3.4",
+        "contract_version" => "3.5",
         "definitions" => definitions,
         "coverage" => definitions.group_by { |item| item["kind"] }.transform_values(&:length),
         "extensions" => {
@@ -172,7 +197,7 @@ module KnowledgeOS
       studio_base(
         id: item.fetch("id"), kind: "concept", label: item.fetch("label", item["id"]),
         description: item["description"], lifecycle: item.dig("status", "lifecycle"),
-        source_path: "control/ontology/core.yaml", config: { "schema_support" => "canonical_node" }
+        source_path: item.fetch("_source_path"), config: { "schema_support" => "canonical_node" }
       ).merge(
         "bindings" => Array(item["properties"]).map do |binding|
           {
@@ -190,7 +215,7 @@ module KnowledgeOS
       output = studio_base(
         id: item.fetch("id"), kind: "relation", label: item.fetch("label", item["id"]),
         description: item["description"], lifecycle: item.dig("status", "lifecycle"),
-        source_path: "control/ontology/core.yaml",
+        source_path: item.fetch("_source_path"),
         config: { "domain_range" => Array(item["connections"]).empty? ? "undeclared" : "declared", "relation_mode" => mode, "schema_support" => "canonical_node" }
       ).merge(
         "relation_mode" => mode,
@@ -509,7 +534,9 @@ module KnowledgeOS
     def load_json_files(dir)
       return {} unless dir.directory?
       dir.glob("**/*.json").sort.each_with_object({}) do |path, output|
-        output[path.basename(".json").to_s] = JSON.parse(path.read)
+        schema = JSON.parse(path.read)
+        SchemaValidator.new.check_schema!(schema)
+        output[path.basename(".json").to_s] = schema
       end
     end
 
@@ -575,6 +602,9 @@ module KnowledgeOS
 
       dir.glob("**/*.{yaml,yml}").sort.each_with_object({}) do |path, output|
         Frontmatter.load_yaml(path).each do |key, value|
+          if %w[concept_types relation_types].include?(key) && value.is_a?(Array)
+            value = value.map { |item| item.merge("_source_path" => relative_path(path)) }
+          end
           if output[key].is_a?(Array) && value.is_a?(Array)
             output[key] += value
           elsif output[key].is_a?(Hash) && value.is_a?(Hash)

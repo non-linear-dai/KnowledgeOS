@@ -79,7 +79,7 @@ class SecurityTest < Minitest::Test
     with_workspace do |config|
       service = KnowledgeOS::Service.new(config: config)
       proposal = service.propose(actor: "agent:test", target_source: "control/ontology/core.yaml",
-                                 patch: { "op" => "test" }, reason: "identity test", risk: "normal")["data"]
+                                 patch: { "op" => "replace", "path" => "/concept_types/0/label", "value" => "Org" }, reason: "identity test", risk: "normal")["data"]
       token = "reviewer-secret"
       auth = KnowledgeOS::AccessControl.new(
         enabled: true,

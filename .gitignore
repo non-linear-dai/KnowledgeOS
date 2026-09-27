@@ -1,5 +1,6 @@
 /runtime/*.db
 /runtime/*.db-*
+/runtime/.state.lock
 /runtime/cache/*
 /runtime/indexes/*
 /tmp/

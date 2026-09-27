@@ -3,40 +3,72 @@
 require "sqlite3"
 require "json"
 require "fileutils"
+require "monitor"
 
 module KnowledgeOS
   class Database
     attr_reader :connection, :fts_enabled
 
     def initialize(path)
+      @lock = Monitor.new
+      @savepoint_sequence = 0
       FileUtils.mkdir_p(File.dirname(path.to_s))
+      @lease = RuntimeLease.acquire(File.dirname(path.to_s))
       @connection = SQLite3::Database.new(path.to_s)
       @connection.results_as_hash = true
       @connection.busy_timeout = 5_000
       @connection.execute("PRAGMA foreign_keys = ON")
-      @connection.execute("PRAGMA journal_mode = WAL")
+      # Attached durable state and projections commit atomically via SQLite's
+      # super-journal. WAL does not guarantee atomic commits across databases.
+      @connection.execute("PRAGMA journal_mode = DELETE")
+      @connection.execute("PRAGMA synchronous = FULL")
+      @connection.execute("ATTACH DATABASE ? AS durable", [File.join(File.dirname(path.to_s), "knowledge.state.db")])
+      @connection.execute("PRAGMA durable.journal_mode = DELETE")
+      @connection.execute("PRAGMA durable.synchronous = FULL")
       migrate!
     end
 
     def close
       connection.close
+      @lease.close
     end
 
-    def transaction(&block)
-      connection.transaction(&block)
+    def synchronize(&block)
+      @lock.synchronize(&block)
+    end
+
+    def transaction
+      synchronize do
+        if connection.transaction_active?
+          @savepoint_sequence = (@savepoint_sequence || 0) + 1
+          name = "nested_#{@savepoint_sequence}"
+          connection.execute("SAVEPOINT #{name}")
+          begin
+            result = yield
+            connection.execute("RELEASE SAVEPOINT #{name}")
+            result
+          rescue Exception
+            connection.execute("ROLLBACK TO SAVEPOINT #{name}")
+            connection.execute("RELEASE SAVEPOINT #{name}")
+            raise
+          end
+        else
+          connection.transaction(:immediate) { yield }
+        end
+      end
     end
 
     def execute(sql, binds = [])
-      connection.execute(sql, binds)
+      synchronize { connection.execute(sql, binds) }
     end
 
     def first(sql, binds = [])
-      connection.get_first_row(sql, binds)
+      synchronize { connection.get_first_row(sql, binds) }
     end
 
     def reset_projection!
       transaction do
-        %w[assertion edge source_ref derived_result audit_event_ref entity_card review_item attribute_candidate node_embedding node].each do |table|
+        %w[assertion edge source_ref audit_event_ref entity_card attribute_candidate node_embedding node].each do |table|
           execute("DELETE FROM #{table}")
         end
         execute("DELETE FROM node_fts") if fts_enabled
@@ -73,7 +105,6 @@ module KnowledgeOS
           narrative TEXT NOT NULL DEFAULT '',
           compiled_at TEXT NOT NULL
         );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_node_key ON node(natural_key) WHERE natural_key IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_node_type ON node(type);
 
         CREATE TABLE IF NOT EXISTS assertion (
@@ -228,6 +259,13 @@ module KnowledgeOS
       ensure_column!("changeset", "source_revision", "TEXT")
       ensure_column!("changeset", "base_revision", "TEXT")
       ensure_column!("changeset", "publication_json", "TEXT")
+      ensure_column!("changeset", "expected_json", "TEXT")
+      ensure_column!("changeset", "lock_version", "INTEGER NOT NULL DEFAULT 0")
+      ensure_column!("changeset", "request_key", "TEXT")
+      ensure_column!("node", "key_namespace", "TEXT NOT NULL DEFAULT ''")
+      connection.execute("DROP INDEX IF EXISTS idx_node_key")
+      connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_node_scoped_key ON node(key_namespace, type, natural_key) WHERE natural_key IS NOT NULL")
+      migrate_durable_state!
 
       begin
         connection.execute <<~SQL
@@ -247,6 +285,42 @@ module KnowledgeOS
     def ensure_column!(table, column, definition)
       columns = connection.execute("PRAGMA table_info(#{table})").map { |row| row["name"] }
       connection.execute("ALTER TABLE #{table} ADD COLUMN #{column} #{definition}") unless columns.include?(column)
+    end
+
+    def migrate_durable_state!
+      transaction do
+        %w[changeset audit_outbox derived_result review_item].each do |table|
+          ddl = connection.get_first_value("SELECT sql FROM main.sqlite_master WHERE type='table' AND name=?", [table])
+          connection.execute(ddl.sub(/CREATE TABLE\s+#{table}/i, "CREATE TABLE IF NOT EXISTS durable.#{table}"))
+          # Upgrade existing state stores using the canonical main table shape.
+          main_columns = connection.execute("PRAGMA main.table_info(#{table})")
+          state_columns = connection.execute("PRAGMA durable.table_info(#{table})").map { |row| row['name'] }
+          main_columns.each do |column|
+            next if state_columns.include?(column['name'])
+            definition = column['type']
+            definition += " DEFAULT #{column['dflt_value']}" if column['dflt_value']
+            connection.execute("ALTER TABLE durable.#{table} ADD COLUMN #{column['name']} #{definition}")
+          end
+          names = main_columns.map { |row| row['name'] }.join(',')
+          connection.execute("INSERT OR IGNORE INTO durable.#{table}(#{names}) SELECT #{names} FROM main.#{table}")
+          connection.execute("DROP TABLE main.#{table}")
+        end
+        connection.execute_batch <<~SQL
+          CREATE UNIQUE INDEX IF NOT EXISTS durable.idx_changeset_request ON changeset(actor, request_key) WHERE request_key IS NOT NULL;
+          CREATE INDEX IF NOT EXISTS durable.idx_outbox_pending ON audit_outbox(status, created_at);
+          CREATE TABLE IF NOT EXISTS durable.schema_migration(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+          INSERT OR IGNORE INTO durable.schema_migration VALUES(1, strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+          CREATE TABLE IF NOT EXISTS durable.connector_record(
+            source_ref_id TEXT NOT NULL, source_hash TEXT NOT NULL, version TEXT,
+            observed_at TEXT NOT NULL, record_json TEXT NOT NULL, mapping_json TEXT NOT NULL,
+            PRIMARY KEY(source_ref_id, source_hash)
+          );
+          CREATE TABLE IF NOT EXISTS durable.entity_snapshot(
+            node_id TEXT NOT NULL, recorded_at TEXT NOT NULL, content_hash TEXT NOT NULL,
+            snapshot_json TEXT NOT NULL, PRIMARY KEY(node_id, recorded_at)
+          );
+        SQL
+      end
     end
   end
 end

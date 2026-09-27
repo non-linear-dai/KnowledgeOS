@@ -33,6 +33,11 @@ module KnowledgeOS
     end
 
     def flush!
+      return 0 if @database.connection.transaction_active?
+      @database.synchronize { deliver! }
+    end
+
+    def deliver!
       delivered = 0
       @database.execute("SELECT event_id, event_json FROM audit_outbox WHERE status = 'pending' ORDER BY created_at, event_id").each do |row|
         event = JSON.parse(row["event_json"])
@@ -59,7 +64,8 @@ module KnowledgeOS
     end
 
     def reconcile!
-      @ledger.connection.execute("SELECT event_id, event_type, target_id, sequence, timestamp FROM event ORDER BY sequence").each do |event|
+      last = @database.first('SELECT COALESCE(MAX(ledger_sequence),0) AS sequence FROM audit_event_ref')['sequence']
+      @ledger.connection.execute("SELECT event_id, event_type, target_id, sequence, timestamp FROM event WHERE sequence > ? ORDER BY sequence", [last]).each do |event|
         mirror!(event)
       end
       true

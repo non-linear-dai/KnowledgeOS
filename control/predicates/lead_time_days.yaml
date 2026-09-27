@@ -2,6 +2,8 @@ id: lead_time_days
 label: Lead time
 value:
   type: quantity
+  default_unit: calendar_days
+  units: [calendar_days]
   cardinality: temporal_many
 storage:
   mode: assertion
@@ -19,4 +21,3 @@ policy:
 status:
   lifecycle: active
   equivalent_to:
-

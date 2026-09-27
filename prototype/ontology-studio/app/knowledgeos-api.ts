@@ -1,5 +1,4 @@
 import {
-  initialDefinitions,
   type ChangeOperation,
   type ChangeOperationType,
   type ChangeSet,
@@ -9,6 +8,16 @@ import {
   type Lifecycle,
   type OntologyDefinition,
 } from "./studio-data";
+import { wireSnapshot, connectionFailure } from "./studio-contract";
+
+let sessionToken = "";
+export function setSessionToken(token: string) { sessionToken = token.trim(); }
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public code?: string) { super(message); }
+  get connectionState() { return connectionFailure(this.status, this.code); }
+}
+export type UserSession = { principal: string; roles: string[]; permissions: string[] };
+export function loadSession() { return request<UserSession>("/v1/session"); }
 
 const API_ROOT = "/api/knowledgeos";
 const definitionKinds: DefinitionKind[] = ["schema", "domain", "concept", "relation", "predicate", "model", "policy", "connector"];
@@ -32,10 +41,11 @@ export type ExtractionCandidates = JsonRecord & {
   write_performed?: boolean;
 };
 
-export type ApiConnectionState = "connecting" | "connected" | "demo";
+export type ApiConnectionState = "connecting" | "connected" | "demo" | "unauthorized" | "forbidden" | "offline" | "unconfigured";
 
 export interface StudioMetadata {
   contractVersion: string;
+  registryFingerprint: string;
   coverage: Partial<Record<DefinitionKind, number>>;
   extensions: { constraints: number; rules: number; skills: number };
   durableWrites: string;
@@ -80,12 +90,11 @@ function mapDefinition(value: unknown): OntologyDefinition | null {
   const id = string(item.id);
   const kind = string(item.kind) as DefinitionKind;
   if (!id || !definitionKinds.includes(kind)) return null;
-  const localized = initialDefinitions.find((definition) => definition.id === id);
   const lifecycleValue = string(item.lifecycle, "active") as Lifecycle;
   const bindings = array(item.bindings).map((entry) => {
     const binding = record(entry);
     return {
-      predicateId: string(binding.predicate_id),
+      predicateId: string(binding.predicate_id ?? binding.predicateId),
       required: Boolean(binding.required),
       cardinality: string(binding.cardinality, "inherit") as "inherit" | "one" | "many" | "temporal_many",
       group: string(binding.group, "other") as "identity" | "profile" | "measurement" | "governance" | "other",
@@ -94,20 +103,20 @@ function mapDefinition(value: unknown): OntologyDefinition | null {
   const endpoints = array(item.endpoints).map((entry) => {
     const endpoint = record(entry);
     return {
-      sourceConceptId: string(endpoint.source_concept_id),
-      targetConceptId: string(endpoint.target_concept_id),
-      sourceCardinality: string(endpoint.source_cardinality, "many") as "one" | "many",
-      targetCardinality: string(endpoint.target_cardinality, "many") as "one" | "many",
+      sourceConceptId: string(endpoint.source_concept_id ?? endpoint.sourceConceptId),
+      targetConceptId: string(endpoint.target_concept_id ?? endpoint.targetConceptId),
+      sourceCardinality: string(endpoint.source_cardinality ?? endpoint.sourceCardinality, "many") as "one" | "many",
+      targetCardinality: string(endpoint.target_cardinality ?? endpoint.targetCardinality, "many") as "one" | "many",
     };
   }).filter((endpoint) => endpoint.sourceConceptId && endpoint.targetConceptId);
   const rawReification = record(item.reification);
   const reification = Object.keys(rawReification).length ? {
-    nodeType: string(rawReification.node_type),
+    nodeType: string(rawReification.node_type ?? rawReification.nodeType),
     identity: string(rawReification.identity, "optional") as "optional" | "required",
     properties: array(rawReification.properties).map((entry) => {
       const binding = record(entry);
       return {
-        predicateId: string(binding.predicate_id),
+        predicateId: string(binding.predicate_id ?? binding.predicateId),
         required: Boolean(binding.required),
         cardinality: string(binding.cardinality, "inherit") as "inherit" | "one" | "many" | "temporal_many",
         group: string(binding.group, "other") as "identity" | "profile" | "measurement" | "governance" | "other",
@@ -118,19 +127,19 @@ function mapDefinition(value: unknown): OntologyDefinition | null {
   return {
     id,
     kind,
-    label: localized?.label ?? string(item.label, id),
-    description: localized?.description ?? string(item.description),
+    label: string(item.label, id),
+    description: string(item.description),
     lifecycle: lifecycles.includes(lifecycleValue) ? lifecycleValue : "active",
-    sourcePath: string(item.source_path, localized?.sourcePath ?? ""),
+    sourcePath: string(item.source_path ?? item.sourcePath),
     refs: number(item.refs),
     files: array(item.files).filter((entry): entry is string => typeof entry === "string"),
     config: config(item.config),
     bindings: kind === "concept" ? bindings : undefined,
     endpoints: kind === "relation" ? endpoints : undefined,
-    relationMode: kind === "relation" ? string(item.relation_mode, "simple") as "simple" | "reifiable" | "reified" : undefined,
+    relationMode: kind === "relation" ? string(item.relation_mode ?? item.relationMode, "simple") as "simple" | "reifiable" | "reified" : undefined,
     reification: kind === "relation" ? reification : undefined,
     conceptScopes: kind === "domain" ? array(item.concept_scopes).filter((entry): entry is string => typeof entry === "string") : undefined,
-    readOnly: Boolean(item.read_only),
+    readOnly: Boolean(item.read_only ?? item.readOnly),
   };
 }
 
@@ -179,15 +188,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_ROOT}${path}`, {
     ...init,
     cache: "no-store",
-    headers: { Accept: "application/json", ...(init?.body ? { "Content-Type": "application/json" } : {}), ...init?.headers },
+    signal: init?.signal ?? AbortSignal.timeout(30_000),
+    headers: { Accept: "application/json", ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...(init?.body ? { "Content-Type": "application/json" } : {}), ...init?.headers },
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(string(record(payload).error, `KnowledgeOS API 请求失败（${response.status}）`));
+  if (!response.ok) throw new ApiError(string(record(payload).error, `KnowledgeOS API 请求失败（${response.status}）`), response.status, string(record(payload).code));
   return payload as T;
 }
 
 export async function loadStudioSnapshot(): Promise<StudioSnapshot> {
-  const envelope = record(await request<unknown>("/v1/studio"));
+  const envelope = wireSnapshot.parse(await request<unknown>("/v1/studio"));
   const data = record(envelope.data);
   const definitions = array(data.definitions).map(mapDefinition).filter((definition): definition is OntologyDefinition => Boolean(definition));
   if (!definitions.length) throw new Error("KnowledgeOS API 未返回控制面定义");
@@ -199,6 +209,7 @@ export async function loadStudioSnapshot(): Promise<StudioSnapshot> {
     changeSets: array(data.changesets).map((item) => mapChangeSet(item, definitions)).filter((item): item is ChangeSet => Boolean(item)),
     metadata: {
       contractVersion: string(data.contract_version, "unknown"),
+      registryFingerprint: string(data.registry_fingerprint),
       coverage: Object.fromEntries(definitionKinds.map((kind) => [kind, number(coverage[kind])])) as Partial<Record<DefinitionKind, number>>,
       extensions: { constraints: number(extensions.constraints), rules: number(extensions.rules), skills: number(extensions.skills) },
       durableWrites: string(capabilities.durable_writes, "changeset_only"),
@@ -206,7 +217,7 @@ export async function loadStudioSnapshot(): Promise<StudioSnapshot> {
   };
 }
 
-export async function proposeChangeSet(input: { title: string; reason: string; risk: "low" | "normal" | "high"; targetSource: string; operations: ChangeOperation[] }) {
+export async function proposeChangeSet(input: { title: string; reason: string; risk: "low" | "normal" | "high"; targetSource: string; operations: ChangeOperation[]; baseRevision?: string; idempotencyKey?: string }) {
   return request("/v1/propose", {
     method: "POST",
     body: JSON.stringify({
@@ -216,6 +227,8 @@ export async function proposeChangeSet(input: { title: string; reason: string; r
       target_source: input.targetSource,
       patch: { op: "studio_batch", operation_count: input.operations.length },
       operations: input.operations,
+      base_revision: input.baseRevision,
+      idempotency_key: input.idempotencyKey,
     }),
   });
 }

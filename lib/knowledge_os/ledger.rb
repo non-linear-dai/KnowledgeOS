@@ -15,6 +15,7 @@ module KnowledgeOS
 
     def initialize(path)
       FileUtils.mkdir_p(File.dirname(path.to_s))
+      @lease = RuntimeLease.acquire(File.dirname(path.to_s))
       @connection = SQLite3::Database.new(path.to_s)
       @connection.results_as_hash = true
       @connection.busy_timeout = 5_000
@@ -23,6 +24,7 @@ module KnowledgeOS
 
     def close
       connection.close
+      @lease.close
     end
 
     def append(event_type:, actor:, target_id: nil, source_ref: nil, before_hash: nil,
@@ -33,6 +35,7 @@ module KnowledgeOS
       return clean(existing) if existing
 
       connection.transaction(:immediate) do
+        next if connection.get_first_row('SELECT event_id FROM event WHERE event_id=?', [event_id])
         previous = connection.get_first_row("SELECT event_hash FROM event ORDER BY sequence DESC LIMIT 1")
         prev_hash = previous ? previous["event_hash"] : GENESIS_HASH
         canonical = {

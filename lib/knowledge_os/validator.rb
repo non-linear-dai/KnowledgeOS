@@ -16,6 +16,7 @@ module KnowledgeOS
 
     def validate_document!(document, assertions: nil)
       data = document.data
+      data = data.merge('knowledge' => data.fetch('knowledge', {}).merge('assertions' => assertions)) if assertions
       schema = @registry.schemas["canonical-node.schema"] || @registry.schemas["canonical-node"]
       @schema_validator.validate!(data, schema) if schema
       @constraint_engine.validate_document!(data, document.path)
@@ -79,6 +80,7 @@ module KnowledgeOS
         raise ValidationError, "#{path}: relation #{relation['predicate']} does not allow source type #{source_type}"
       end
       mode = definition.fetch("mode", "simple")
+      Temporal.normalize(relation['temporal'] || {})
       if mode == "reified" && relation["id"].to_s.empty?
         raise ValidationError, "#{path}: reified relation #{relation['predicate']} requires an id"
       end
@@ -94,7 +96,7 @@ module KnowledgeOS
       bindings = Array(concept && concept["properties"])
       return if bindings.empty?
 
-      used = attrs.keys.map(&:to_s) + assertions.map { |item| item["predicate"].to_s }
+      used = (attrs.keys.map(&:to_s) + assertions.map { |item| item["predicate"].to_s }).map { |id| @registry.normalize_predicate(id) }
       allowed = bindings.map { |item| item["predicate"].to_s }
       (used - allowed).each do |predicate|
         raise ValidationError, "#{path}: predicate #{predicate} is not declared for concept #{type}"
@@ -120,7 +122,8 @@ module KnowledgeOS
         cardinality = binding.fetch("cardinality", "inherit")
         cardinality = predicate.dig("value", "cardinality") if cardinality == "inherit"
         next unless cardinality == "one"
-        count = (attrs.key?(predicate_id) ? 1 : 0) + assertions.count { |item| item["predicate"].to_s == predicate_id }
+        attr_count = attrs.key?(predicate_id) ? (attrs[predicate_id].is_a?(Array) ? attrs[predicate_id].length : 1) : 0
+        count = attr_count + assertions.count { |item| @registry.normalize_predicate(item['predicate']) == predicate_id }
         raise ValidationError, "#{path}: #{predicate_id} allows at most one value" if count > 1
       end
     end
@@ -140,24 +143,11 @@ module KnowledgeOS
     end
 
     def validate_value!(path, predicate, raw)
-      value = raw.is_a?(Hash) && raw.key?("literal") ? raw["literal"] : raw
-      value = raw["ref"] if raw.is_a?(Hash) && raw.key?("ref")
-      type = predicate.dig("value", "type")
-      valid = case type
-              when "string", "text", "date", "enum", "node_ref" then value.is_a?(String)
-              when "number", "quantity" then value.is_a?(Numeric)
-              when "boolean" then value == true || value == false
-              when "json" then true
-              else false
-              end
-      raise ValidationError, "#{path}: #{predicate['id']} expects #{type}" unless valid
-      allowed = Array(predicate.dig("value", "allowed"))
-      if !allowed.empty? && !allowed.include?(value)
-        raise ValidationError, "#{path}: #{predicate['id']} must be one of #{allowed.join(', ')}"
-      end
+      ValueContract.validate!(predicate, raw)
     end
 
     def validate_time!(path, temporal, predicate)
+      Temporal.normalize(temporal)
       required = predicate.dig("policy", "temporal") == "required"
       if required && !temporal.values_at("observed_at", "valid_from", "valid_to").any?
         raise ValidationError, "#{path}: #{predicate['id']} requires temporal metadata"

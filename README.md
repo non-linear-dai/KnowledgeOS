@@ -66,11 +66,17 @@ curl -H 'Authorization: Bearer replace-with-a-long-random-token' \
 
 Supported roles are `reader`, `agent`, `reviewer`, `publisher`, and `admin`. Tokens live only in the process environment. `KNOWLEDGEOS_AUTH_MODE=disabled` is available solely for explicit local test harnesses.
 
-Runtime databases are created in `runtime/` and intentionally ignored by Git. The query index can be rebuilt at any time; the ledger must be included in operational backups:
+Runtime databases are created in `runtime/` and intentionally ignored by Git. The query index is disposable; both `knowledge.state.db` and `knowledge.ledger.db` must be backed up together. Rebuild replays durable connector records and preserves governance state:
 
 ```bash
 bin/knowledgeos rebuild
 ```
+
+Studio users sign in using their own backend bearer token. The proxy forwards that identity; there is no shared privileged Studio token. Tokens are held in page memory only. Demo mode requires an explicit user action and is separate from connection failure.
+
+For an offline, checksummed backup, stop API/CLI writers and run `bin/knowledgeos backup /absolute/new-backup-directory`. Restore the matching Git-authored checkout into a separate workspace with an empty runtime, then run `bin/knowledgeos restore /absolute/backup-directory`, `bin/knowledgeos rebuild`, and `bin/knowledgeos verify-ledger`. Restore refuses to overwrite existing databases.
+
+See [docs/iteration-3.5.md](docs/iteration-3.5.md) for the nine accepted review items, compatibility changes, recovery, and validation boundaries. Deployment-platform adapters and the CI matrix are unchanged in this iteration.
 
 ## Repository map
 

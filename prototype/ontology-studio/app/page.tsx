@@ -120,11 +120,13 @@ import {
 } from "./studio-data";
 import { ControlCenter } from "./control-center";
 import { ExtractionCenter } from "./extraction-center";
+import { rebaseDraft } from "./draft-state";
 import {
   loadStudioSnapshot,
   proposeChangeSet,
   publishChangeSet,
   reviewChangeSet,
+  ApiError, setSessionToken, loadSession, type UserSession,
   type ApiConnectionState,
   type StudioMetadata,
 } from "./knowledgeos-api";
@@ -265,7 +267,25 @@ function definitionEdges(definitions: OntologyDefinition[], showReification: boo
       })),
     ])
     .filter((edge) => ids.has(edge.source) && ids.has(edge.target)) : [];
-  return [...initialEdges, ...bindingEdges, ...relationEdges, ...reificationEdges];
+  const liveEdges: typeof initialEdges = [];
+  const add = (source: string, target: string, relation: typeof initialEdges[number]["relation"]) => {
+    if (ids.has(source) && ids.has(target)) liveEdges.push({ id: `${source}-${relation}-${target}`, source, target, relation, editable: false });
+  };
+  definitions.forEach((item) => {
+    if (item.kind === "domain") {
+      (item.conceptScopes ?? []).forEach((id) => add(item.id, id, "domain_scope"));
+      asStringArray(item.config.required_models).forEach((id) => add(item.id, `model:${id}`, "requires_model"));
+      const retrieval = asRecord(item.config.retrieval);
+      asStringArray(retrieval.relation_types).forEach((id) => add(item.id, id, "uses_relation"));
+      asStringArray(retrieval.predicate_priority).forEach((id) => add(item.id, id, "prioritizes"));
+    }
+    if (item.kind === "predicate") ["authority", "freshness", "provenance"].forEach((id) => add(item.id, `policy:${id}`, "governed_by"));
+    if (item.kind === "connector") {
+      add(item.id, String(asRecord(item.config.node).type), "maps_to");
+      [...Object.keys(asRecord(item.config.attrs)), ...Object.keys(asRecord(item.config.assertions))].forEach((id) => add(item.id, id, "maps_to"));
+    }
+  });
+  return [...liveEdges, ...bindingEdges, ...relationEdges, ...reificationEdges];
 }
 
 function CurvedDependencyEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, data }: EdgeProps<StudioEdge>) {
@@ -829,18 +849,40 @@ function ReviewCenter({ changeSets, busy, onReview, onPublish }: {
 }
 
 function OntologyStudio() {
-  const [definitions, setDefinitions] = useState(initialDefinitions); const [operations, setOperations] = useState<ChangeOperation[]>([]); const [changeSets, setChangeSets] = useState(initialChangeSets);
-  const [baselineDefinitions, setBaselineDefinitions] = useState(initialDefinitions);
+  const [definitions, setDefinitions] = useState<OntologyDefinition[]>([]); const [operations, setOperations] = useState<ChangeOperation[]>([]); const [changeSets, setChangeSets] = useState<ChangeSet[]>([]);
+  const [baselineDefinitions, setBaselineDefinitions] = useState<OntologyDefinition[]>([]);
+  const [session, setSession] = useState<UserSession | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [draftConflict, setDraftConflict] = useState("");
+  const operationsRef = useRef(operations);
+  const syncSequence = useRef(0);
+  const proposalKey = useRef<{ signature: string; key: string } | null>(null);
+  useEffect(() => { operationsRef.current = operations; }, [operations]);
   const [connection, setConnection] = useState<ApiConnectionState>("connecting"); const [metadata, setMetadata] = useState<StudioMetadata | null>(null); const [syncing, setSyncing] = useState(true); const [mutationBusy, setMutationBusy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>("schema:canonical_node"); const [search, setSearch] = useState(""); const [filterKind, setFilterKind] = useState<"all" | DefinitionKind>("all"); const [lifecycle, setLifecycle] = useState<"all" | Lifecycle>("all"); const [storage, setStorage] = useState("all");
   const [expert, setExpert] = useState(false); const [view, setView] = useState("control"); const [createOpen, setCreateOpen] = useState(false); const [submitOpen, setSubmitOpen] = useState(false); const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false); const [rightCollapsed, setRightCollapsed] = useState(false); const [focusMode, setFocusMode] = useState(false); const [nodePositions, setNodePositions] = useState<NodePositions>({}); const [commandOpen, setCommandOpen] = useState(false); const [editSignal, setEditSignal] = useState(0); const [bindingConceptId, setBindingConceptId] = useState<string | null>(null); const [endpointRelationId, setEndpointRelationId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const refreshFromBackend = async (announce = true) => {
+  const refreshFromBackend = async (announce = true, discardDraft = false) => {
+    const sequence = ++syncSequence.current;
     setSyncing(true);
     try {
+      const identity = await loadSession();
       const snapshot = await loadStudioSnapshot();
-      setDefinitions(snapshot.definitions);
+      if (sequence !== syncSequence.current) return false;
+      setSession(identity);
+      let rebased;
+      try { rebased = rebaseDraft(snapshot.definitions, discardDraft ? [] : operationsRef.current); }
+      catch (error) {
+        setDraftConflict(error instanceof Error ? error.message : "草稿冲突");
+        setConnection("connected");
+        setChangeSets(snapshot.changeSets);
+        return false;
+      }
+      setDraftConflict("");
+      setDefinitions(rebased.definitions);
+      setOperations(rebased.operations);
       setBaselineDefinitions(snapshot.definitions);
       setChangeSets(snapshot.changeSets);
       setMetadata(snapshot.metadata);
@@ -849,11 +891,13 @@ function OntologyStudio() {
       if (announce) toast.success("已从 KnowledgeOS API 同步控制面");
       return true;
     } catch (error) {
-      setConnection("demo");
+      if (sequence !== syncSequence.current) return false;
+      setConnection(error instanceof ApiError ? error.connectionState : "offline");
+      if (error instanceof ApiError && error.status === 401) setSession(null);
       if (announce) toast.error(error instanceof Error ? error.message : "无法连接 KnowledgeOS API");
       return false;
     } finally {
-      setSyncing(false);
+      if (sequence === syncSequence.current) setSyncing(false);
     }
   };
   useEffect(() => {
@@ -1001,11 +1045,15 @@ function OntologyStudio() {
     const targetSource = Array.from(new Set(operations.map((op) => op.after?.sourcePath ?? op.before?.sourcePath).filter((path): path is string => Boolean(path)))).join(", ");
     const risk = warnings.length || operations.some((op) => (op.before?.refs ?? 0) > 2) ? "normal" as const : "low" as const;
     if (connection === "connected") {
+      if (draftConflict) { toast.error(draftConflict); return; }
+      if (!session?.permissions.includes("propose")) { toast.error("当前身份没有提案权限"); return; }
       setMutationBusy(true);
       try {
-        await proposeChangeSet({ title, reason, risk, targetSource, operations });
+        const signature = JSON.stringify({ operations, reason, baseline: metadata?.registryFingerprint });
+        if (proposalKey.current?.signature !== signature) proposalKey.current = { signature, key: crypto.randomUUID() };
+        await proposeChangeSet({ title, reason, risk, targetSource, operations, baseRevision: metadata?.registryFingerprint, idempotencyKey: proposalKey.current.key });
         setOperations([]); setSubmitOpen(false); setView("review");
-        await refreshFromBackend(false);
+        await refreshFromBackend(false, true);
         toast.success("ChangeSet 已写入 KnowledgeOS 审核队列");
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "ChangeSet 提交失败");
@@ -1014,32 +1062,49 @@ function OntologyStudio() {
       }
       return;
     }
+    if (connection !== "demo") { toast.error("连接恢复后才能提交，草稿已保留"); return; }
     const set: ChangeSet = { id: `LOCAL-${Date.now()}`, title, reason, actor: "本地演示", targetSource, createdAt: "刚刚", risk, status: "review_required", operations };
     setChangeSets((items) => [set, ...items]); setOperations([]); setSubmitOpen(false); setView("review"); toast.warning("当前未连接后端；ChangeSet 仅保存在本页会话中");
   };
   const handleReview = async (id: string, decision: "approved" | "rejected", note: string) => {
-    if (connection !== "connected") {
+    if (connection === "demo") {
       setChangeSets((items) => items.map((item) => item.id === id ? { ...item, status: decision, reviewNote: note, reviewedBy: "本地演示", reviewedAt: "刚刚" } : item));
       toast.warning("审核结果仅保存在本页会话中");
       return true;
     }
+    if (connection !== "connected" || !session?.permissions.includes("review")) { toast.error("需要连接后端并具有审核权限"); return false; }
     setMutationBusy(true);
     try { await reviewChangeSet(id, decision, note); await refreshFromBackend(false); return true; }
     catch (error) { toast.error(error instanceof Error ? error.message : "审核操作失败"); return false; }
     finally { setMutationBusy(false); }
   };
   const handlePublish = async (id: string, sourceRevision: string) => {
-    if (connection !== "connected") {
+    if (connection === "demo") {
       setChangeSets((items) => items.map((item) => item.id === id ? { ...item, status: "published", sourceRevision, reviewNote: `真源已更新并编译，发布修订：${sourceRevision}` } : item));
       toast.warning("发布登记仅保存在本页会话中");
       return true;
     }
+    if (connection !== "connected" || !session?.permissions.includes("publish")) { toast.error("需要连接后端并具有发布权限"); return false; }
     setMutationBusy(true);
     try { await publishChangeSet(id, sourceRevision); await refreshFromBackend(false); return true; }
     catch (error) { toast.error(error instanceof Error ? error.message : "发布登记失败"); return false; }
     finally { setMutationBusy(false); }
   };
-  const reset = () => { setOperations([]); setSearch(""); setFilterKind("all"); setLifecycle("all"); setStorage("all"); setNodePositions({}); setFocusMode(false); setLeftCollapsed(false); setRightCollapsed(false); setEditSignal(0); setBindingConceptId(null); setEndpointRelationId(null); setView("control"); if (connection === "connected") void refreshFromBackend(true); else { setDefinitions(initialDefinitions); setBaselineDefinitions(initialDefinitions); setChangeSets(initialChangeSets); setSelectedId("schema:canonical_node"); toast.success("演示数据已恢复"); } };
+  const reset = () => {
+    setOperations([]); setDraftConflict(""); setSearch(""); setFilterKind("all"); setLifecycle("all");
+    if (connection === "demo") { setDefinitions(initialDefinitions); setBaselineDefinitions(initialDefinitions); setChangeSets(initialChangeSets); }
+    else void refreshFromBackend(true, true);
+  };
+  const enterDemo = () => {
+    ++syncSequence.current; setSessionToken(""); setSession(null); setSyncing(false);
+    setConnection("demo"); setMetadata(null); setOperations([]); setDraftConflict("");
+    setDefinitions(initialDefinitions); setBaselineDefinitions(initialDefinitions); setChangeSets(initialChangeSets);
+  };
+  const login = async () => {
+    setSessionToken(tokenInput); setTokenInput(""); setLoginOpen(false);
+    await refreshFromBackend(true);
+  };
+  const connectionLabel = { connecting: "正在连接", connected: "已连接", demo: "演示模式", unauthorized: "请登录", forbidden: "权限不足", offline: "连接中断", unconfigured: "后端未配置" }[connection];
 
   useEffect(() => {
     if (focusMode) fitVisibleNodes();
@@ -1148,8 +1213,10 @@ function OntologyStudio() {
         <TabsTrigger value="studio" className="h-8 rounded-lg border border-transparent px-3 text-xs text-[#777770] data-[state=active]:border-[#d8d8d3] data-[state=active]:bg-white data-[state=active]:text-[#2d2d29] data-[state=active]:shadow-sm"><Network />结构白板</TabsTrigger>
         <TabsTrigger value="review" className="h-8 rounded-lg border border-transparent px-3 text-xs text-[#777770] data-[state=active]:border-[#d8d8d3] data-[state=active]:bg-white data-[state=active]:text-[#2d2d29] data-[state=active]:shadow-sm"><GitPullRequestArrow />治理审核<span className="ml-1 rounded-full bg-[#e7e3fb] px-1.5 py-0.5 text-[10px] text-[#5546c4]">{changeSets.filter((item) => item.status === "review_required").length}</span></TabsTrigger>
       </TabsList>
-      <div className="ml-auto flex items-center gap-1.5"><button onClick={() => void refreshFromBackend(true)} disabled={syncing} className={cn("hidden h-8 items-center gap-2 rounded-lg border px-2.5 text-xs font-medium sm:flex", connection === "connected" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")} title={connection === "connected" ? "重新同步 KnowledgeOS API" : "当前使用演示快照，点击重试连接"}><span className={cn("size-2 rounded-full", connection === "connected" ? "bg-emerald-500" : "bg-amber-500")} />{connection === "connecting" ? "正在连接" : connection === "connected" ? `API 已连接 · ${metadata?.contractVersion ?? ""}` : "演示数据"}<RefreshCw className={cn("size-3", syncing && "animate-spin")} /></button><Button variant="ghost" size="sm" className="hidden h-8 gap-2 rounded-lg text-xs text-[#6e6e67] lg:flex" onClick={() => setCommandOpen(true)}><Search className="size-3.5" />快速命令<kbd className="rounded border border-[#d3d3ce] bg-white px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd></Button><div className="hidden items-center gap-1.5 px-2 text-xs text-[#777770] xl:flex">{errors.length ? <XCircle className="size-3.5 text-rose-500" /> : <CheckCircle2 className="size-3.5 text-emerald-600" />}<span>{errors.length ? `${errors.length} 个错误` : "结构有效"}</span></div><div className="flex h-8 items-center gap-2 rounded-lg border border-[#d8d8d3] bg-white px-2"><Code2 className="size-3.5 text-[#777770]" /><Label className="hidden text-xs text-[#66665f] sm:block">专家</Label><Switch checked={expert} onCheckedChange={setExpert} className="scale-90 data-[state=checked]:bg-[#6557d5]" /></div><Button variant="ghost" size="icon-sm" onClick={reset} aria-label="重新载入控制面" className="text-[#777770]"><RotateCcw /></Button><div className="flex size-7 items-center justify-center rounded-full bg-[#e1def7] text-xs font-bold text-[#5143bd]">林</div></div>
+      <div className="ml-auto flex items-center gap-1.5"><button onClick={() => void refreshFromBackend(true)} disabled={syncing} className={cn("hidden h-8 items-center gap-2 rounded-lg border px-2.5 text-xs font-medium sm:flex", connection === "connected" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")} title={connection === "connected" ? "重新同步 KnowledgeOS API" : "点击重试连接，已有草稿会保留"}><span className={cn("size-2 rounded-full", connection === "connected" ? "bg-emerald-500" : "bg-amber-500")} />{connection === "connected" ? `API 已连接 · ${metadata?.contractVersion ?? ""}` : connectionLabel}<RefreshCw className={cn("size-3", syncing && "animate-spin")} /></button><Button variant="ghost" size="sm" className="hidden h-8 gap-2 rounded-lg text-xs text-[#6e6e67] lg:flex" onClick={() => setCommandOpen(true)}><Search className="size-3.5" />快速命令<kbd className="rounded border border-[#d3d3ce] bg-white px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd></Button><div className="hidden items-center gap-1.5 px-2 text-xs text-[#777770] xl:flex">{errors.length ? <XCircle className="size-3.5 text-rose-500" /> : <CheckCircle2 className="size-3.5 text-emerald-600" />}<span>{errors.length ? `${errors.length} 个错误` : "结构有效"}</span></div><div className="flex h-8 items-center gap-2 rounded-lg border border-[#d8d8d3] bg-white px-2"><Code2 className="size-3.5 text-[#777770]" /><Label className="hidden text-xs text-[#66665f] sm:block">专家</Label><Switch checked={expert} onCheckedChange={setExpert} className="scale-90 data-[state=checked]:bg-[#6557d5]" /></div><Button variant="ghost" size="icon-sm" onClick={reset} aria-label="重新载入控制面" className="text-[#777770]"><RotateCcw /></Button><Button size="sm" variant="outline" onClick={() => setLoginOpen(true)}>{session?.principal ?? "登录"}</Button><Button size="sm" variant="ghost" disabled={syncing || operations.length > 0} onClick={enterDemo}>进入演示</Button></div>
     </header>
+    {draftConflict && <Alert variant="destructive"><AlertTitle>编辑冲突</AlertTitle><AlertDescription>{draftConflict}<Button variant="outline" onClick={reset}>放弃草稿并重新载入</Button></AlertDescription></Alert>}
+    <Dialog open={loginOpen} onOpenChange={setLoginOpen}><DialogContent><DialogHeader><DialogTitle>登录 KnowledgeOS</DialogTitle><DialogDescription>输入管理员分配的个人访问凭证。凭证仅保留在当前页面内存中，刷新页面后需重新登录。</DialogDescription></DialogHeader><Input type="password" autoComplete="off" aria-label="个人访问凭证" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} /><Button disabled={!tokenInput.trim()} onClick={() => void login()}>登录</Button>{session && <Button variant="outline" onClick={() => { ++syncSequence.current; setSessionToken(""); setSession(null); setConnection("unauthorized"); setDefinitions([]); setBaselineDefinitions([]); setOperations([]); setChangeSets([]); setMetadata(null); setLoginOpen(false); }}>退出登录</Button>}</DialogContent></Dialog>
     <TabsContent value="control" className="min-h-0 flex-1 data-[state=inactive]:hidden"><ControlCenter definitions={definitions} errors={errors} metadata={metadata} connection={connection} onOpenDefinition={(id) => { setSelectedId(id); setFocusMode(true); setRightCollapsed(false); setView("studio"); }} onOpenStudio={() => setView("studio")} onOpenExtraction={() => setView("extract")} onOpenReview={() => setView("review")} /></TabsContent>
     <TabsContent value="extract" className="min-h-0 flex-1 data-[state=inactive]:hidden"><ExtractionCenter /></TabsContent>
     <TabsContent value="studio" className="min-h-0 flex-1 data-[state=inactive]:hidden">

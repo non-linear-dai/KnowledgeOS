@@ -6,7 +6,9 @@ KnowledgeOS 的非实例结构与治理控制面。界面从后端 `GET /v1/stud
 
 Copy `.env.example` to `.env.local` for local development and set `KNOWLEDGEOS_API_BASE_URL` to the reachable Ruby API origin. The server-side `/api/knowledgeos/*` proxy exposes only the Studio routes required by this UI, so the browser never needs direct cross-origin access.
 
-When the variable is absent or the backend is unreachable, the UI explicitly switches to a non-durable demonstration snapshot. Local demonstration changes are never presented as persisted KnowledgeOS state.
+Use Studio's login button with a personal bearer token from `KNOWLEDGEOS_AUTH_TOKENS`. The proxy forwards that token to the Ruby API; it does not use a shared service token. Credentials stay in page memory, and `/v1/session` supplies the user's identity and permissions. Hosting-platform sign-in described below is separate and does not grant KnowledgeOS permissions.
+
+Missing configuration, authentication failure, insufficient permissions, and connection loss have distinct UI states. Existing snapshots and drafts are preserved on connection failure. Demo mode is entered only through the explicit demo button. Drafts are rebased on refresh; conflicting changes remain visible and cannot be submitted until resolved. Local demo decisions cannot affect a live ChangeSet.
 
 ## Prerequisites
 
