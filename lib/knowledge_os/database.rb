@@ -36,7 +36,7 @@ module KnowledgeOS
 
     def reset_projection!
       transaction do
-        %w[assertion edge source_ref derived_result audit_event_ref entity_card review_item attribute_candidate node].each do |table|
+        %w[assertion edge source_ref derived_result audit_event_ref entity_card review_item attribute_candidate node_embedding node].each do |table|
           execute("DELETE FROM #{table}")
         end
         execute("DELETE FROM node_fts") if fts_enabled
@@ -161,6 +161,25 @@ module KnowledgeOS
           timestamp TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS audit_outbox (
+          event_id TEXT PRIMARY KEY,
+          event_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL,
+          delivered_at TEXT,
+          last_error TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_outbox_status ON audit_outbox(status, created_at);
+
+        CREATE TABLE IF NOT EXISTS node_embedding (
+          node_id TEXT PRIMARY KEY,
+          model_id TEXT NOT NULL,
+          dimensions INTEGER NOT NULL,
+          vector_json TEXT NOT NULL,
+          source_hash TEXT NOT NULL,
+          FOREIGN KEY(node_id) REFERENCES node(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS entity_card (
           node_id TEXT PRIMARY KEY,
           card_json TEXT NOT NULL,
@@ -207,6 +226,8 @@ module KnowledgeOS
       ensure_column!("changeset", "published_by", "TEXT")
       ensure_column!("changeset", "published_at", "TEXT")
       ensure_column!("changeset", "source_revision", "TEXT")
+      ensure_column!("changeset", "base_revision", "TEXT")
+      ensure_column!("changeset", "publication_json", "TEXT")
 
       begin
         connection.execute <<~SQL

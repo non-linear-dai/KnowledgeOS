@@ -1,0 +1,30 @@
+id: default
+protocol_version: knowledgeos.extraction.v1
+source_types: [text, file, web, audio, meeting_minutes, image, video, email, chat]
+max_source_chars: 500000
+segment_chars: 4000
+existing_entity_limit: 500
+require_evidence: true
+minimum_confidence: 0.0
+source_authority:
+  text: research
+  file: research
+  web: web
+  audio: research
+  meeting_minutes: research
+  image: research
+  video: research
+  email: research
+  chat: research
+identity_prefixes:
+  organization: org
+  market: market
+  product: product
+  project: project
+  task: task
+  relation: relation
+  decision: decision
+model_contract:
+  transport: json_stdio
+  media_input: normalized_text_segments
+  output: provider_neutral_json_schema

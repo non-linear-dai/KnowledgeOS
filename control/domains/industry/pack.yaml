@@ -1,5 +1,6 @@
 id: industry
 label: Industry research
+default_skill: industry-evidence-brief
 concept_scopes: [organization, market, product]
 workflow:
   - resolve_company_market_technology
@@ -13,5 +14,5 @@ retrieval:
   predicate_priority: [finding, market_size, risk_level]
 required_models: []
 tool_policy:
-  allow: [resolve, get, query, neighbors, history, search, explain, propose]
+  allow: [resolve, get, query, neighbors, history, search, explain, context, propose]
   durable_writes: changeset_only

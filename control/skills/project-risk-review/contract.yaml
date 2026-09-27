@@ -1,0 +1,13 @@
+format: knowledgeos.skill-contract.v1
+id: project-risk-review
+label: Project risk review
+entrypoint: SKILL.md
+domain: pm
+inputs:
+  required: [target]
+  optional: [as_of, baseline]
+tools: [resolve, get, context, neighbors, history, calculate, explain]
+deterministic_models: [schedule_variance, project_risk_score]
+output:
+  sections: [answer, status, risks, dependencies, knowledge_gaps, recommended_actions]
+  citations_required: true

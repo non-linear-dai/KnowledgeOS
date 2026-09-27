@@ -6,5 +6,7 @@ module KnowledgeOS
   class NotFoundError < Error; end
   class IntegrityError < Error; end
   class ConfigurationError < Error; end
+  class AuthenticationError < Error; end
+  class AuthorizationError < Error; end
+  class MethodNotAllowedError < Error; end
 end
-

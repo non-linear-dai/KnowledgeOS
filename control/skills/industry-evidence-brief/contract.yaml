@@ -1,0 +1,14 @@
+format: knowledgeos.skill-contract.v1
+id: industry-evidence-brief
+label: Industry evidence brief
+entrypoint: SKILL.md
+domain: industry
+inputs:
+  required: [question]
+  optional: [target, as_of, scope]
+tools: [resolve, search, get, context, history, explain]
+deterministic_models: []
+output:
+  sections: [answer, key_findings, evidence_limits, knowledge_gaps, recommended_actions]
+  citations_required: true
+

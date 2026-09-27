@@ -1,0 +1,9 @@
+format: knowledgeos.constraints.v1
+id: canonical_integrity
+document:
+  unique:
+    - path: knowledge.assertions
+      key: id
+    - path: knowledge.relations
+      key: id
+      ignore_blank: true

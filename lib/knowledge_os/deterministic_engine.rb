@@ -13,12 +13,13 @@ module KnowledgeOS
       @config = config
       @database = database
       @ledger = ledger
+      @audit = AuditCoordinator.new(database: database, ledger: ledger)
     end
 
     def calculate(model_id, inputs, scenario: "default")
       model = load_model(model_id)
       validate_inputs!(model, inputs)
-      normalized = inputs.keys.sort.each_with_object({}) { |key, out| out[key.to_s] = decimal(inputs[key]) }
+      normalized = normalize_inputs(model, inputs)
       input_hash = Digest::SHA256.hexdigest(JSON.generate(normalized.transform_values(&:to_s)))
       existing = @database.first(
         "SELECT * FROM derived_result WHERE model_id = ? AND model_version = ? AND input_hash = ? AND scenario = ?",
@@ -33,24 +34,24 @@ module KnowledgeOS
       now = Time.now.utc.iso8601(6)
       run_id = SecureRandom.uuid
       result = { "value" => rounded.to_s("F"), "unit" => model["output_unit"], "precision" => precision }
+      result["classification"] = classify(model, rounded) if model["bands"]
       id = Digest::SHA256.hexdigest([model_id, model["version"], input_hash, scenario].join(":"))
-      @database.execute(
-        <<~SQL,
-          INSERT INTO derived_result(id, model_id, model_version, input_hash, scenario, output_json, trace_json, run_id, calculated_at, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'current')
-        SQL
-        [id, model_id, model["version"].to_s, input_hash, scenario, JSON.generate(result), JSON.generate(trace), run_id, now]
-      )
-      event = @ledger.append(
-        event_type: "model_run", actor: "rule", target_id: id, after_hash: Digest::SHA256.hexdigest(JSON.generate(result)),
-        reason: "deterministic model execution",
-        payload: { "model_id" => model_id, "version" => model["version"].to_s, "input_hash" => input_hash,
-                   "scenario" => scenario, "run_id" => run_id, "result" => result, "trace" => trace }
-      )
-      @database.execute(
-        "INSERT OR IGNORE INTO audit_event_ref(event_id, event_type, target_id, ledger_sequence, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [event["event_id"], event["event_type"], event["target_id"], event["sequence"], event["timestamp"]]
-      )
+      @database.transaction do
+        @database.execute(
+          <<~SQL,
+            INSERT INTO derived_result(id, model_id, model_version, input_hash, scenario, output_json, trace_json, run_id, calculated_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'current')
+          SQL
+          [id, model_id, model["version"].to_s, input_hash, scenario, JSON.generate(result), JSON.generate(trace), run_id, now]
+        )
+        @audit.stage(
+          event_type: "model_run", actor: "rule", target_id: id,
+          after_hash: Digest::SHA256.hexdigest(JSON.generate(result)), reason: "deterministic model execution",
+          payload: { "model_id" => model_id, "version" => model["version"].to_s, "input_hash" => input_hash,
+                     "scenario" => scenario, "run_id" => run_id, "result" => result, "trace" => trace }
+        )
+      end
+      @audit.flush!
       decode(@database.first("SELECT * FROM derived_result WHERE id = ?", id))
     end
 
@@ -68,7 +69,18 @@ module KnowledgeOS
       Array(model["inputs"]).each do |input|
         id = input.fetch("id")
         raise ValidationError, "missing model input: #{id}" unless inputs.key?(id) || inputs.key?(id.to_sym)
-        decimal(inputs[id] || inputs[id.to_sym])
+        raw = inputs.key?(id) ? inputs[id] : inputs[id.to_sym]
+        input["type"] == "date" ? Time.iso8601(raw.to_s) : decimal(raw)
+      rescue ArgumentError
+        raise ValidationError, "invalid #{input['type'] || 'number'} model input: #{id}"
+      end
+    end
+
+    def normalize_inputs(model, inputs)
+      Array(model["inputs"]).sort_by { |input| input.fetch("id") }.each_with_object({}) do |input, output|
+        id = input.fetch("id")
+        raw = inputs.key?(id) ? inputs[id] : inputs[id.to_sym]
+        output[id] = input["type"] == "date" ? Time.iso8601(raw.to_s).utc : decimal(raw)
       end
     end
 
@@ -92,11 +104,33 @@ module KnowledgeOS
                 right = evaluate(node.fetch("right"), inputs, trace)
                 raise ValidationError, "division by zero" if right.zero?
                 left / right
+              when "date_diff_days"
+                start_time = evaluate(node.fetch("start"), inputs, trace)
+                end_time = evaluate(node.fetch("end"), inputs, trace)
+                unless start_time.is_a?(Time) && end_time.is_a?(Time)
+                  raise ConfigurationError, "date_diff_days requires date inputs"
+                end
+                BigDecimal(((end_time - start_time) / 86_400).to_s)
               else
                 raise ConfigurationError, "unsupported deterministic operation: #{op}"
               end
-      trace << { "op" => op, "value" => value.to_s("F") }
+      trace << { "op" => op, "value" => trace_value(value) }
       value
+    end
+
+    def trace_value(value)
+      value.is_a?(BigDecimal) ? value.to_s("F") : value.iso8601
+    end
+
+    def classify(model, output)
+      Array(model["bands"]).each do |band|
+        minimum = band.key?("min") ? decimal(band["min"]) : nil
+        maximum = band.key?("max") ? decimal(band["max"]) : nil
+        next if minimum && output < minimum
+        next if maximum && output > maximum
+        return band.fetch("id")
+      end
+      raise ConfigurationError, "model #{model['id']} bands do not cover output #{output.to_s('F')}"
     end
 
     def decimal(value)
@@ -115,4 +149,3 @@ module KnowledgeOS
     end
   end
 end
-

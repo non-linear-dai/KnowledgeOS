@@ -3,6 +3,7 @@ label: Task status
 value:
   type: enum
   cardinality: temporal_many
+  allowed: [not_started, in_progress, blocked, completed, cancelled]
 storage:
   mode: assertion
 semantics:
@@ -19,4 +20,3 @@ policy:
 status:
   lifecycle: active
   equivalent_to:
-

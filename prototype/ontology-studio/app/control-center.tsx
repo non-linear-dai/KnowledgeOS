@@ -12,6 +12,7 @@ import {
   Route,
   Scale,
   ShieldCheck,
+  Sparkles,
   Workflow,
   XCircle,
 } from "lucide-react";
@@ -36,7 +37,7 @@ const loopSteps = [
   { label: "注册与校验", detail: "引用、形状、端点、模型", icon: ShieldCheck },
   { label: "编译与投影", detail: "SQLite 索引与实体卡", icon: DatabaseZap },
   { label: "统一 API", detail: "/v1/control · Knowledge API", icon: Route },
-  { label: "治理变更", detail: "ChangeSet → 审核 → 发布登记", icon: GitPullRequestArrow },
+  { label: "治理变更", detail: "ChangeSet → 审核 → 真源验证发布", icon: GitPullRequestArrow },
 ];
 
 function DefinitionList({ title, subtitle, items, onOpen }: { title: string; subtitle: string; items: OntologyDefinition[]; onOpen: (id: string) => void }) {
@@ -55,13 +56,14 @@ function DefinitionList({ title, subtitle, items, onOpen }: { title: string; sub
   </section>;
 }
 
-export function ControlCenter({ definitions, errors, metadata, connection, onOpenDefinition, onOpenStudio, onOpenReview }: {
+export function ControlCenter({ definitions, errors, metadata, connection, onOpenDefinition, onOpenStudio, onOpenExtraction, onOpenReview }: {
   definitions: OntologyDefinition[];
   errors: string[];
   metadata: StudioMetadata | null;
   connection: ApiConnectionState;
   onOpenDefinition: (id: string) => void;
   onOpenStudio: () => void;
+  onOpenExtraction: () => void;
   onOpenReview: () => void;
 }) {
   const byKind = (kind: DefinitionKind) => definitions.filter((item) => item.kind === kind);
@@ -72,7 +74,7 @@ export function ControlCenter({ definitions, errors, metadata, connection, onOpe
     ["关系类型", byKind("relation").length, expected("relation", 6)],
     ["判断类型", byKind("predicate").length, expected("predicate", 9)],
     ["治理策略", byKind("policy").length, expected("policy", 4)],
-    ["确定性模型", byKind("model").length, expected("model", 1)],
+    ["确定性模型", byKind("model").length, expected("model", 3)],
     ["工作领域", byKind("domain").length, expected("domain", 3)],
     ["连接器映射", byKind("connector").length, expected("connector", 1)],
   ] as const;
@@ -83,10 +85,10 @@ export function ControlCenter({ definitions, errors, metadata, connection, onOpe
       <section className="overflow-hidden rounded-3xl border border-[#cad1dc] bg-[#111827] text-white shadow-xl">
         <div className="grid gap-8 p-6 lg:grid-cols-[1.2fr_.8fr] lg:p-8">
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-cyan-300"><CircleDot className="size-3.5" />Control Plane · Contract {metadata?.contractVersion ?? "3.1"}</div>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-cyan-300"><CircleDot className="size-3.5" />Control Plane · Contract {metadata?.contractVersion ?? "3.2"}</div>
             <h1 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight sm:text-3xl">KnowledgeOS 完整结构与治理控制面</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">以 Git 真源为起点统一管理本体、判断策略、确定性模型、领域行为、连接器映射和 ChangeSet。实例数据不在此处编辑。</p>
-            <div className="mt-6 flex flex-wrap gap-3"><Button onClick={onOpenStudio} className="bg-cyan-300 text-slate-950 hover:bg-cyan-200"><Network />进入结构白板</Button><Button onClick={onOpenReview} variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><GitPullRequestArrow />治理审核</Button></div>
+            <div className="mt-6 flex flex-wrap gap-3"><Button onClick={onOpenExtraction} className="bg-cyan-300 text-slate-950 hover:bg-cyan-200"><Sparkles />知识抽取</Button><Button onClick={onOpenStudio} variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><Network />进入结构白板</Button><Button onClick={onOpenReview} variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><GitPullRequestArrow />治理审核</Button></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-slate-400">注册定义</p><p className="mt-2 text-3xl font-semibold">{definitions.length}</p><p className="mt-1 text-xs text-slate-400">{connection === "connected" ? "API 实时映射 · 8 类对象" : "演示快照 · 8 类对象"}</p></div>

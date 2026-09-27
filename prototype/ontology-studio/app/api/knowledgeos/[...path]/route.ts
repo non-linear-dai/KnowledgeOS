@@ -7,7 +7,7 @@ type RouteContext = { params: Promise<{ path?: string[] }> };
 
 const allowedRoutes: Record<string, Set<string>> = {
   GET: new Set(["/health", "/v1/studio", "/v1/changesets"]),
-  POST: new Set(["/v1/propose", "/v1/changesets/review", "/v1/changesets/publish"]),
+  POST: new Set(["/v1/propose", "/v1/changesets/review", "/v1/changesets/publish", "/v1/extraction/request", "/v1/extraction/candidates"]),
 };
 
 function json(status: number, body: Record<string, unknown>) {
@@ -29,11 +29,14 @@ async function forward(request: NextRequest, context: RouteContext) {
     return json(500, { error: "KNOWLEDGEOS_API_BASE_URL 配置无效" });
   }
   target.search = request.nextUrl.search;
+  const apiToken = env.KNOWLEDGEOS_API_TOKEN?.trim();
+  if (!apiToken) return json(503, { error: "KnowledgeOS 服务令牌尚未配置", code: "BACKEND_AUTH_NOT_CONFIGURED" });
 
   try {
     const upstream = await fetch(target, {
       method: request.method,
-      headers: { Accept: "application/json", ...(request.headers.get("content-type") ? { "Content-Type": request.headers.get("content-type")! } : {}) },
+      headers: { Accept: "application/json", Authorization: `Bearer ${apiToken}`,
+        ...(request.headers.get("content-type") ? { "Content-Type": request.headers.get("content-type")! } : {}) },
       body: request.method === "GET" ? undefined : await request.text(),
       cache: "no-store",
     });

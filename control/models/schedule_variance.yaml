@@ -1,0 +1,21 @@
+id: schedule_variance
+version: "1.0.0"
+description: Deterministic calendar-day variance between baseline and forecast finish dates.
+inputs:
+  - id: baseline_finish
+    type: date
+    unit: iso8601_date
+  - id: forecast_finish
+    type: date
+    unit: iso8601_date
+formula:
+  op: date_diff_days
+  start:
+    op: input
+    id: baseline_finish
+  end:
+    op: input
+    id: forecast_finish
+precision: 0
+rounding: half_up
+output_unit: calendar_days

@@ -9,13 +9,16 @@ module KnowledgeOS
   class Compiler
     attr_reader :config, :registry, :database, :ledger
 
-    def initialize(config:, registry: nil, database: nil, ledger: nil)
+    def initialize(config:, registry: nil, database: nil, ledger: nil, clock: -> { Time.now.utc })
       @config = config
       @config.ensure_runtime!
       @registry = registry || Registry.new(config)
       @database = database || Database.new(config.index_path)
       @ledger = ledger || Ledger.new(config.ledger_path)
       @validator = Validator.new(@registry)
+      @policy_engine = PolicyEngine.new(registry: @registry, clock: clock)
+      @audit = AuditCoordinator.new(database: @database, ledger: @ledger)
+      @semantic_index = SemanticIndex.new(database: @database)
     end
 
     def compile(rebuild: false)
@@ -48,37 +51,31 @@ module KnowledgeOS
           changed << rel
         end
         validate_projected_relations!
+        reclassify_assertions!
         rebuild_cards!
         scan_maintenance!
+        generation = Time.now.utc.iso8601(6)
         database.execute(
           "INSERT INTO metadata(key, value) VALUES('index_generation', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-          [Time.now.utc.iso8601(6)]
+          [generation]
+        )
+        changed.each do |rel|
+          hash = database.first("SELECT value FROM metadata WHERE key = ?", "source:#{rel}")["value"]
+          @audit.stage(
+            event_type: "git_publication", actor: "compiler", target_id: rel, source_ref: rel,
+            after_hash: hash, reason: rebuild ? "index rebuild" : "incremental compile",
+            payload: { "source_path" => rel },
+            event_id: Digest::SHA256.hexdigest("git_publication:#{rel}:#{hash}")
+          )
+        end
+        @audit.stage(
+          event_type: rebuild ? "index_rebuild" : "index_compile", actor: "compiler",
+          target_id: "knowledge.index.db", reason: rebuild ? "rebuild requested" : "incremental compile requested",
+          payload: { "changed" => changed, "skipped" => skipped, "files" => paths.length },
+          event_id: rebuild ? nil : Digest::SHA256.hexdigest("index_compile:#{changed.sort.join(',')}:#{generation}")
         )
       end
-
-      changed.each do |rel|
-        hash = database.first("SELECT value FROM metadata WHERE key = ?", "source:#{rel}")["value"]
-        event = ledger.append(
-          event_type: "git_publication",
-          actor: "compiler",
-          target_id: rel,
-          source_ref: rel,
-          after_hash: hash,
-          reason: rebuild ? "index rebuild" : "incremental compile",
-          payload: { "source_path" => rel },
-          event_id: Digest::SHA256.hexdigest("git_publication:#{rel}:#{hash}")
-        )
-        mirror_event!(event)
-      end
-      rebuild_event = ledger.append(
-        event_type: rebuild ? "index_rebuild" : "index_compile",
-        actor: "compiler",
-        target_id: "knowledge.index.db",
-        reason: rebuild ? "rebuild requested" : "incremental compile requested",
-        payload: { "changed" => changed, "skipped" => skipped, "files" => paths.length },
-        event_id: rebuild ? nil : Digest::SHA256.hexdigest("index_compile:#{changed.sort.join(',')}:#{current_generation}")
-      )
-      mirror_event!(rebuild_event)
+      @audit.flush!
       { "files" => paths.length, "changed" => changed, "skipped" => skipped, "rebuild" => rebuild }
     end
 
@@ -189,7 +186,10 @@ module KnowledgeOS
          database.json(assertion["qualifiers"] || {}), temporal["observed_at"], temporal["valid_from"], temporal["valid_to"],
          epistemic["assertion_kind"] || "claim", status, epistemic["confidence"],
          database.json(Array(provenance["evidence_refs"])), database.json(Array(provenance["source_refs"])),
-         version["supersedes"], tier, temperature(status, temporal), source_path, source_hash]
+         version["supersedes"], tier,
+         @policy_engine.assertion_temperature(predicate_id: predicate_id, status: status,
+                                              observed_at: temporal["observed_at"], valid_to: temporal["valid_to"]),
+         source_path, source_hash]
       )
     end
 
@@ -212,29 +212,66 @@ module KnowledgeOS
         LEFT JOIN node source ON source.id = e.src
         LEFT JOIN node target ON target.id = e.dst
       SQL
-        next unless row["source_type"] && row["target_type"]
+        raise ValidationError, "relation #{row['src']} -> #{row['dst']} has a missing endpoint" unless row["source_type"] && row["target_type"]
         definition = registry.relation(row["predicate"])
         connections = Array(definition && definition["connections"])
         next if connections.empty?
         next if connections.any? { |item| item["source_type"] == row["source_type"] && item["target_type"] == row["target_type"] }
         raise ValidationError, "relation #{row['predicate']} does not allow #{row['source_type']} -> #{row['target_type']} (#{row['src']} -> #{row['dst']})"
       end
+      registry.ontology.fetch("relation_types", []).each do |definition|
+        predicate = definition.fetch("id")
+        Array(definition["connections"]).each do |connection|
+          if connection["source_cardinality"] == "one"
+            violating = database.first(
+              <<~SQL, [predicate, connection["source_type"], connection["target_type"]]
+                SELECT e.dst, count(DISTINCT e.src) AS count
+                FROM edge e JOIN node s ON s.id=e.src JOIN node t ON t.id=e.dst
+                WHERE e.predicate=? AND s.type=? AND t.type=? GROUP BY e.dst HAVING count(DISTINCT e.src) > 1 LIMIT 1
+              SQL
+            )
+            raise ValidationError, "relation #{predicate} violates source cardinality one for #{violating['dst']}" if violating
+          end
+          if connection["target_cardinality"] == "one"
+            violating = database.first(
+              <<~SQL, [predicate, connection["source_type"], connection["target_type"]]
+                SELECT e.src, count(DISTINCT e.dst) AS count
+                FROM edge e JOIN node s ON s.id=e.src JOIN node t ON t.id=e.dst
+                WHERE e.predicate=? AND s.type=? AND t.type=? GROUP BY e.src HAVING count(DISTINCT e.dst) > 1 LIMIT 1
+              SQL
+            )
+            raise ValidationError, "relation #{predicate} violates target cardinality one for #{violating['src']}" if violating
+          end
+        end
+        next unless definition["reification"]
+        if definition.fetch("mode", "simple") == "reified"
+          missing = database.first("SELECT src, dst FROM edge WHERE predicate = ? AND rel_id = '' LIMIT 1", [predicate])
+          raise ValidationError, "reified relation #{predicate} requires an identity for #{missing['src']} -> #{missing['dst']}" if missing
+        end
+        database.execute("SELECT * FROM edge WHERE predicate = ? AND rel_id <> ''", [predicate]).each do |edge|
+          node = database.first("SELECT type FROM node WHERE id = ?", [edge["rel_id"]])
+          expected = definition.dig("reification", "node_type")
+          raise ValidationError, "relation #{predicate} reification #{edge['rel_id']} must be a #{expected} node" unless node && node["type"] == expected
+          attrs = JSON.parse(database.first("SELECT attrs_json FROM node WHERE id = ?", [edge["rel_id"]])["attrs_json"])
+          asserted = database.execute("SELECT DISTINCT predicate FROM assertion WHERE node_id = ?", [edge["rel_id"]]).map { |row| row["predicate"] }
+          Array(definition.dig("reification", "properties")).select { |item| item["required"] }.each do |binding|
+            id = binding.fetch("predicate")
+            unless attrs.key?(id) || asserted.include?(id)
+              raise ValidationError, "relation #{predicate} reification #{edge['rel_id']} requires predicate #{id}"
+            end
+          end
+        end
+      end
     end
 
-    def temperature(status, temporal)
-      return "hot" if status == "confirmed" && !expired?(temporal["valid_to"])
-      date = temporal["valid_to"] || temporal["observed_at"]
-      return "warm" unless date
-      age_days = ((Time.now.utc - Time.iso8601(date.to_s)) / 86_400).to_i
-      age_days > 365 ? "cold" : "warm"
-    rescue ArgumentError
-      "warm"
-    end
-
-    def expired?(value)
-      value && Time.iso8601(value.to_s) < Time.now.utc
-    rescue ArgumentError
-      false
+    def reclassify_assertions!
+      database.execute("SELECT id, predicate, status, observed_at, valid_to FROM assertion").each do |row|
+        value = @policy_engine.assertion_temperature(
+          predicate_id: row["predicate"], status: row["status"],
+          observed_at: row["observed_at"], valid_to: row["valid_to"]
+        )
+        database.execute("UPDATE assertion SET temperature = ? WHERE id = ?", [value, row["id"]])
+      end
     end
 
     def rebuild_cards!
@@ -262,6 +299,8 @@ module KnowledgeOS
           body = [node["narrative"], searchable_assertions(assertions)].join("\n")
           database.execute("INSERT INTO node_fts(node_id, label, body) VALUES (?, ?, ?)", [node["id"], node["label"], body])
         end
+        semantic_text = [node["label"], node["narrative"], searchable_assertions(assertions)].join("\n")
+        @semantic_index.index(node_id: node["id"], text: semantic_text, source_hash: node["source_hash"])
       end
     end
 
@@ -280,19 +319,50 @@ module KnowledgeOS
 
     def scan_maintenance!
       now = Time.now.utc.iso8601(6)
-      database.execute("DELETE FROM review_item WHERE status = 'open' AND kind IN ('broken_relation','tier_a_provenance','deprecated_predicate','authority_conflict')")
+      managed = %w[broken_relation provenance stale_assertion deprecated_predicate authority_conflict assertion_externalization]
+      database.execute("DELETE FROM review_item WHERE status = 'open' AND kind IN (#{(['?'] * managed.length).join(',')})", managed)
       database.execute(<<~SQL).each do |row|
         SELECT e.src, e.predicate, e.dst
         FROM edge e LEFT JOIN node n ON n.id = e.dst
         WHERE n.id IS NULL
       SQL
-        review!("broken_relation", row["src"], 55, "relation target does not exist", row, now)
+        review!("broken_relation", row["src"], rule_score("broken_relation", 55), "relation target does not exist", row, now)
       end
-      database.execute("SELECT * FROM assertion WHERE provenance_tier = 'A' AND status = 'confirmed'").each do |row|
-        next unless JSON.parse(row["source_refs_json"]).empty? || JSON.parse(row["evidence_refs_json"]).empty?
-        review!("tier_a_provenance", row["id"], 95, "Tier A assertion lacks required provenance", row, now)
+      database.execute("SELECT * FROM assertion WHERE status = 'confirmed'").each do |row|
+        assertion = { "provenance" => { "source_refs" => JSON.parse(row["source_refs_json"]),
+                                          "evidence_refs" => JSON.parse(row["evidence_refs_json"]) } }
+        errors = @policy_engine.provenance_errors(row["predicate"], assertion)
+        review!("provenance", row["id"], rule_score("provenance", 95), errors.join("; "), row, now) unless errors.empty?
+        if @policy_engine.stale?(row["predicate"], row["observed_at"])
+          review!("stale_assertion", row["id"], rule_score("stale_assertion", 60), "assertion exceeds its freshness policy", row, now)
+        end
+        predicate = registry.predicate(row["predicate"])
+        if predicate && predicate.dig("status", "lifecycle") == "deprecated"
+          review!("deprecated_predicate", row["id"], rule_score("deprecated_predicate", 70), "assertion uses a deprecated predicate", row, now)
+        end
       end
+      scan_externalization!(now)
       scan_attr_conflicts!(now)
+    end
+
+    def scan_externalization!(now)
+      policy = registry.maintenance_policy.fetch("assertion_externalization", {})
+      inline_limit = policy.fetch("inline_count", 0).to_i
+      byte_limit = policy.fetch("frontmatter_bytes", 0).to_i
+      historical_limit = policy.fetch("historical_count", 0).to_i
+      database.execute("SELECT source_path, count(*) AS count FROM assertion WHERE source_path LIKE 'knowledge/%' GROUP BY source_path").each do |row|
+        path = config.root.join(row["source_path"])
+        too_many = inline_limit.positive? && row["count"].to_i > inline_limit
+        too_large = byte_limit.positive? && path.file? && path.size > byte_limit
+        historical = database.first(
+          "SELECT count(*) AS count FROM assertion WHERE source_path = ? AND temperature <> 'hot'", [row["source_path"]]
+        )["count"].to_i
+        too_historical = historical_limit.positive? && historical > historical_limit
+        next unless too_many || too_large || too_historical
+        review!("assertion_externalization", row["source_path"], rule_score("assertion_externalization", 45),
+                "authored assertions exceed the configured externalization threshold",
+                row.merge("historical_count" => historical), now)
+      end
     end
 
     def sync_git_attr_candidates!(node_id, attrs, source_path, source_hash, observed_at)
@@ -329,7 +399,7 @@ module KnowledgeOS
         best_rank = candidates.map { |item| authority_rank(policy, item["source_class"]) }.min
         peers = candidates.select { |item| authority_rank(policy, item["source_class"]) == best_rank }
         next if peers.map { |item| item["value_json"] }.uniq.length < 2
-        review!("authority_conflict", "#{node_id}:#{predicate}", 80, "equal-authority attribute values conflict",
+        review!("authority_conflict", "#{node_id}:#{predicate}", rule_score("authority_conflict", 80), "equal-authority attribute values conflict",
                 { "node_id" => node_id, "predicate" => predicate,
                   "candidates" => peers.map { |item| clean_row(item) } }, now)
       end
@@ -343,9 +413,17 @@ module KnowledgeOS
       1_000
     end
 
+    def rule_score(id, default)
+      registry.rules.each do |definition|
+        value = definition.dig("review_scores", id)
+        return value.to_i unless value.nil?
+      end
+      default
+    end
+
     def review!(kind, target, severity, reason, details, now)
       id = Digest::SHA256.hexdigest([kind, target, reason].join(":"))
-      priority = severity >= 90 ? "P0" : severity >= 70 ? "P1" : severity >= 40 ? "P2" : "P3"
+      priority = @policy_engine.priority_for(severity)
       database.execute(
         <<~SQL,
           INSERT INTO review_item(id, kind, target_id, severity, priority, reason, details_json, status, created_at, updated_at)
@@ -364,18 +442,6 @@ module KnowledgeOS
         database.execute("DELETE FROM node WHERE source_path = ?", rel)
         database.execute("DELETE FROM metadata WHERE key = ?", row["key"])
       end
-    end
-
-    def mirror_event!(event)
-      database.execute(
-        "INSERT OR IGNORE INTO audit_event_ref(event_id, event_type, target_id, ledger_sequence, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [event["event_id"], event["event_type"], event["target_id"], event["sequence"], event["timestamp"]]
-      )
-    end
-
-    def current_generation
-      row = database.first("SELECT value FROM metadata WHERE key = 'index_generation'")
-      row ? row["value"] : "none"
     end
 
     def assertion_hash(row)

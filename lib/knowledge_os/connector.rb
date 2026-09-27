@@ -11,6 +11,9 @@ module KnowledgeOS
       @registry = registry
       @database = database
       @ledger = ledger
+      @audit = AuditCoordinator.new(database: database, ledger: ledger)
+      @policy_engine = PolicyEngine.new(registry: registry)
+      @semantic_index = SemanticIndex.new(database: database)
     end
 
     def ingest_ndjson(input_path, mapping_path)
@@ -65,19 +68,15 @@ module KnowledgeOS
         ingest_attrs!(node_id, mapping["attrs"] || {}, record, source_ref_id, authority, source_hash, timestamp)
         ingest_assertions!(node_id, mapping["assertions"] || {}, record, source_ref_id, source_hash, timestamp)
         rebuild_card!(node_id, now)
+        @audit.stage(
+          event_type: "connector_ingest", actor: "connector", target_id: node_id, source_ref: source_ref_id,
+          after_hash: source_hash, reason: "enterprise source delta",
+          payload: { "source_system" => mapping["source_system"], "source_object" => mapping["source_object"],
+                     "record_id" => record_id, "version" => version },
+          event_id: Digest::SHA256.hexdigest("connector:#{source_ref_id}:#{version}:#{source_hash}")
+        )
       end
-
-      event = @ledger.append(
-        event_type: "connector_ingest", actor: "connector", target_id: node_id, source_ref: source_ref_id,
-        after_hash: source_hash, reason: "enterprise source delta",
-        payload: { "source_system" => mapping["source_system"], "source_object" => mapping["source_object"],
-                   "record_id" => record_id, "version" => version },
-        event_id: Digest::SHA256.hexdigest("connector:#{source_ref_id}:#{version}:#{source_hash}")
-      )
-      @database.execute(
-        "INSERT OR IGNORE INTO audit_event_ref(event_id, event_type, target_id, ledger_sequence, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [event["event_id"], event["event_type"], event["target_id"], event["sequence"], event["timestamp"]]
-      )
+      @audit.flush!
     end
 
     def ensure_node!(id, mapping, key, label, authority, source_ref_id, source_hash, now)
@@ -127,20 +126,23 @@ module KnowledgeOS
           [node_id, predicate_id, "connector:#{source_ref_id}"]
         )
         if prior && prior["id"] != assertion_id
-          @database.execute("UPDATE assertion SET status = 'superseded', temperature = 'warm' WHERE id = ?", prior["id"])
+          @database.execute("UPDATE assertion SET status = 'superseded', temperature = 'warm', valid_to = ? WHERE id = ?", [observed_at, prior["id"]])
         end
+        status = predicate.dig("policy", "write") == "auto" ? "confirmed" : "proposed"
+        temperature = @policy_engine.assertion_temperature(predicate_id: predicate_id, status: status,
+                                                           observed_at: observed_at, valid_to: nil)
         @database.execute(
           <<~SQL,
             INSERT INTO assertion(id, node_id, predicate, value_json, qualifiers_json, observed_at, valid_from, valid_to,
               assertion_kind, status, confidence, evidence_refs_json, source_refs_json, supersedes,
               provenance_tier, temperature, source_path, source_hash)
-            VALUES (?, ?, ?, ?, '{}', ?, ?, NULL, ?, 'confirmed', 1.0, ?, ?, ?, ?, 'hot', ?, ?)
+            VALUES (?, ?, ?, ?, '{}', ?, ?, NULL, ?, ?, 1.0, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO NOTHING
           SQL
           [assertion_id, node_id, predicate_id, JSON.generate({ "type" => predicate.dig("value", "type"), "literal" => value }),
            observed_at, observed_at, definition.fetch("kind", "measurement"),
-           JSON.generate(["snapshot:#{source_hash}"]), JSON.generate([source_ref_id]), prior && prior["id"], tier,
-           "connector:#{source_ref_id}", source_hash]
+           status, JSON.generate(["snapshot:#{source_hash}"]), JSON.generate([source_ref_id]), prior && prior["id"], tier,
+           temperature, "connector:#{source_ref_id}", source_hash]
         )
       end
     end
@@ -186,6 +188,8 @@ module KnowledgeOS
         "INSERT INTO entity_card(node_id, card_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(node_id) DO UPDATE SET card_json=excluded.card_json, updated_at=excluded.updated_at",
         [node_id, JSON.generate(card), now]
       )
+      @semantic_index.index(node_id: node_id, text: [node["label"], assertions.map { |item| item["value"] }].join("\n"),
+                            source_hash: node["source_hash"])
     end
 
     def fetch_field(record, dotted)

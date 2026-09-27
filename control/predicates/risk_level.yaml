@@ -3,6 +3,7 @@ label: Risk level
 value:
   type: enum
   cardinality: temporal_many
+  allowed: [low, medium, high, critical]
 storage:
   mode: assertion
 semantics:
@@ -19,4 +20,3 @@ policy:
 status:
   lifecycle: active
   equivalent_to:
-

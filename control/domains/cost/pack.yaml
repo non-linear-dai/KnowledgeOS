@@ -1,5 +1,6 @@
 id: cost
 label: Cost analysis
+default_skill: cost-rollup-analysis
 concept_scopes: [product, organization]
 workflow:
   - resolve_target
@@ -14,5 +15,5 @@ retrieval:
   predicate_priority: [unit_cost, lead_time_days, risk_level]
 required_models: [cost_rollup]
 tool_policy:
-  allow: [resolve, get, query, neighbors, history, calculate, explain]
+  allow: [resolve, get, query, neighbors, history, calculate, explain, context]
   durable_writes: changeset_only

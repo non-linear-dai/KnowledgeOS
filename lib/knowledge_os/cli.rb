@@ -31,6 +31,13 @@ module KnowledgeOS
       when "context" then context
       when "calculate" then calculate
       when "ingest" then ingest
+      when "extract-contract" then extract_contract
+      when "extract" then extract
+      when "agent-capabilities" then agent_capabilities
+      when "agent-skill" then agent_skill
+      when "agent-request" then agent_request
+      when "agent-respond" then agent_respond
+      when "agent-invoke" then agent_invoke
       when "review" then with_service { |service| print_json(service.review(priority: option("--priority"), limit: option("--limit", 100).to_i)) }
       when "propose" then propose
       when "review-changeset" then review_changeset
@@ -115,6 +122,91 @@ module KnowledgeOS
       service.close if service
     end
 
+    def extract_contract
+      source, profile, materializer = extraction_options
+      with_service do |service|
+        print_json(service.extraction_request(source: source, profile: profile, materializer: materializer))
+      end
+    end
+
+    def extract
+      model_command = option("--model-command")
+      model_response = option("--model-response")
+      unless [model_command, model_response].compact.length == 1
+        raise ValidationError, "provide exactly one of --model-command or --model-response"
+      end
+      source, profile, materializer = extraction_options
+      adapter = if model_command
+                  CommandModelAdapter.new(model_command, timeout_seconds: option("--timeout", 120).to_i)
+                else
+                  StaticModelAdapter.new(JSON.parse(File.read(model_response)))
+                end
+      with_service do |service|
+        print_json(service.extract_candidates(source: source, model_adapter: adapter,
+                                              profile: profile, materializer: materializer))
+      end
+    rescue Errno::ENOENT, Errno::EACCES => e
+      raise ValidationError, "cannot read model response: #{e.message}"
+    end
+
+    def extraction_options
+      kind = option("--source-type") || raise(ValidationError, "--source-type is required")
+      source_path = option("--source")
+      locator = option("--locator") || source_path
+      content_file = option("--content-file")
+      content = content_file && File.read(content_file)
+      materializer_command = option("--materializer-command")
+      materializer = materializer_command && CommandMaterializer.new(
+        materializer_command, timeout_seconds: option("--materializer-timeout", 120).to_i
+      )
+      source = { "kind" => kind, "locator" => locator, "content" => content,
+                 "mime_type" => option("--mime-type"), "captured_at" => option("--captured-at"),
+                 "metadata" => {} }.reject { |_, value| value.nil? }
+      [source, option("--profile", "default"), materializer]
+    rescue Errno::ENOENT, Errno::EACCES => e
+      raise ValidationError, "cannot read source content: #{e.message}"
+    end
+
+    def agent_capabilities
+      with_service { |service| print_json(service.agent_capabilities(domain: option("--domain"))) }
+    end
+
+    def agent_skill
+      with_service { |service| print_json(service.agent_skill(id: required_arg("skill id"))) }
+    end
+
+    def agent_request
+      question = required_arg("question")
+      domain = option("--domain") || raise(ValidationError, "--domain is required")
+      with_service do |service|
+        print_json(service.agent_request(question: question, domain: domain, target: option("--target"),
+                                         query: option("--query"), skill: option("--skill"),
+                                         as_of: option("--as-of"), max_items: option("--max-items", 25).to_i))
+      end
+    end
+
+    def agent_respond
+      request_file = option("--request") || raise(ValidationError, "--request is required")
+      response_file = option("--model-response") || raise(ValidationError, "--model-response is required")
+      request = JSON.parse(File.read(request_file))
+      request = request["data"] if request["data"].is_a?(Hash)
+      model_output = JSON.parse(File.read(response_file))
+      tool_results_file = option("--tool-results")
+      tool_results = tool_results_file ? JSON.parse(File.read(tool_results_file)) : []
+      with_service do |service|
+        print_json(service.agent_respond(request: request, model_output: model_output, tool_results: tool_results))
+      end
+    rescue Errno::ENOENT, Errno::EACCES => e
+      raise ValidationError, "cannot read agent JSON: #{e.message}"
+    end
+
+    def agent_invoke
+      operation = required_arg("operation")
+      domain = option("--domain") || raise(ValidationError, "--domain is required")
+      arguments = JSON.parse(option("--arguments", "{}"))
+      with_service { |service| print_json(service.agent_invoke(domain: domain, operation: operation, arguments: arguments)) }
+    end
+
     def propose
       actor = option("--actor") || raise(ValidationError, "--actor is required")
       source = option("--target-source") || raise(ValidationError, "--target-source is required")
@@ -149,8 +241,9 @@ module KnowledgeOS
     def serve
       bind = option("--bind", "127.0.0.1")
       port = option("--port", 8787).to_i
+      auth = AccessControl.from_env
       warn "KnowledgeOS API listening on http://#{bind}:#{port}"
-      API.new(service: Service.new(config: config), bind: bind, port: port).start
+      API.new(service: Service.new(config: config), bind: bind, port: port, auth: auth).start
       0
     end
 
@@ -205,12 +298,24 @@ module KnowledgeOS
           context ID --domain DOMAIN     Build a C-R-L-T-P Context Pack
           calculate MODEL --inputs JSON  Run a deterministic model
           ingest --input FILE --mapping FILE
+          extract-contract --source-type TYPE [--source FILE|--content-file FILE]
+                                         Build a provider-neutral, ontology-derived extraction request
+          extract --source-type TYPE ... (--model-command CMD|--model-response FILE)
+                                         Generate validated create/update candidates without writing
+          agent-capabilities [--domain D] Discover domain skills, governed tools, and response schema
+          agent-skill ID                   Read a portable SKILL.md + contract.yaml bundle
+          agent-request QUESTION --domain D [--target ID] [--skill ID]
+                                         Build a grounded, provider-neutral reasoning request
+          agent-respond --request FILE --model-response FILE [--tool-results FILE]
+                                         Validate citations and normalize model output
+          agent-invoke OP --domain D --arguments JSON
+                                         Invoke one domain-allowlisted KnowledgeOS tool
           review [--priority P0]         List maintenance exceptions
           propose ...                    Create an Agent ChangeSet
           review-changeset ID ...        Record a governance decision
           publish-changeset ID ...       Record source publication after approval
           verify-ledger                  Verify the immutable hash chain
-          serve [--bind HOST --port N]   Start the local JSON API
+          serve [--bind HOST --port N]   Start the authenticated JSON API (requires auth env)
       TEXT
     end
   end

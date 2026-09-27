@@ -340,6 +340,38 @@ export const initialDefinitions: OntologyDefinition[] = [
     readOnly: true,
   },
   {
+    id: "model:schedule_variance",
+    kind: "model",
+    label: "计划偏差",
+    description: "依据有证据的基线与预测完成日期，确定性计算日历日偏差。",
+    lifecycle: "active",
+    sourcePath: "control/models/schedule_variance.yaml",
+    refs: 2,
+    files: ["control/models/schedule_variance.yaml", "control/domains/pm/pack.yaml"],
+    config: {
+      model_id: "schedule_variance", version: "1.0.0",
+      inputs: [{ id: "baseline_finish", type: "date" }, { id: "forecast_finish", type: "date" }],
+      formula: "forecast_finish − baseline_finish", precision: 0, rounding: "half_up", output_unit: "calendar_days",
+    },
+    readOnly: true,
+  },
+  {
+    id: "model:project_risk_score",
+    kind: "model",
+    label: "项目风险评分",
+    description: "把进度偏差、阻塞依赖和高风险项转换为可追踪的风险分值与等级。",
+    lifecycle: "active",
+    sourcePath: "control/models/project_risk_score.yaml",
+    refs: 2,
+    files: ["control/models/project_risk_score.yaml", "control/domains/pm/pack.yaml"],
+    config: {
+      model_id: "project_risk_score", version: "1.0.0",
+      inputs: [{ id: "schedule_delay_days" }, { id: "blocked_dependencies" }, { id: "high_risk_items" }],
+      formula: "delay × 0.2 + blocked × 2 + high-risk × 3", precision: 1, rounding: "half_up", output_unit: "risk_points",
+    },
+    readOnly: true,
+  },
+  {
     id: "domain:cost",
     kind: "domain",
     label: "成本分析",
@@ -391,7 +423,7 @@ export const initialDefinitions: OntologyDefinition[] = [
     config: {
       workflow: ["resolve_project_task_milestone", "traverse_dependencies_and_gates", "compare_baseline_current_as_of", "execute_schedule_and_risk_logic", "explain_status_and_actions"],
       retrieval: { depth: 3, relation_types: ["contains", "depends_on", "threatens"], predicate_priority: ["task_status", "risk_level", "finding"] },
-      required_models: [],
+      required_models: ["schedule_variance", "project_risk_score"],
       tool_allow: ["resolve", "get", "query", "neighbors", "history", "calculate", "explain", "propose"],
       writes: "changeset_only",
       retrieval_profile: { mode: "temporal_graph_first", allow_cold_by_default: false },
@@ -477,6 +509,8 @@ const domainRefs: DependencyEdge[] = initialDefinitions
 
 const contractEdges: DependencyEdge[] = [
   { id: "cost-model", source: "domain:cost", target: "model:cost_rollup", relation: "requires_model", editable: false },
+  { id: "pm-schedule-model", source: "domain:pm", target: "model:schedule_variance", relation: "requires_model", editable: false },
+  { id: "pm-risk-model", source: "domain:pm", target: "model:project_risk_score", relation: "requires_model", editable: false },
   { id: "connector-schema", source: "connector:erp_suppliers", target: "schema:canonical_node", relation: "conforms_to", editable: false },
   { id: "connector-legal-name", source: "connector:erp_suppliers", target: "legal_name", relation: "maps_to", editable: false },
   { id: "connector-country", source: "connector:erp_suppliers", target: "country", relation: "maps_to", editable: false },

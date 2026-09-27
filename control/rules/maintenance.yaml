@@ -1,0 +1,9 @@
+format: knowledgeos.maintenance-rules.v1
+id: maintenance_governance
+review_scores:
+  broken_relation: 55
+  provenance: 95
+  stale_assertion: 60
+  deprecated_predicate: 70
+  authority_conflict: 80
+  assertion_externalization: 45

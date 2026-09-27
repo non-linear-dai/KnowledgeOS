@@ -28,6 +28,8 @@ This repository implements the final architecture frozen in the “企业知识�
 - Agent durable writes are ChangeSets and must reach the real source of truth before compilation.
 - Precise calculations are deterministic and retain model version, input hash, run ID, output, and trace.
 - Human governance is exception-based; maintenance queues are budgeted and prioritized.
+- API identities are authenticated from environment-managed bearer tokens and authorized by explicit roles; caller-supplied actor names are never trusted at the HTTP boundary.
+- Projection mutations and ledger writes use a transactional outbox. Pending events are replayed idempotently after interruption.
 - The non-instance control plane is itself a validated contract. Schemas, ontology shapes, predicate policies, deterministic models, domain/retrieval behavior, and connector mappings must resolve through one registry snapshot.
 - Concept-property bindings and relation domain/range/reification declarations are compiler-enforced contracts, not UI-only metadata.
 
@@ -37,9 +39,11 @@ This repository implements the final architecture frozen in the “企业知识�
 |---|---|
 | Phase 0 — Kernel freeze | Registries, schemas, policies, directory contract |
 | Phase 1 — Git + index | Markdown/NDJSON parser, compiler, SQLite, FTS, cards, API |
-| Phase 2 — Ledger + governance | Hash chain, ChangeSets, review items, provenance and maintenance checks |
+| Phase 2 — Ledger + governance | Hash chain, transactional outbox, verified ChangeSet state machine, review items, provenance and maintenance checks |
 | Phase 3 — Connectors | Generic NDJSON adapter and mapping contract |
-| Phase 4 — Logic + agents | Deterministic model engine, C-R-L-T-P plan, three domain packs |
+| Phase 4 — Logic + agents | Deterministic cost, schedule and risk models, historical C-R-L-T-P projection, three domain packs |
+| Agent service facade | Capability discovery, governed invocation, grounded request packets, cited response validation, portable `SKILL.md` + `contract.yaml` packages |
 | Phase 5 — lifecycle | Hot/Warm/Cold classification and rebuild/verification commands |
+| Cross-cutting extraction | Normalized source envelopes, live registry-derived model contracts, evidence-bound create/update candidates, provider adapters |
 
-The implementation intentionally keeps external vendor choices outside the kernel. Production connectors, authentication, authorization enforcement, secret management, and embedding providers must be selected for the target enterprise environment.
+The kernel supplies bearer-token authentication, role authorization, and provider-free deterministic vector retrieval. Enterprise identity federation, managed secret storage, production connectors, and optional learned embedding providers remain deployment integrations.

@@ -52,6 +52,7 @@ import {
   Search,
   Send,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Unlink,
   Undo2,
@@ -118,6 +119,7 @@ import {
   type RelationMode,
 } from "./studio-data";
 import { ControlCenter } from "./control-center";
+import { ExtractionCenter } from "./extraction-center";
 import {
   loadStudioSnapshot,
   proposeChangeSet,
@@ -167,7 +169,6 @@ const nodeSize = { width: 248, height: 148 };
 const nodeLayout = { top: 84, verticalGap: 52 };
 const handlePosition: Record<EdgeSide, Position> = { left: Position.Left, right: Position.Right, top: Position.Top, bottom: Position.Bottom };
 type NodePositions = Record<string, { x: number; y: number }>;
-type NodeDimensions = Record<string, { width: number; height: number }>;
 
 function relationModeLabel(mode?: RelationMode) {
   return ({ simple: "简单边", reifiable: "可实体化", reified: "必须实体化" } as const)[mode ?? "simple"];
@@ -309,7 +310,7 @@ function CurvedDependencyEdge({ id, sourceX, sourceY, targetX, targetY, markerEn
 
 const edgeTypes = { dependencyCurve: CurvedDependencyEdge };
 
-function graphNodes(definitions: OntologyDefinition[], dependencyEdges: typeof initialEdges, search: string, filterKind: "all" | DefinitionKind, lifecycle: "all" | Lifecycle, storage: string, selectedId: string | null, positions: NodePositions, dimensions: NodeDimensions, onEdit: (id: string) => void, onFocus: (id: string) => void, onManageBindings: (id: string) => void, onManageEndpoints: (id: string) => void): StudioNode[] {
+function graphNodes(definitions: OntologyDefinition[], dependencyEdges: typeof initialEdges, search: string, filterKind: "all" | DefinitionKind, lifecycle: "all" | Lifecycle, storage: string, selectedId: string | null, positions: NodePositions, onEdit: (id: string) => void, onFocus: (id: string) => void, onManageBindings: (id: string) => void, onManageEndpoints: (id: string) => void): StudioNode[] {
   const q = search.trim().toLowerCase();
   const linked = new Set<string>();
   dependencyEdges.forEach((edge) => {
@@ -319,8 +320,7 @@ function graphNodes(definitions: OntologyDefinition[], dependencyEdges: typeof i
   const nextY: Partial<Record<DefinitionKind, number>> = {};
   return definitions.map((definition) => {
     const y = nextY[definition.kind] ?? nodeLayout.top;
-    const measuredHeight = dimensions[definition.id]?.height ?? nodeSize.height;
-    nextY[definition.kind] = y + Math.max(nodeSize.height, measuredHeight) + nodeLayout.verticalGap;
+    nextY[definition.kind] = y + nodeSize.height + nodeLayout.verticalGap;
     const matches = (!q || `${definition.id} ${definition.label} ${definition.description}`.toLowerCase().includes(q))
       && (filterKind === "all" || definition.kind === filterKind)
       && (lifecycle === "all" || definition.lifecycle === lifecycle)
@@ -329,7 +329,7 @@ function graphNodes(definitions: OntologyDefinition[], dependencyEdges: typeof i
       id: definition.id,
       type: "studio",
       initialWidth: nodeSize.width,
-      initialHeight: measuredHeight,
+      initialHeight: nodeSize.height,
       position: positions[definition.id] ?? { x: columns[definition.kind], y },
       data: { definition, dimmed: !matches, linked: linked.has(definition.id), onEdit, onFocus, onManageBindings, onManageEndpoints },
       draggable: true,
@@ -821,7 +821,7 @@ function ReviewCenter({ changeSets, busy, onReview, onPublish }: {
   if (!selected) return <div className="flex h-full items-center justify-center bg-[#eef2f7] p-8"><div className="max-w-md rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><GitPullRequestArrow className="mx-auto size-8 text-slate-300" /><h2 className="mt-4 font-semibold text-slate-900">暂无 ChangeSet</h2><p className="mt-2 text-sm leading-6 text-slate-500">在结构白板中暂存变更并提交后，审核记录会由 KnowledgeOS API 返回到这里。</p></div></div>;
   return <div className="grid h-full min-h-0 grid-cols-[340px_minmax(0,1fr)] bg-[#eef2f7] max-md:grid-cols-1">
     <aside className="min-h-0 border-r bg-white max-md:max-h-[230px]"><div className="border-b px-5 py-4"><h2 className="text-sm font-semibold">ChangeSet 审核</h2><p className="mt-1 text-xs text-slate-500">批准、真源应用、编译和发布登记分步完成</p></div><ScrollArea className="h-[calc(100%-70px)]"><div className="space-y-2 p-3">{changeSets.map((item) => <button key={item.id} onClick={() => { setSelectedId(item.id); setSourceRevision(item.sourceRevision ?? ""); }} className={cn("w-full rounded-2xl border p-4 text-left", selected.id === item.id ? "border-slate-950 bg-slate-950 text-white shadow-lg" : "bg-white")}><div className="flex justify-between"><span className="font-mono text-[11px] text-cyan-400">{item.id}</span><span className={cn("rounded-full border px-2 py-0.5 text-[10px]", selected.id === item.id ? "border-white/20 bg-white/10" : statusClass(item.status))}>{statusLabel(item.status)}</span></div><p className="mt-3 text-sm font-semibold">{item.title}</p><p className="mt-2 text-xs opacity-50">{item.actor} · {item.createdAt}</p></button>)}</div></ScrollArea></aside>
-    <main className="min-h-0 overflow-auto p-5 sm:p-8"><div className="mx-auto max-w-5xl space-y-6"><div className="rounded-3xl border bg-white p-6 shadow-sm"><div className="flex flex-col gap-4 sm:flex-row sm:justify-between"><div><div className="flex gap-2"><Badge variant="outline" className={statusClass(selected.status)}>{statusLabel(selected.status)}</Badge><Badge variant="outline">{riskLabel(selected.risk)}风险</Badge></div><h1 className="mt-4 text-2xl font-semibold tracking-tight">{selected.title}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{selected.reason}</p><p className="mt-4 text-xs text-slate-400">{selected.actor} · {selected.createdAt}</p><p className="mt-1 break-all font-mono text-[11px] text-slate-400">{selected.targetSource}</p></div><div className="flex max-w-sm flex-wrap items-end gap-2">{(selected.status === "review_required" || selected.status === "proposed") && <><Button disabled={busy} variant="outline" className="text-rose-600" onClick={async () => { if (await onReview(selected.id, "rejected", "缺少迁移说明，请补充后重新提交。")) toast.error("已驳回 ChangeSet"); }}><X />驳回</Button><Button disabled={busy} onClick={async () => { if (await onReview(selected.id, "approved", "治理审核通过，等待真源应用与编译。")) toast.success("审核已通过"); }}><Check />批准</Button></>}{selected.status === "approved" && <><div className="min-w-[220px] flex-1 space-y-1"><Label className="text-xs text-slate-500">已编译 source revision</Label><Input value={sourceRevision} onChange={(event) => setSourceRevision(event.target.value)} placeholder="Git commit / source hash" /></div><Button disabled={busy || !sourceRevision.trim()} className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => { if (await onPublish(selected.id, sourceRevision.trim())) toast.success("已登记发布"); }}><GitPullRequestArrow />登记发布</Button></>}</div></div></div>
+    <main className="min-h-0 overflow-auto p-5 sm:p-8"><div className="mx-auto max-w-5xl space-y-6"><div className="rounded-3xl border bg-white p-6 shadow-sm"><div className="flex flex-col gap-4 sm:flex-row sm:justify-between"><div><div className="flex gap-2"><Badge variant="outline" className={statusClass(selected.status)}>{statusLabel(selected.status)}</Badge><Badge variant="outline">{riskLabel(selected.risk)}风险</Badge></div><h1 className="mt-4 text-2xl font-semibold tracking-tight">{selected.title}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{selected.reason}</p><p className="mt-4 text-xs text-slate-400">{selected.actor} · {selected.createdAt}</p><p className="mt-1 break-all font-mono text-[11px] text-slate-400">{selected.targetSource}</p></div><div className="flex max-w-sm flex-wrap items-end gap-2">{(selected.status === "review_required" || selected.status === "proposed") && <><Button disabled={busy} variant="outline" className="text-rose-600" onClick={async () => { if (await onReview(selected.id, "rejected", "缺少迁移说明，请补充后重新提交。")) toast.error("已驳回 ChangeSet"); }}><X />驳回</Button><Button disabled={busy} onClick={async () => { if (await onReview(selected.id, "approved", "治理审核通过，等待真源应用与编译。")) toast.success("审核已通过"); }}><Check />批准</Button></>}{selected.status === "approved" && <><div className="min-w-[220px] flex-1 space-y-1"><Label className="text-xs text-slate-500">待验证 source revision</Label><Input value={sourceRevision} onChange={(event) => setSourceRevision(event.target.value)} placeholder="Git commit 或 sha256:…" /></div><Button disabled={busy || !sourceRevision.trim()} className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => { if (await onPublish(selected.id, sourceRevision.trim())) toast.success("真源已验证并发布"); }}><GitPullRequestArrow />验证发布</Button></>}</div></div></div>
       {selected.reviewNote && <Alert className={selected.status === "published" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}>{selected.status === "published" ? <CheckCircle2 className="size-4" /> : <AlertTriangle className="size-4" />}<AlertTitle>{selected.status === "published" ? "发布记录" : "审核意见"}</AlertTitle><AlertDescription>{selected.reviewNote}</AlertDescription></Alert>}
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]"><section className="rounded-3xl border bg-white shadow-sm"><div className="flex justify-between border-b px-5 py-4"><h2 className="flex items-center gap-2 text-sm font-semibold"><GitCompareArrows className="size-4" />字段差异</h2><span className="text-xs text-slate-400">{selected.operations.length} 项操作</span></div><div className="space-y-4 p-5">{selected.operations.length ? selected.operations.map((op) => <div key={op.id} className="overflow-hidden rounded-2xl border"><div className="flex justify-between px-4 py-3"><div><p className="text-sm font-semibold">{op.targetId}</p><p className="text-xs text-slate-400">{op.after?.sourcePath ?? op.before?.sourcePath}</p></div><Badge variant="outline">{op.type}</Badge></div><pre className="overflow-auto border-t bg-slate-950 p-4 text-[11px] leading-5 text-cyan-200">{yamlPreview(op)}</pre></div>) : <div className="rounded-2xl border border-dashed p-10 text-center text-sm text-slate-400"><Code2 className="mx-auto mb-3 size-7" />此记录未保留字段级样例。</div>}</div></section><aside className="space-y-4"><div className="rounded-3xl border bg-white p-5"><p className="inspector-label">验证摘要</p><div className="mt-4 space-y-3">{["ID 与文件路径唯一", "策略引用存在", "YAML 结构可编译", "影响范围可接受"].map((label, index) => <div key={label} className="flex items-center gap-2.5 text-sm">{index === 3 && selected.risk === "high" ? <AlertTriangle className="size-4 text-amber-500" /> : <CheckCircle2 className="size-4 text-emerald-500" />}<span>{label}</span></div>)}</div></div></aside></div>
     </div></main>
@@ -834,10 +834,8 @@ function OntologyStudio() {
   const [connection, setConnection] = useState<ApiConnectionState>("connecting"); const [metadata, setMetadata] = useState<StudioMetadata | null>(null); const [syncing, setSyncing] = useState(true); const [mutationBusy, setMutationBusy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>("schema:canonical_node"); const [search, setSearch] = useState(""); const [filterKind, setFilterKind] = useState<"all" | DefinitionKind>("all"); const [lifecycle, setLifecycle] = useState<"all" | Lifecycle>("all"); const [storage, setStorage] = useState("all");
   const [expert, setExpert] = useState(false); const [view, setView] = useState("control"); const [createOpen, setCreateOpen] = useState(false); const [submitOpen, setSubmitOpen] = useState(false); const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
-  const [leftCollapsed, setLeftCollapsed] = useState(false); const [rightCollapsed, setRightCollapsed] = useState(false); const [focusMode, setFocusMode] = useState(false); const [nodePositions, setNodePositions] = useState<NodePositions>({}); const [nodeDimensions, setNodeDimensions] = useState<NodeDimensions>({}); const [commandOpen, setCommandOpen] = useState(false); const [editSignal, setEditSignal] = useState(0); const [bindingConceptId, setBindingConceptId] = useState<string | null>(null); const [endpointRelationId, setEndpointRelationId] = useState<string | null>(null);
+  const [leftCollapsed, setLeftCollapsed] = useState(false); const [rightCollapsed, setRightCollapsed] = useState(false); const [focusMode, setFocusMode] = useState(false); const [nodePositions, setNodePositions] = useState<NodePositions>({}); const [commandOpen, setCommandOpen] = useState(false); const [editSignal, setEditSignal] = useState(0); const [bindingConceptId, setBindingConceptId] = useState<string | null>(null); const [endpointRelationId, setEndpointRelationId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const pendingNodeDimensionsRef = useRef<NodeDimensions>({});
-  const dimensionsFrameRef = useRef<number | null>(null);
   const refreshFromBackend = async (announce = true) => {
     setSyncing(true);
     try {
@@ -871,7 +869,7 @@ function OntologyStudio() {
   const bindingConcept = definitions.find((item) => item.id === bindingConceptId && item.kind === "concept") ?? null;
   const endpointRelation = definitions.find((item) => item.id === endpointRelationId && item.kind === "relation") ?? null;
   const dependencyEdges = useMemo(() => definitionEdges(definitions, true), [definitions]);
-  const allNodes = useMemo(() => graphNodes(definitions, dependencyEdges, search, filterKind, lifecycle, storage, selectedId, nodePositions, nodeDimensions, quickEditDefinition, selectDefinition, manageBindings, manageEndpoints), [definitions, dependencyEdges, search, filterKind, lifecycle, storage, selectedId, nodePositions, nodeDimensions]);
+  const allNodes = useMemo(() => graphNodes(definitions, dependencyEdges, search, filterKind, lifecycle, storage, selectedId, nodePositions, quickEditDefinition, selectDefinition, manageBindings, manageEndpoints), [definitions, dependencyEdges, search, filterKind, lifecycle, storage, selectedId, nodePositions]);
   const relatedIds = useMemo(() => {
     const ids = new Set<string>();
     if (!selectedId) return ids;
@@ -946,7 +944,7 @@ function OntologyStudio() {
       mapped.forEach((id) => { if (!definitions.some((definition) => definition.kind === "predicate" && definition.id === id)) itemErrors.push(`${item.id} 映射到未知判断类型 ${id}`); });
     }
     if (item.kind === "model" && (!item.config.model_id || !item.config.version || !item.config.output_unit)) itemErrors.push(`${item.id} 缺少模型标识、版本或输出单位`);
-    if (item.kind === "schema" && !asStringArray(item.config.required_knowledge).includes("logic_refs")) itemErrors.push(`${item.id} 缺少 logic_refs 契约`);
+    if (item.id === "schema:canonical_node" && !asStringArray(item.config.required_knowledge).includes("logic_refs")) itemErrors.push(`${item.id} 缺少 logic_refs 契约`);
     return itemErrors;
   }), [definitions]);
   const warnings = useMemo(() => Array.from(new Set(operations.flatMap((op) => {
@@ -968,37 +966,12 @@ function OntologyStudio() {
   };
   const handleNodeChanges = (changes: NodeChange[]) => {
     const moved = changes.filter((change) => change.type === "position" && change.position);
-    const measured = changes.filter((change) => change.type === "dimensions" && change.dimensions?.width && change.dimensions?.height);
     if (moved.length) {
       setNodePositions((current) => {
         const next = { ...current };
         moved.forEach((change) => { if (change.type === "position" && change.position) next[change.id] = change.position; });
         return next;
       });
-    }
-    if (measured.length) {
-      measured.forEach((change) => {
-        if (change.type === "dimensions" && change.dimensions) pendingNodeDimensionsRef.current[change.id] = change.dimensions;
-      });
-      if (dimensionsFrameRef.current === null) {
-        dimensionsFrameRef.current = requestAnimationFrame(() => {
-          const pending = pendingNodeDimensionsRef.current;
-          pendingNodeDimensionsRef.current = {};
-          dimensionsFrameRef.current = null;
-          setNodeDimensions((current) => {
-            let changed = false;
-            const next = { ...current };
-            Object.entries(pending).forEach(([id, dimensions]) => {
-              const previous = current[id];
-              if (!previous || Math.abs(previous.width - dimensions.width) > .5 || Math.abs(previous.height - dimensions.height) > .5) {
-                next[id] = dimensions;
-                changed = true;
-              }
-            });
-            return changed ? next : current;
-          });
-        });
-      }
     }
   };
   const fitVisibleNodes = () => requestAnimationFrame(() => flow?.fitView({ nodes, padding: .24, duration: 420, maxZoom: 1 }));
@@ -1169,10 +1142,16 @@ function OntologyStudio() {
   return <TooltipProvider><Tabs value={view} onValueChange={setView} className="h-dvh min-h-[620px] gap-0 overflow-hidden bg-[#eeeeea] text-[#292925]">
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[#d5d5d0] bg-[#f4f4f1] px-2">
       <div className="flex min-w-0 items-center gap-2 px-1 sm:w-[258px]"><div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[#6557d5] text-white"><Layers3 className="size-4" /></div><div className="min-w-0"><p className="truncate text-sm font-semibold">KnowledgeOS</p></div></div>
-      <TabsList className="hidden h-9 gap-1 bg-transparent p-0 md:flex"><TabsTrigger value="control" className="h-8 rounded-lg border border-transparent px-3 text-xs text-[#777770] data-[state=active]:border-[#d8d8d3] data-[state=active]:bg-white data-[state=active]:text-[#2d2d29] data-[state=active]:shadow-sm"><ShieldCheck />控制总览</TabsTrigger><TabsTrigger value="studio" className="h-8 rounded-lg border border-transparent px-3 text-xs text-[#777770] data-[state=active]:border-[#d8d8d3] data-[state=active]:bg-white data-[state=active]:text-[#2d2d29] data-[state=active]:shadow-sm"><Network />结构白板</TabsTrigger><TabsTrigger value="review" className="h-8 rounded-lg border border-transparent px-3 text-xs text-[#777770] data-[state=active]:border-[#d8d8d3] data-[state=active]:bg-white data-[state=active]:text-[#2d2d29] data-[state=active]:shadow-sm"><GitPullRequestArrow />治理审核<span className="ml-1 rounded-full bg-[#e7e3fb] px-1.5 py-0.5 text-[10px] text-[#5546c4]">{changeSets.filter((item) => item.status === "review_required").length}</span></TabsTrigger></TabsList>
+      <TabsList className="hidden h-9 gap-1 bg-transparent p-0 md:flex">
+        <TabsTrigger value="control" className="h-8 rounded-lg border border-transparent px-3 text-xs text-[#777770] data-[state=active]:border-[#d8d8d3] data-[state=active]:bg-white data-[state=active]:text-[#2d2d29] data-[state=active]:shadow-sm"><ShieldCheck />控制总览</TabsTrigger>
+        <TabsTrigger value="extract" className="h-8 rounded-lg border border-transparent px-3 text-xs text-[#777770] data-[state=active]:border-[#d8d8d3] data-[state=active]:bg-white data-[state=active]:text-[#2d2d29] data-[state=active]:shadow-sm"><Sparkles />知识抽取</TabsTrigger>
+        <TabsTrigger value="studio" className="h-8 rounded-lg border border-transparent px-3 text-xs text-[#777770] data-[state=active]:border-[#d8d8d3] data-[state=active]:bg-white data-[state=active]:text-[#2d2d29] data-[state=active]:shadow-sm"><Network />结构白板</TabsTrigger>
+        <TabsTrigger value="review" className="h-8 rounded-lg border border-transparent px-3 text-xs text-[#777770] data-[state=active]:border-[#d8d8d3] data-[state=active]:bg-white data-[state=active]:text-[#2d2d29] data-[state=active]:shadow-sm"><GitPullRequestArrow />治理审核<span className="ml-1 rounded-full bg-[#e7e3fb] px-1.5 py-0.5 text-[10px] text-[#5546c4]">{changeSets.filter((item) => item.status === "review_required").length}</span></TabsTrigger>
+      </TabsList>
       <div className="ml-auto flex items-center gap-1.5"><button onClick={() => void refreshFromBackend(true)} disabled={syncing} className={cn("hidden h-8 items-center gap-2 rounded-lg border px-2.5 text-xs font-medium sm:flex", connection === "connected" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")} title={connection === "connected" ? "重新同步 KnowledgeOS API" : "当前使用演示快照，点击重试连接"}><span className={cn("size-2 rounded-full", connection === "connected" ? "bg-emerald-500" : "bg-amber-500")} />{connection === "connecting" ? "正在连接" : connection === "connected" ? `API 已连接 · ${metadata?.contractVersion ?? ""}` : "演示数据"}<RefreshCw className={cn("size-3", syncing && "animate-spin")} /></button><Button variant="ghost" size="sm" className="hidden h-8 gap-2 rounded-lg text-xs text-[#6e6e67] lg:flex" onClick={() => setCommandOpen(true)}><Search className="size-3.5" />快速命令<kbd className="rounded border border-[#d3d3ce] bg-white px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd></Button><div className="hidden items-center gap-1.5 px-2 text-xs text-[#777770] xl:flex">{errors.length ? <XCircle className="size-3.5 text-rose-500" /> : <CheckCircle2 className="size-3.5 text-emerald-600" />}<span>{errors.length ? `${errors.length} 个错误` : "结构有效"}</span></div><div className="flex h-8 items-center gap-2 rounded-lg border border-[#d8d8d3] bg-white px-2"><Code2 className="size-3.5 text-[#777770]" /><Label className="hidden text-xs text-[#66665f] sm:block">专家</Label><Switch checked={expert} onCheckedChange={setExpert} className="scale-90 data-[state=checked]:bg-[#6557d5]" /></div><Button variant="ghost" size="icon-sm" onClick={reset} aria-label="重新载入控制面" className="text-[#777770]"><RotateCcw /></Button><div className="flex size-7 items-center justify-center rounded-full bg-[#e1def7] text-xs font-bold text-[#5143bd]">林</div></div>
     </header>
-    <TabsContent value="control" className="min-h-0 flex-1 data-[state=inactive]:hidden"><ControlCenter definitions={definitions} errors={errors} metadata={metadata} connection={connection} onOpenDefinition={(id) => { setSelectedId(id); setFocusMode(true); setRightCollapsed(false); setView("studio"); }} onOpenStudio={() => setView("studio")} onOpenReview={() => setView("review")} /></TabsContent>
+    <TabsContent value="control" className="min-h-0 flex-1 data-[state=inactive]:hidden"><ControlCenter definitions={definitions} errors={errors} metadata={metadata} connection={connection} onOpenDefinition={(id) => { setSelectedId(id); setFocusMode(true); setRightCollapsed(false); setView("studio"); }} onOpenStudio={() => setView("studio")} onOpenExtraction={() => setView("extract")} onOpenReview={() => setView("review")} /></TabsContent>
+    <TabsContent value="extract" className="min-h-0 flex-1 data-[state=inactive]:hidden"><ExtractionCenter /></TabsContent>
     <TabsContent value="studio" className="min-h-0 flex-1 data-[state=inactive]:hidden">
       <div
         className="grid h-full min-h-0 transition-[grid-template-columns] duration-200"
@@ -1237,7 +1216,7 @@ function OntologyStudio() {
       </div>
     </TabsContent>
     <TabsContent value="review" className="min-h-0 flex-1 data-[state=inactive]:hidden"><ReviewCenter changeSets={changeSets} busy={mutationBusy} onReview={handleReview} onPublish={handlePublish} /></TabsContent>
-    <div className="fixed inset-x-3 bottom-3 z-40 flex justify-center md:hidden"><div className="flex rounded-xl border border-[#44443f] bg-[#2d2d29] p-1 shadow-xl"><button onClick={() => setView("control")} className={cn("rounded-lg px-3 py-2 text-xs font-medium", view === "control" ? "bg-[#7465df] text-white" : "text-[#aaa9a2]")}><ShieldCheck className="mr-1 inline size-4" />总览</button><button onClick={() => setView("studio")} className={cn("rounded-lg px-3 py-2 text-xs font-medium", view === "studio" ? "bg-[#7465df] text-white" : "text-[#aaa9a2]")}><Network className="mr-1 inline size-4" />白板</button><button onClick={() => setView("review")} className={cn("rounded-lg px-3 py-2 text-xs font-medium", view === "review" ? "bg-[#7465df] text-white" : "text-[#aaa9a2]")}><GitPullRequestArrow className="mr-1 inline size-4" />审核</button></div></div>
+    <div className="fixed inset-x-3 bottom-3 z-40 flex justify-center md:hidden"><div className="flex rounded-xl border border-[#44443f] bg-[#2d2d29] p-1 shadow-xl"><button onClick={() => setView("control")} className={cn("rounded-lg px-2.5 py-2 text-xs font-medium", view === "control" ? "bg-[#7465df] text-white" : "text-[#aaa9a2]")}><ShieldCheck className="mr-1 inline size-4" />总览</button><button onClick={() => setView("extract")} className={cn("rounded-lg px-2.5 py-2 text-xs font-medium", view === "extract" ? "bg-[#7465df] text-white" : "text-[#aaa9a2]")}><Sparkles className="mr-1 inline size-4" />抽取</button><button onClick={() => setView("studio")} className={cn("rounded-lg px-2.5 py-2 text-xs font-medium", view === "studio" ? "bg-[#7465df] text-white" : "text-[#aaa9a2]")}><Network className="mr-1 inline size-4" />白板</button><button onClick={() => setView("review")} className={cn("rounded-lg px-2.5 py-2 text-xs font-medium", view === "review" ? "bg-[#7465df] text-white" : "text-[#aaa9a2]")}><GitPullRequestArrow className="mr-1 inline size-4" />审核</button></div></div>
     <CommandDialog open={commandOpen} onOpenChange={setCommandOpen} title="快速命令" description="搜索定义或执行当前白板操作" className="sm:max-w-xl">
       <CommandInput placeholder="搜索定义或输入命令…" />
       <CommandList>

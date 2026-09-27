@@ -2,11 +2,16 @@
 
 module KnowledgeOS
   class Registry
-    TOOL_OPERATIONS = %w[resolve get query neighbors history search calculate explain context propose review].freeze
+    TOOL_OPERATIONS = %w[
+      resolve get query neighbors history search calculate explain context
+      extraction_request extraction_candidates propose review
+      agent_capabilities agent_skill agent_request agent_respond agent_invoke
+    ].freeze
 
     attr_reader :predicates, :ontology, :authority_policies, :freshness_policies,
                 :provenance_policies, :maintenance_policy, :models, :domains,
-                :retrieval_profiles, :schemas, :connectors, :constraints, :rules, :skills
+                :retrieval_profiles, :schemas, :connectors, :extraction_profiles,
+                :constraints, :rules, :skills
 
     def initialize(config)
       @config = config
@@ -25,9 +30,10 @@ module KnowledgeOS
       @retrieval_profiles = load_retrieval_profiles
       @schemas = load_json_files(@config.schemas_dir)
       @connectors = load_connector_mappings
+      @extraction_profiles = load_keyed(@config.extraction_dir, "id")
       @constraints = load_documents(@config.constraints_dir)
       @rules = load_documents(@config.rules_dir)
-      @skills = load_documents(@config.skills_dir)
+      @skills = load_skill_packages(@config.skills_dir)
       validate_control_plane!
       self
     end
@@ -68,9 +74,29 @@ module KnowledgeOS
       domains[id.to_s] || raise(NotFoundError, "domain pack not found: #{id}")
     end
 
+    def skill(id)
+      skills.find { |item| item["id"] == id.to_s } || raise(NotFoundError, "skill not found: #{id}")
+    end
+
+    def skills_for_domain(id)
+      skills.select { |item| item["domain"] == id.to_s }
+    end
+
+    def skill_bundle(id)
+      definition = skill(id)
+      package_dir = @config.root.join(definition.dig("package", "path"))
+      files = %w[SKILL.md contract.yaml].each_with_object({}) do |name, output|
+        path = package_dir.join(name)
+        raise ConfigurationError, "skill #{id}: package file missing: #{name}" unless path.file?
+        output[name] = path.read
+      end
+      { "id" => definition["id"], "package" => definition["package"],
+        "definition" => definition, "files" => files }
+    end
+
     def control_plane
       {
-        "contract_version" => "3.1",
+        "contract_version" => "3.4",
         "ontology" => ontology,
         "predicates" => predicates.transform_values { |item| without_internal(item) },
         "policies" => {
@@ -84,6 +110,7 @@ module KnowledgeOS
         "retrieval_profiles" => retrieval_profiles,
         "schemas" => schemas,
         "connectors" => connectors,
+        "extraction_profiles" => extraction_profiles.transform_values { |item| without_internal(item) },
         "extensions" => {
           "constraints" => constraints,
           "rules" => rules,
@@ -108,7 +135,7 @@ module KnowledgeOS
       definitions.concat(schemas.map { |name, item| studio_schema(name, item) })
 
       {
-        "contract_version" => "3.1",
+        "contract_version" => "3.4",
         "definitions" => definitions,
         "coverage" => definitions.group_by { |item| item["kind"] }.transform_values(&:length),
         "extensions" => {
@@ -279,11 +306,22 @@ module KnowledgeOS
 
     def validate_control_plane!
       validate_ontology!
+      validate_models!
+      validate_extensions!
       predicates.each_value do |item|
         policy = item.fetch("policy", {})
         validate_reference!(authority_policies, policy["authority"], "authority policy", item["id"])
         validate_reference!(freshness_policies, policy["freshness"], "freshness policy", item["id"])
         validate_reference!(provenance_policies, policy["provenance_tier"], "provenance policy", item["id"])
+        unless %w[attr assertion external].include?(item.dig("storage", "mode"))
+          raise ConfigurationError, "predicate #{item['id']}: invalid storage mode #{item.dig('storage', 'mode')}"
+        end
+        unless %w[one many temporal_many].include?(item.dig("value", "cardinality"))
+          raise ConfigurationError, "predicate #{item['id']}: invalid cardinality #{item.dig('value', 'cardinality')}"
+        end
+        unless %w[auto reviewed].include?(policy["write"])
+          raise ConfigurationError, "predicate #{item['id']}: invalid write policy #{policy['write']}"
+        end
       end
       domains.each_value do |item|
         Array(item["concept_scopes"]).each { |id| raise ConfigurationError, "domain #{item['id']}: unknown concept #{id}" unless type?(id) }
@@ -292,6 +330,7 @@ module KnowledgeOS
         Array(item["required_models"]).each { |id| raise ConfigurationError, "domain #{item['id']}: unknown model #{id}" unless model(id) }
         Array(item.dig("tool_policy", "allow")).each { |id| raise ConfigurationError, "domain #{item['id']}: unknown tool operation #{id}" unless TOOL_OPERATIONS.include?(id) }
       end
+      validate_skills!
       connectors.each_value do |item|
         type = item.dig("node", "type")
         raise ConfigurationError, "connector #{item['_name']}: unknown node type #{type}" unless type?(type)
@@ -299,7 +338,55 @@ module KnowledgeOS
           raise ConfigurationError, "connector #{item['_name']}: unknown predicate #{id}" unless predicate(id)
         end
       end
+      extraction_profiles.each_value do |item|
+        Array(item["source_types"]).each do |kind|
+          unless kind.to_s.match?(/\A[a-z][a-z0-9_]*\z/)
+            raise ConfigurationError, "extraction profile #{item['id']}: invalid source type #{kind}"
+          end
+        end
+      end
       true
+    end
+
+    def validate_skills!
+      ids = {}
+      skills.each do |item|
+        id = item["id"].to_s
+        raise ConfigurationError, "skill is missing id" if id.empty?
+        raise ConfigurationError, "duplicate skill: #{id}" if ids[id]
+        ids[id] = true
+        unless item["format"] == "knowledgeos.skill-contract.v1"
+          raise ConfigurationError, "skill #{id}: unsupported contract format #{item['format']}"
+        end
+        unless item.dig("package", "entrypoint") == "SKILL.md"
+          raise ConfigurationError, "skill #{id}: entrypoint must be SKILL.md"
+        end
+        unless item["entrypoint"] == "SKILL.md"
+          raise ConfigurationError, "skill #{id}: contract entrypoint must be SKILL.md"
+        end
+        if item.dig("agent", "name") != id
+          raise ConfigurationError, "skill #{id}: SKILL.md name must match contract id"
+        end
+        if item.dig("agent", "instructions").to_s.strip.empty?
+          raise ConfigurationError, "skill #{id}: SKILL.md instructions are empty"
+        end
+        domain_id = item["domain"].to_s
+        pack = domains[domain_id] || raise(ConfigurationError, "skill #{id}: unknown domain #{domain_id}")
+        allowed = Array(pack.dig("tool_policy", "allow"))
+        Array(item["tools"]).each do |tool|
+          raise ConfigurationError, "skill #{id}: tool #{tool} is not allowed by domain #{domain_id}" unless allowed.include?(tool)
+        end
+        Array(item["deterministic_models"]).each do |model_id|
+          raise ConfigurationError, "skill #{id}: unknown model #{model_id}" unless model(model_id)
+        end
+      end
+      domains.each_value do |pack|
+        default = pack["default_skill"].to_s
+        next if default.empty?
+        selected = skills.find { |item| item["id"] == default }
+        raise ConfigurationError, "domain #{pack['id']}: unknown default skill #{default}" unless selected
+        raise ConfigurationError, "domain #{pack['id']}: default skill belongs to #{selected['domain']}" unless selected["domain"] == pack["id"]
+      end
     end
 
     def validate_ontology!
@@ -311,19 +398,76 @@ module KnowledgeOS
       Array(ontology["concept_types"]).each do |item|
         Array(item["properties"]).each do |binding|
           raise ConfigurationError, "concept #{item_id(item)}: unknown predicate #{binding['predicate']}" unless predicate(binding["predicate"])
+          unless %w[inherit one many temporal_many].include?(binding.fetch("cardinality", "inherit"))
+            raise ConfigurationError, "concept #{item_id(item)}: invalid property cardinality #{binding['cardinality']}"
+          end
         end
       end
       Array(ontology["relation_types"]).each do |item|
+        mode = item.fetch("mode", "simple")
+        raise ConfigurationError, "relation #{item_id(item)}: invalid mode #{mode}" unless %w[simple reifiable reified].include?(mode)
         Array(item["connections"]).each do |endpoint|
           %w[source_type target_type].each do |field|
             raise ConfigurationError, "relation #{item_id(item)}: unknown #{field} #{endpoint[field]}" unless concept_ids.include?(endpoint[field])
           end
+          %w[source_cardinality target_cardinality].each do |field|
+            value = endpoint.fetch(field, "many")
+            raise ConfigurationError, "relation #{item_id(item)}: invalid #{field} #{value}" unless %w[one many].include?(value)
+          end
         end
         reification = item["reification"]
+        if mode != "simple" && !reification
+          raise ConfigurationError, "relation #{item_id(item)}: #{mode} mode requires reification metadata"
+        end
+        if mode == "simple" && reification
+          raise ConfigurationError, "relation #{item_id(item)}: simple mode cannot declare reification metadata"
+        end
         next unless reification
         raise ConfigurationError, "relation #{item_id(item)}: unknown reification node type #{reification['node_type']}" unless concept_ids.include?(reification["node_type"])
         Array(reification["properties"]).each do |binding|
           raise ConfigurationError, "relation #{item_id(item)}: unknown reification predicate #{binding['predicate']}" unless predicate(binding["predicate"])
+        end
+      end
+    end
+
+    def validate_models!
+      models.each_value do |model|
+        raise ConfigurationError, "model #{model['id']}: version is required" if model["version"].to_s.empty?
+        input_ids = Array(model["inputs"]).map { |input| input["id"].to_s }
+        raise ConfigurationError, "model #{model['id']}: duplicate input id" unless input_ids.uniq.length == input_ids.length
+        unless model.fetch("rounding", "half_up") == "half_up"
+          raise ConfigurationError, "model #{model['id']}: unsupported rounding #{model['rounding']}"
+        end
+        validate_formula!(model.fetch("formula"), input_ids, model["id"])
+        Array(model["bands"]).each do |band|
+          raise ConfigurationError, "model #{model['id']}: band id is required" if band["id"].to_s.empty?
+        end
+      end
+    end
+
+    def validate_formula!(node, input_ids, model_id)
+      raise ConfigurationError, "model #{model_id}: formula node must be a mapping" unless node.is_a?(Hash)
+      op = node["op"]
+      allowed = %w[input const add sum multiply subtract divide date_diff_days]
+      raise ConfigurationError, "model #{model_id}: unsupported operation #{op}" unless allowed.include?(op)
+      if op == "input"
+        raise ConfigurationError, "model #{model_id}: unknown formula input #{node['id']}" unless input_ids.include?(node["id"].to_s)
+      end
+      Array(node["args"]).each { |child| validate_formula!(child, input_ids, model_id) }
+      %w[left right start end].each do |key|
+        validate_formula!(node[key], input_ids, model_id) if node[key]
+      end
+    end
+
+    def validate_extensions!
+      constraints.each do |definition|
+        unless definition["format"] == "knowledgeos.constraints.v1" && !definition["id"].to_s.empty?
+          raise ConfigurationError, "invalid constraint definition #{definition['id']}"
+        end
+      end
+      rules.each do |definition|
+        unless definition["format"] == "knowledgeos.maintenance-rules.v1" && !definition["id"].to_s.empty?
+          raise ConfigurationError, "invalid rule definition #{definition['id']}"
         end
       end
     end
@@ -382,6 +526,43 @@ module KnowledgeOS
       return [] unless dir.directory?
       dir.glob("**/*.{yaml,yml,json}").sort.map do |path|
         path.extname == ".json" ? JSON.parse(path.read) : Frontmatter.load_yaml(path)
+      end
+    end
+
+    def load_skill_packages(dir)
+      return [] unless dir.directory?
+
+      dir.children.select(&:directory?).sort.map do |package_dir|
+        contract_path = package_dir.join("contract.yaml")
+        skill_path = package_dir.join("SKILL.md")
+        raise ConfigurationError, "#{package_dir}: missing contract.yaml" unless contract_path.file?
+        raise ConfigurationError, "#{package_dir}: missing SKILL.md" unless skill_path.file?
+
+        contract = Frontmatter.load_yaml(contract_path)
+        document = Frontmatter.parse(skill_path)
+        package_name = package_dir.basename.to_s
+        id = contract["id"].to_s
+        raise ConfigurationError, "#{contract_path}: missing id" if id.empty?
+        raise ConfigurationError, "skill package directory #{package_name} must match id #{id}" unless package_name == id
+
+        description = document.data["description"].to_s.strip
+        raise ConfigurationError, "#{skill_path}: missing description" if description.empty?
+        contract.merge(
+          "description" => description,
+          "package" => {
+            "format" => "portable-skill-directory",
+            "path" => relative_path(package_dir),
+            "entrypoint" => "SKILL.md",
+            "contract" => "contract.yaml"
+          },
+          "agent" => {
+            "name" => document.data["name"],
+            "metadata" => document.data.fetch("metadata", {}),
+            "instructions" => document.body.strip
+          }
+        )
+      rescue ValidationError => e
+        raise ConfigurationError, e.message
       end
     end
 

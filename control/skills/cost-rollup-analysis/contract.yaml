@@ -1,0 +1,14 @@
+format: knowledgeos.skill-contract.v1
+id: cost-rollup-analysis
+label: Cost roll-up analysis
+entrypoint: SKILL.md
+domain: cost
+inputs:
+  required: [target]
+  optional: [as_of, scenario, model_inputs]
+tools: [resolve, get, context, calculate, explain]
+deterministic_models: [cost_rollup]
+output:
+  sections: [answer, cost_breakdown, assumptions, knowledge_gaps, recommended_actions]
+  citations_required: true
+

@@ -22,6 +22,7 @@ module KnowledgeOS
     def constraints_dir; control_dir.join("constraints"); end
     def rules_dir; control_dir.join("rules"); end
     def skills_dir; control_dir.join("skills"); end
+    def extraction_dir; control_dir.join("extraction"); end
     def connectors_dir; root.join("connectors"); end
     def index_path; runtime_dir.join("knowledge.index.db"); end
     def ledger_path; runtime_dir.join("knowledge.ledger.db"); end

@@ -1,5 +1,6 @@
 id: pm
 label: Project management
+default_skill: project-risk-review
 concept_scopes: [project, task, decision]
 workflow:
   - resolve_project_task_milestone
@@ -11,7 +12,7 @@ retrieval:
   depth: 3
   relation_types: [contains, depends_on, threatens]
   predicate_priority: [task_status, risk_level, finding]
-required_models: []
+required_models: [schedule_variance, project_risk_score]
 tool_policy:
-  allow: [resolve, get, query, neighbors, history, calculate, explain, propose]
+  allow: [resolve, get, query, neighbors, history, calculate, explain, context, propose]
   durable_writes: changeset_only

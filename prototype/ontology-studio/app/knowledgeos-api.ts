@@ -18,6 +18,20 @@ const operationTypes: ChangeOperationType[] = ["create", "update", "deprecate", 
 
 type JsonRecord = Record<string, unknown>;
 
+export type ExtractionSourceKind = "text" | "file" | "web" | "audio" | "meeting_minutes" | "image" | "video" | "email" | "chat";
+export type ExtractionRequest = JsonRecord & {
+  protocol_version?: string;
+  registry_fingerprint?: string;
+  source?: JsonRecord & { segments?: unknown[] };
+  output_schema?: JsonRecord;
+};
+export type ExtractionCandidates = JsonRecord & {
+  candidates?: unknown[];
+  rejected?: unknown[];
+  unmapped_facts?: unknown[];
+  write_performed?: boolean;
+};
+
 export type ApiConnectionState = "connecting" | "connected" | "demo";
 
 export interface StudioMetadata {
@@ -196,7 +210,6 @@ export async function proposeChangeSet(input: { title: string; reason: string; r
   return request("/v1/propose", {
     method: "POST",
     body: JSON.stringify({
-      actor: "ui:ontology-studio",
       title: input.title,
       reason: input.reason,
       risk: input.risk,
@@ -210,13 +223,29 @@ export async function proposeChangeSet(input: { title: string; reason: string; r
 export async function reviewChangeSet(id: string, decision: "approved" | "rejected" | "changes_requested", note: string) {
   return request("/v1/changesets/review", {
     method: "POST",
-    body: JSON.stringify({ id, decision, note, reviewer: "ui:ontology-studio" }),
+    body: JSON.stringify({ id, decision, note }),
   });
 }
 
 export async function publishChangeSet(id: string, sourceRevision: string) {
   return request("/v1/changesets/publish", {
     method: "POST",
-    body: JSON.stringify({ id, source_revision: sourceRevision, publisher: "ui:ontology-studio" }),
+    body: JSON.stringify({ id, source_revision: sourceRevision }),
   });
+}
+
+export async function createExtractionRequest(source: { kind: ExtractionSourceKind; locator: string; content: string }): Promise<ExtractionRequest> {
+  const envelope = record(await request<unknown>("/v1/extraction/request", {
+    method: "POST",
+    body: JSON.stringify({ source }),
+  }));
+  return record(envelope.data) as ExtractionRequest;
+}
+
+export async function createExtractionCandidates(extractionRequest: ExtractionRequest, modelOutput: JsonRecord): Promise<ExtractionCandidates> {
+  const envelope = record(await request<unknown>("/v1/extraction/candidates", {
+    method: "POST",
+    body: JSON.stringify({ request: extractionRequest, model_output: modelOutput }),
+  }));
+  return record(envelope.data) as ExtractionCandidates;
 }

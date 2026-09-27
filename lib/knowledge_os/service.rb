@@ -15,7 +15,15 @@ module KnowledgeOS
       @registry = Registry.new(config)
       @database = Database.new(config.index_path)
       @ledger = Ledger.new(config.ledger_path)
+      @audit = AuditCoordinator.new(database: @database, ledger: @ledger)
+      @audit.flush!
       @engine = DeterministicEngine.new(config: config, database: database, ledger: ledger)
+      @agent_service = AgentService.new(service: self, registry: registry)
+      @policy_engine = PolicyEngine.new(registry: registry)
+      @semantic_index = SemanticIndex.new(database: database)
+      @publication_verifier = PublicationVerifier.new(config: config, registry: registry,
+                                                      database: database, ledger: ledger)
+      refresh_temperatures!
     end
 
     def close
@@ -43,6 +51,68 @@ module KnowledgeOS
       envelope(registry.control_plane, source: { "class" => "git_authored", "roots" => ["control", "connectors"] })
     end
 
+    def agent_capabilities(domain: nil)
+      data = @agent_service.capabilities(domain: domain)
+      envelope(data, source: { "class" => "git_authored", "roots" => ["control/domains", "control/skills"] },
+               quality: { "registry_fingerprint" => data["registry_fingerprint"], "write_performed" => false })
+    end
+
+    def agent_skill(id:)
+      data = registry.skill_bundle(id)
+      envelope(data, source: { "class" => "git_authored", "path" => data.dig("package", "path") },
+               quality: { "portable" => true, "required_files" => data["files"].keys, "write_performed" => false })
+    end
+
+    def agent_request(question:, domain:, target: nil, query: nil, skill: nil, as_of: nil, max_items: 25)
+      data = @agent_service.prepare(question: question, domain: domain, target: target, query: query, skill: skill,
+                                    as_of: as_of, max_items: max_items)
+      envelope(data, source: { "class" => "compiled_projection", "domain" => domain },
+               temporal: { "as_of" => as_of || "current" },
+               quality: { "grounding_evidence" => data["evidence"].length, "write_performed" => false },
+               gaps: Array(data.dig("context", "crltp", "entity_card", "knowledge_gaps")),
+               traces: data["evidence"].map { |item| item["ref"] })
+    end
+
+    def agent_respond(request:, model_output:, tool_results: [])
+      data = @agent_service.finalize(request, model_output, tool_results: tool_results)
+      envelope(data, source: { "class" => "model_output", "request_id" => data["request_id"] },
+               quality: data["grounding"].merge("write_performed" => false),
+               gaps: data["knowledge_gaps"], traces: data.dig("grounding", "cited_evidence_refs"))
+    end
+
+    def agent_invoke(domain:, operation:, arguments: {})
+      @agent_service.invoke(domain: domain, operation: operation, arguments: arguments)
+    end
+
+    def extraction_request(source:, profile: "default", materializer: nil)
+      request = ExtractionPipeline.new(registry: registry, database: database, profile_id: profile)
+                                  .prepare(source, materializer: materializer)
+      envelope(request,
+               source: { "class" => request.dig("source", "kind"),
+                         "source_id" => request.dig("source", "id"),
+                         "content_hash" => request.dig("source", "content_hash") },
+               quality: { "registry_fingerprint" => request["registry_fingerprint"],
+                          "write_performed" => false })
+    end
+
+    def extraction_candidates(request:, model_output:, profile: "default")
+      result = ExtractionPipeline.new(registry: registry, database: database, profile_id: profile)
+                                 .finalize(request, model_output)
+      envelope(result,
+               source: result["source"],
+               quality: { "valid_candidates" => result["candidates"].length,
+                          "rejected_candidates" => result["rejected"].length,
+                          "registry_fingerprint" => result["registry_fingerprint"],
+                          "write_performed" => false },
+               gaps: result["unmapped_facts"], traces: [result.dig("source", "id")])
+    end
+
+    def extract_candidates(source:, model_adapter:, profile: "default", materializer: nil)
+      pipeline = ExtractionPipeline.new(registry: registry, database: database, profile_id: profile)
+      request = pipeline.prepare(source, materializer: materializer)
+      extraction_candidates(request: request, model_output: model_adapter.extract(request), profile: profile)
+    end
+
     def studio
       data = registry.studio_catalog.merge("changesets" => changesets["data"])
       envelope(data, source: { "class" => "git_authored", "roots" => ["control", "connectors"] },
@@ -50,6 +120,7 @@ module KnowledgeOS
     end
 
     def changesets(status: nil, limit: 100)
+      limit = [[limit.to_i, 1].max, 500].min
       sql = "SELECT * FROM changeset"
       binds = []
       if status
@@ -57,11 +128,12 @@ module KnowledgeOS
         binds << status
       end
       sql += " ORDER BY created_at DESC LIMIT ?"
-      binds << limit.to_i
+      binds << limit
       data = database.execute(sql, binds).map do |row|
         clean(row).merge("patch" => JSON.parse(row["patch_json"]),
-                         "operations" => JSON.parse(row["operations_json"] || "[]"))
-                  .reject { |key, _| %w[patch_json operations_json].include?(key) }
+                         "operations" => JSON.parse(row["operations_json"] || "[]"),
+                         "publication" => row["publication_json"] && JSON.parse(row["publication_json"]))
+                  .reject { |key, _| %w[patch_json operations_json publication_json].include?(key) }
       end
       envelope(data)
     end
@@ -70,6 +142,9 @@ module KnowledgeOS
       card = database.first("SELECT card_json, updated_at FROM entity_card WHERE node_id = ?", id)
       raise NotFoundError, "node not found: #{id}" unless card
       data = JSON.parse(card["card_json"])
+      data["current_assertions"] = database.execute(
+        "SELECT * FROM assertion WHERE node_id = ? AND temperature = 'hot' AND status = 'confirmed' ORDER BY predicate, id", [id]
+      ).map { |row| card_assertion(row) }
       data["card_updated_at"] = card["updated_at"]
       data["history"] = history(id)["data"] if include_history
       envelope(data, gaps: Array(data["knowledge_gaps"]))
@@ -144,30 +219,32 @@ module KnowledgeOS
         sql += " AND COALESCE(observed_at, valid_from, '') <= ?"
         binds << range[1]
       end
-      data = { "assertions" => assertion_rows(sql, binds), "events" => ledger.events(target_id: id, limit: 100) }
+      events = ledger.events(target_id: id, limit: 100)
+      node = database.first("SELECT source_path FROM node WHERE id = ?", [id])
+      if node && node["source_path"]
+        events = (events + ledger.events(target_id: node["source_path"], limit: 100))
+                 .uniq { |event| event["event_id"] }
+                 .sort_by { |event| -event["sequence"].to_i }.first(100)
+      end
+      data = { "assertions" => assertion_rows(sql, binds), "events" => events }
       envelope(data)
     end
 
     def search(query, filters: {}, mode: "hybrid")
       type = filters && filters["type"]
-      rows = if database.fts_enabled && !query.to_s.strip.empty?
-               begin
-                 database.execute(
-                   <<~SQL,
-                     SELECT n.id, n.type, n.label, n.lifecycle, n.source_class, bm25(node_fts) AS score
-                     FROM node_fts JOIN node n ON n.id = node_fts.node_id
-                     WHERE node_fts MATCH ? #{type ? 'AND n.type = ?' : ''}
-                     ORDER BY score LIMIT 50
-                   SQL
-                   type ? [fts_query(query), type] : [fts_query(query)]
-                 )
-               rescue SQLite3::SQLException
-                 fallback_search(query, type)
-               end
-             else
-               fallback_search(query, type)
+      mode = mode.to_s
+      allowed = %w[keyword vector hybrid hybrid_research structured_first temporal_graph_first]
+      raise ValidationError, "unsupported search mode: #{mode}" unless allowed.include?(mode)
+      lexical = keyword_search(query, type)
+      vector = query.to_s.strip.empty? ? [] : @semantic_index.search(query, type: type, limit: 50)
+      rows = case mode
+             when "keyword" then lexical
+             when "vector" then vector
+             else hybrid_rows(lexical, vector)
              end
-      envelope(rows.map { |row| clean(row) }, source: { "mode" => mode, "fts" => database.fts_enabled, "vector" => false })
+      envelope(rows, source: { "mode" => mode, "fts" => database.fts_enabled,
+                               "vector" => !vector.empty?, "vector_model" => SemanticIndex::MODEL_ID,
+                               "plan" => retrieval_plan(mode) })
     end
 
     def explain(target, field_or_assertion: nil)
@@ -194,7 +271,14 @@ module KnowledgeOS
       pack = registry.domain(domain)
       card = get(id)["data"]
       relations = neighbors(id, relation_types: pack.dig("retrieval", "relation_types"), depth: pack.dig("retrieval", "depth") || 1, as_of: as_of)["data"]
-      assertions = Array(card["current_assertions"])
+      profile = registry.retrieval_profiles[domain] || {}
+      assertions = if as_of
+                     assertions_as_of(id, as_of)
+                   elsif profile["allow_cold_by_default"]
+                     assertion_rows("node_id = ? AND status = 'confirmed'", [id])
+                   else
+                     assertion_rows("node_id = ? AND temperature = 'hot' AND status = 'confirmed'", [id])
+                   end
       ordered = assertions.sort_by do |item|
         priorities = Array(pack.dig("retrieval", "predicate_priority"))
         index = priorities.index(item["predicate"])
@@ -208,22 +292,35 @@ module KnowledgeOS
         { "dimension" => "P", "action" => "verify", "result" => provenance_summary(ordered) }
       ]
       gaps = Array(card["knowledge_gaps"])
+      card = card.merge("current_assertions" => assertions, "as_of" => as_of) if as_of
       envelope({ "domain" => domain, "workflow" => pack["workflow"], "steps" => steps,
-                 "entity_card" => card, "assertions" => ordered, "relations" => relations }, gaps: gaps)
+                 "retrieval_profile" => profile, "entity_card" => card,
+                 "assertions" => ordered, "relations" => relations },
+               temporal: { "as_of" => as_of || "current", "assertion_projection" => as_of ? "historical" : "current" },
+               gaps: gaps)
     end
 
     def propose(actor:, target_source:, patch:, reason:, risk: "normal", title: nil, operations: [])
+      raise ValidationError, "risk must be low, normal, or high" unless %w[low normal high].include?(risk)
+      raise ValidationError, "actor is required" if actor.to_s.strip.empty?
+      raise ValidationError, "target_source is required" if target_source.to_s.strip.empty?
+      raise ValidationError, "reason is required" if reason.to_s.strip.empty?
       id = SecureRandom.uuid
       now = Time.now.utc.iso8601(6)
       status = risk == "low" ? "proposed" : "review_required"
-      database.execute(
-        "INSERT INTO changeset(id, actor, title, target_source, risk, status, patch_json, operations_json, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [id, actor, title, target_source, risk, status, JSON.generate(patch), JSON.generate(operations), reason, now]
-      )
-      event = ledger.append(event_type: "agent_proposal", actor: "agent", target_id: id, source_ref: target_source,
-                            reason: reason, payload: { "actor" => actor, "risk" => risk, "patch" => patch })
-      mirror_event(event)
-      envelope({ "id" => id, "status" => status, "target_source" => target_source })
+      base_revision = @publication_verifier.current_revision(target_source)
+      database.transaction do
+        database.execute(
+          "INSERT INTO changeset(id, actor, title, target_source, risk, status, patch_json, operations_json, reason, created_at, base_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [id, actor, title, target_source, risk, status, JSON.generate(patch), JSON.generate(operations), reason, now, base_revision]
+        )
+        @audit.stage(event_type: "agent_proposal", actor: actor, target_id: id, source_ref: target_source,
+                     before_hash: base_revision, reason: reason,
+                     payload: { "actor" => actor, "risk" => risk, "patch" => patch })
+      end
+      @audit.flush!
+      envelope({ "id" => id, "status" => status, "target_source" => target_source,
+                 "base_revision" => base_revision })
     end
 
     def review(priority: nil, limit: 100)
@@ -234,7 +331,7 @@ module KnowledgeOS
         binds << priority
       end
       sql += " ORDER BY CASE priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END, severity DESC, created_at LIMIT ?"
-      binds << limit.to_i
+      binds << @policy_engine.review_limit(limit)
       items = database.execute(sql, binds).map do |row|
         clean(row).merge("details" => JSON.parse(row["details_json"])).reject { |key, _| key == "details_json" }
       end
@@ -245,14 +342,19 @@ module KnowledgeOS
       raise ValidationError, "decision must be approved, rejected, or changes_requested" unless %w[approved rejected changes_requested].include?(decision)
       row = database.first("SELECT * FROM changeset WHERE id = ?", id)
       raise NotFoundError, "changeset not found: #{id}" unless row
+      unless %w[proposed review_required].include?(row["status"])
+        raise ValidationError, "changeset in #{row['status']} cannot be reviewed"
+      end
       now = Time.now.utc.iso8601(6)
       review_note = note.to_s.strip
       review_note = "governance decision: #{decision}" if review_note.empty?
-      database.execute("UPDATE changeset SET status = ?, reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?", [decision, reviewer, now, review_note, id])
-      event = ledger.append(event_type: "changeset_#{decision}", actor: "human", target_id: id,
-                            source_ref: row["target_source"], reason: "review decision",
-                            payload: { "reviewer" => reviewer })
-      mirror_event(event)
+      database.transaction do
+        database.execute("UPDATE changeset SET status = ?, reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?", [decision, reviewer, now, review_note, id])
+        @audit.stage(event_type: "changeset_#{decision}", actor: reviewer, target_id: id,
+                     source_ref: row["target_source"], reason: "review decision",
+                     payload: { "reviewer" => reviewer })
+      end
+      @audit.flush!
       envelope({ "id" => id, "status" => decision, "note" => "Approval records governance only; apply the patch to the real source of truth, then compile." })
     end
 
@@ -261,13 +363,22 @@ module KnowledgeOS
       raise NotFoundError, "changeset not found: #{id}" unless row
       raise ValidationError, "changeset must be approved before publication" unless row["status"] == "approved"
       raise ValidationError, "source_revision is required" if source_revision.to_s.empty?
+      verification = @publication_verifier.verify!(target_source: row["target_source"],
+                                                    source_revision: source_revision,
+                                                    base_revision: row["base_revision"])
       now = Time.now.utc.iso8601(6)
-      database.execute("UPDATE changeset SET status = 'published', published_by = ?, published_at = ?, source_revision = ? WHERE id = ?", [publisher, now, source_revision, id])
-      event = ledger.append(event_type: "changeset_published", actor: "human", target_id: id,
-                            source_ref: row["target_source"], after_hash: source_revision,
-                            reason: "source of truth updated and compiled", payload: { "publisher" => publisher, "source_revision" => source_revision })
-      mirror_event(event)
-      envelope({ "id" => id, "status" => "published", "source_revision" => source_revision })
+      database.transaction do
+        database.execute("UPDATE changeset SET status = 'published', published_by = ?, published_at = ?, source_revision = ?, publication_json = ? WHERE id = ?",
+                         [publisher, now, source_revision, JSON.generate(verification), id])
+        @audit.stage(event_type: "changeset_published", actor: publisher, target_id: id,
+                     source_ref: row["target_source"], before_hash: row["base_revision"], after_hash: source_revision,
+                     reason: "source of truth updated, verified, and compiled",
+                     payload: { "publisher" => publisher, "source_revision" => source_revision,
+                                "verification" => verification })
+      end
+      @audit.flush!
+      envelope({ "id" => id, "status" => "published", "source_revision" => source_revision,
+                 "verification" => verification })
     end
 
     private
@@ -304,13 +415,85 @@ module KnowledgeOS
       database.execute(sql, binds)
     end
 
+    def keyword_search(query, type)
+      return fallback_search(query, type).map { |row| clean(row) } if !database.fts_enabled || query.to_s.strip.empty?
+      database.execute(
+        <<~SQL,
+          SELECT n.id, n.type, n.label, n.lifecycle, n.source_class, bm25(node_fts) AS keyword_score
+          FROM node_fts JOIN node n ON n.id = node_fts.node_id
+          WHERE node_fts MATCH ? #{type ? 'AND n.type = ?' : ''}
+          ORDER BY keyword_score LIMIT 50
+        SQL
+        type ? [fts_query(query), type] : [fts_query(query)]
+      ).map { |row| clean(row) }
+    rescue SQLite3::SQLException
+      fallback_search(query, type).map { |row| clean(row) }
+    end
+
+    def hybrid_rows(lexical, vector)
+      combined = {}
+      lexical.each_with_index do |row, index|
+        combined[row["id"]] = row.merge("score" => 0.55 / (index + 1))
+      end
+      vector.each_with_index do |row, index|
+        current = combined[row["id"]] || row
+        combined[row["id"]] = current.merge(row).merge("score" => current.fetch("score", 0.0) + 0.45 / (index + 1))
+      end
+      combined.values.sort_by { |row| -row["score"] }.first(50)
+    end
+
+    def retrieval_plan(mode)
+      case mode
+      when "keyword" then ["fts_or_label"]
+      when "vector" then ["deterministic_embedding"]
+      when "structured_first" then ["structured_identity", "fts", "deterministic_embedding"]
+      when "temporal_graph_first" then ["temporal_filter", "graph_context", "fts", "deterministic_embedding"]
+      else ["fts", "deterministic_embedding", "rank_fusion"]
+      end
+    end
+
+    def assertions_as_of(node_id, as_of)
+      Time.iso8601(as_of.to_s)
+      rows = assertion_rows(
+        <<~SQL, [node_id, as_of, as_of, as_of]
+          node_id = ? AND status IN ('confirmed','superseded','stale')
+          AND (valid_from IS NULL OR valid_from = '' OR valid_from <= ?)
+          AND (valid_to IS NULL OR valid_to = '' OR valid_to > ?)
+          AND (observed_at IS NULL OR observed_at = '' OR observed_at <= ?)
+        SQL
+      )
+      superseded = rows.map { |item| item["supersedes"] }.compact
+      rows.reject { |item| superseded.include?(item["id"]) }
+    rescue ArgumentError
+      raise ValidationError, "invalid as_of timestamp: #{as_of}"
+    end
+
     def fts_query(query)
       query.to_s.scan(/[\p{L}\p{N}_:-]+/).map { |term| '"' + term.gsub('"', '""') + '"' }.join(" OR ")
     end
 
     def provenance_summary(assertions)
-      counts = assertions.group_by { |item| item["provenance_tier"] }.transform_values(&:length)
+      counts = assertions.group_by { |item| item["provenance_tier"] || item.dig("provenance", "tier") }.transform_values(&:length)
       { "tiers" => counts, "checked" => assertions.length }
+    end
+
+    def refresh_temperatures!
+      database.execute("SELECT id, predicate, status, observed_at, valid_to, temperature FROM assertion").each do |row|
+        temperature = @policy_engine.assertion_temperature(
+          predicate_id: row["predicate"], status: row["status"], observed_at: row["observed_at"],
+          valid_to: row["valid_to"]
+        )
+        database.execute("UPDATE assertion SET temperature = ? WHERE id = ?", [temperature, row["id"]]) if temperature != row["temperature"]
+      end
+    end
+
+    def card_assertion(row)
+      {
+        "id" => row["id"], "predicate" => row["predicate"], "value" => JSON.parse(row["value_json"]),
+        "observed_at" => row["observed_at"], "valid_from" => row["valid_from"], "valid_to" => row["valid_to"],
+        "assertion_kind" => row["assertion_kind"], "status" => row["status"], "confidence" => row["confidence"],
+        "provenance_tier" => row["provenance_tier"], "temperature" => row["temperature"]
+      }
     end
 
     def escape_like(value)
@@ -319,13 +502,6 @@ module KnowledgeOS
 
     def edge_key(edge)
       %w[src predicate dst rel_id valid_from].map { |key| edge[key] }.join("|")
-    end
-
-    def mirror_event(event)
-      database.execute(
-        "INSERT OR IGNORE INTO audit_event_ref(event_id, event_type, target_id, ledger_sequence, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [event["event_id"], event["event_type"], event["target_id"], event["sequence"], event["timestamp"]]
-      )
     end
 
     def clean(row)

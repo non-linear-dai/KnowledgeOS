@@ -1,0 +1,33 @@
+id: project_risk_score
+version: "1.0.0"
+description: Deterministic project risk score and governed severity classification.
+inputs:
+  - id: schedule_delay_days
+    unit: calendar_days
+  - id: blocked_dependencies
+    unit: count
+  - id: high_risk_items
+    unit: count
+formula:
+  op: add
+  args:
+    - op: multiply
+      args:
+        - { op: input, id: schedule_delay_days }
+        - { op: const, value: 0.2 }
+    - op: multiply
+      args:
+        - { op: input, id: blocked_dependencies }
+        - { op: const, value: 2 }
+    - op: multiply
+      args:
+        - { op: input, id: high_risk_items }
+        - { op: const, value: 3 }
+precision: 1
+rounding: half_up
+output_unit: risk_points
+bands:
+  - { id: low, max: 2 }
+  - { id: medium, min: 2.1, max: 5 }
+  - { id: high, min: 5.1, max: 10 }
+  - { id: critical, min: 10.1 }

@@ -9,10 +9,16 @@ module KnowledgeOS
 
     def initialize(registry)
       @registry = registry
+      @policy_engine = PolicyEngine.new(registry: registry)
+      @schema_validator = SchemaValidator.new
+      @constraint_engine = ConstraintEngine.new(registry.constraints)
     end
 
     def validate_document!(document, assertions: nil)
       data = document.data
+      schema = @registry.schemas["canonical-node.schema"] || @registry.schemas["canonical-node"]
+      @schema_validator.validate!(data, schema) if schema
+      @constraint_engine.validate_document!(data, document.path)
       base = required_hash(data, "base", document.path)
       node = required_hash(base, "node", document.path)
       knowledge = required_hash(data, "knowledge", document.path)
@@ -34,6 +40,7 @@ module KnowledgeOS
       assertions.each { |item| validate_assertion!(document.path, item) }
       relations.each { |item| validate_relation!(document.path, item, source_type: node["type"]) }
       validate_concept_shape!(document.path, node["type"], attrs, assertions)
+      validate_cardinality!(document.path, node["type"], attrs, assertions)
       validate_logic_refs!(document.path, knowledge["logic_refs"] || [])
       true
     end
@@ -52,16 +59,11 @@ module KnowledgeOS
       status = epistemic["status"] || "proposed"
       raise ValidationError, "#{path}: invalid assertion status #{status}" unless ASSERTION_STATUSES.include?(status)
 
-      tier = predicate.dig("policy", "provenance_tier") || "C"
-      provenance = assertion["provenance"] || {}
-      if tier == "A" && status == "confirmed"
-        sources = Array(provenance["source_refs"])
-        evidence = Array(provenance["evidence_refs"])
-        if sources.empty? || evidence.empty?
-          raise ValidationError, "#{path}: Tier A confirmed assertion #{assertion['id']} requires source_refs and evidence_refs"
+      if status == "confirmed"
+        errors = @policy_engine.provenance_errors(predicate["id"], assertion)
+        unless errors.empty?
+          raise ValidationError, "#{path}: assertion #{assertion['id']} #{errors.join('; ')}"
         end
-      elsif tier == "B" && status == "confirmed" && Array(provenance["source_refs"]).empty?
-        raise ValidationError, "#{path}: Tier B confirmed assertion #{assertion['id']} requires source_refs"
       end
       validate_time!(path, assertion["temporal"] || {}, predicate)
       true
@@ -75,6 +77,13 @@ module KnowledgeOS
       connections = Array(definition["connections"])
       if source_type && !connections.empty? && connections.none? { |item| item["source_type"] == source_type }
         raise ValidationError, "#{path}: relation #{relation['predicate']} does not allow source type #{source_type}"
+      end
+      mode = definition.fetch("mode", "simple")
+      if mode == "reified" && relation["id"].to_s.empty?
+        raise ValidationError, "#{path}: reified relation #{relation['predicate']} requires an id"
+      end
+      if mode == "simple" && !relation["id"].to_s.empty?
+        raise ValidationError, "#{path}: simple relation #{relation['predicate']} cannot declare a reification id"
       end
     end
 
@@ -100,6 +109,19 @@ module KnowledgeOS
       raise ValidationError, "#{path}: logic_refs must be a list" unless logic_refs.is_a?(Array)
       logic_refs.each do |id|
         raise ValidationError, "#{path}: unknown logic model #{id}" unless @registry.model(id)
+      end
+    end
+
+    def validate_cardinality!(path, type, attrs, assertions)
+      concept = @registry.concept(type)
+      Array(concept && concept["properties"]).each do |binding|
+        predicate_id = binding.fetch("predicate").to_s
+        predicate = @registry.predicate(predicate_id)
+        cardinality = binding.fetch("cardinality", "inherit")
+        cardinality = predicate.dig("value", "cardinality") if cardinality == "inherit"
+        next unless cardinality == "one"
+        count = (attrs.key?(predicate_id) ? 1 : 0) + assertions.count { |item| item["predicate"].to_s == predicate_id }
+        raise ValidationError, "#{path}: #{predicate_id} allows at most one value" if count > 1
       end
     end
 
@@ -129,6 +151,10 @@ module KnowledgeOS
               else false
               end
       raise ValidationError, "#{path}: #{predicate['id']} expects #{type}" unless valid
+      allowed = Array(predicate.dig("value", "allowed"))
+      if !allowed.empty? && !allowed.include?(value)
+        raise ValidationError, "#{path}: #{predicate['id']} must be one of #{allowed.join(', ')}"
+      end
     end
 
     def validate_time!(path, temporal, predicate)
