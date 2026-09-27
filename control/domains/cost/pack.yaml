@@ -1,5 +1,6 @@
 id: cost
 label: Cost analysis
+concept_scopes: [product, organization]
 workflow:
   - resolve_target
   - traverse_components_materials_processes
@@ -15,4 +16,3 @@ required_models: [cost_rollup]
 tool_policy:
   allow: [resolve, get, query, neighbors, history, calculate, explain]
   durable_writes: changeset_only
-

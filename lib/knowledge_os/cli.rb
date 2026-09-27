@@ -19,6 +19,7 @@ module KnowledgeOS
       command = @argv.shift || "help"
       case command
       when "doctor" then doctor
+      when "control" then with_service { |service| print_json(service.control_plane) }
       when "rebuild" then compile(true)
       when "compile" then compile(false)
       when "get" then with_service { |service| print_json(service.get(required_arg("id"), include_history: flag?("--history"))) }
@@ -33,6 +34,7 @@ module KnowledgeOS
       when "review" then with_service { |service| print_json(service.review(priority: option("--priority"), limit: option("--limit", 100).to_i)) }
       when "propose" then propose
       when "review-changeset" then review_changeset
+      when "publish-changeset" then publish_changeset
       when "verify-ledger" then verify_ledger
       when "serve" then serve
       when "version", "--version", "-v" then puts KnowledgeOS::VERSION
@@ -129,6 +131,13 @@ module KnowledgeOS
       with_service { |service| print_json(service.review_changeset(id: id, reviewer: reviewer, decision: decision)) }
     end
 
+    def publish_changeset
+      id = required_arg("changeset id")
+      publisher = option("--publisher") || raise(ValidationError, "--publisher is required")
+      source_revision = option("--source-revision") || raise(ValidationError, "--source-revision is required")
+      with_service { |service| print_json(service.publish_changeset(id: id, publisher: publisher, source_revision: source_revision)) }
+    end
+
     def verify_ledger
       ledger = Ledger.new(config.ledger_path)
       print_json(ledger.verify!)
@@ -184,6 +193,7 @@ module KnowledgeOS
 
         Commands:
           doctor                         Validate the local runtime
+          control                        Read the complete control-plane contract
           rebuild                        Rebuild the disposable SQLite index
           compile                        Incrementally compile changed knowledge
           get ID [--history]             Read an Entity Card
@@ -198,6 +208,7 @@ module KnowledgeOS
           review [--priority P0]         List maintenance exceptions
           propose ...                    Create an Agent ChangeSet
           review-changeset ID ...        Record a governance decision
+          publish-changeset ID ...       Record source publication after approval
           verify-ledger                  Verify the immutable hash chain
           serve [--bind HOST --port N]   Start the local JSON API
       TEXT

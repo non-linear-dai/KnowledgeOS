@@ -28,6 +28,8 @@ This repository implements the final architecture frozen in the “企业知识�
 - Agent durable writes are ChangeSets and must reach the real source of truth before compilation.
 - Precise calculations are deterministic and retain model version, input hash, run ID, output, and trace.
 - Human governance is exception-based; maintenance queues are budgeted and prioritized.
+- The non-instance control plane is itself a validated contract. Schemas, ontology shapes, predicate policies, deterministic models, domain/retrieval behavior, and connector mappings must resolve through one registry snapshot.
+- Concept-property bindings and relation domain/range/reification declarations are compiler-enforced contracts, not UI-only metadata.
 
 ## Delivery mapping
 
@@ -41,4 +43,3 @@ This repository implements the final architecture frozen in the “企业知识�
 | Phase 5 — lifecycle | Hot/Warm/Cold classification and rebuild/verification commands |
 
 The implementation intentionally keeps external vendor choices outside the kernel. Production connectors, authentication, authorization enforcement, secret management, and embedding providers must be selected for the target enterprise environment.
-

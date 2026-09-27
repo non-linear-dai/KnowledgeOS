@@ -1,5 +1,6 @@
 id: pm
 label: Project management
+concept_scopes: [project, task, decision]
 workflow:
   - resolve_project_task_milestone
   - traverse_dependencies_and_gates
@@ -14,4 +15,3 @@ required_models: []
 tool_policy:
   allow: [resolve, get, query, neighbors, history, calculate, explain, propose]
   durable_writes: changeset_only
-

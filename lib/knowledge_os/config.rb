@@ -18,6 +18,11 @@ module KnowledgeOS
     def policies_dir; control_dir.join("policies"); end
     def models_dir; control_dir.join("models"); end
     def domains_dir; control_dir.join("domains"); end
+    def schemas_dir; control_dir.join("schemas"); end
+    def constraints_dir; control_dir.join("constraints"); end
+    def rules_dir; control_dir.join("rules"); end
+    def skills_dir; control_dir.join("skills"); end
+    def connectors_dir; root.join("connectors"); end
     def index_path; runtime_dir.join("knowledge.index.db"); end
     def ledger_path; runtime_dir.join("knowledge.ledger.db"); end
 

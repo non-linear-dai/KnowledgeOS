@@ -5,6 +5,7 @@
 /tmp/
 /.bundle/
 /vendor/bundle/
+/.pnpm-store/
 .DS_Store
 
 !.gitkeep

@@ -2,19 +2,88 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://knowledgeos.local/schemas/canonical-node.schema.json",
   "title": "KnowledgeOS Canonical Node Envelope",
+  "description": "Domain-independent C-R-L-T-P authoring contract.",
   "type": "object",
   "required": ["base", "knowledge"],
   "properties": {
     "base": {
       "type": "object",
-      "required": ["schema", "node", "lifecycle", "version"]
+      "required": ["schema", "node", "lifecycle", "version"],
+      "properties": {
+        "schema": {
+          "type": "object",
+          "required": ["ckm"],
+          "properties": { "ckm": { "const": "3.0" } }
+        },
+        "node": {
+          "type": "object",
+          "required": ["id", "kind", "type", "key", "label"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "kind": { "type": "string", "minLength": 1 },
+            "type": { "type": "string", "minLength": 1 },
+            "key": { "type": "string", "minLength": 1 },
+            "label": { "type": "string", "minLength": 1 },
+            "aliases": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "classification": {
+          "type": "object",
+          "properties": { "tags": { "type": "array", "items": { "type": "string" } } }
+        },
+        "lifecycle": {
+          "type": "object",
+          "required": ["state"],
+          "properties": { "state": { "enum": ["draft", "active", "deprecated", "merged", "retired"] } }
+        },
+        "version": {
+          "type": "object",
+          "required": ["entity_revision"],
+          "properties": { "entity_revision": { "type": "integer", "minimum": 1 } }
+        }
+      }
     },
     "knowledge": {
       "type": "object",
-      "required": ["attrs", "assertions", "relations", "logic_refs"]
+      "required": ["attrs", "assertions", "relations", "logic_refs"],
+      "properties": {
+        "attrs": { "type": "object" },
+        "assertions": { "type": "array", "items": { "$ref": "#/$defs/assertion" } },
+        "relations": { "type": "array", "items": { "$ref": "#/$defs/relation" } },
+        "logic_refs": { "type": "array", "items": { "type": "string" } }
+      }
     },
-    "external": { "type": "object" }
+    "external": {
+      "type": "object",
+      "properties": { "assertions_ref": { "type": ["string", "null"] } }
+    }
+  },
+  "$defs": {
+    "assertion": {
+      "type": "object",
+      "required": ["id", "predicate", "value"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "predicate": { "type": "string", "minLength": 1 },
+        "value": {},
+        "qualifiers": { "type": "object" },
+        "temporal": { "type": "object" },
+        "epistemic": { "type": "object" },
+        "provenance": { "type": "object" },
+        "version": { "type": "object" }
+      }
+    },
+    "relation": {
+      "type": "object",
+      "required": ["predicate", "target"],
+      "properties": {
+        "id": { "type": "string" },
+        "predicate": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "temporal": { "type": "object" },
+        "weight": { "type": "number" }
+      }
+    }
   },
   "additionalProperties": true
 }
-

@@ -24,6 +24,8 @@ Cost analysis, industry research, project management, and future domains all use
 - C-R-L-T-P context-plan output
 - Safe deterministic formula engine with result traces
 - Thin Cost, Industry, and Project Management domain packs
+- Complete non-instance control-plane catalog for schemas, ontology, predicates, policies, models, domains, retrieval profiles, connector mappings, and explicit extension points
+- Executable concept-shape, relation endpoint/reification, model-reference, and control-reference validation
 - Example entities and automated tests
 
 Vector search and real ERP/QMS/PLM/PM adapters are extension points: no fake external integrations or embedding provider is bundled.
@@ -39,6 +41,7 @@ bin/knowledgeos rebuild
 bin/knowledgeos search "KnowledgeOS"
 bin/knowledgeos get org:acme
 bin/knowledgeos context org:acme --domain industry
+bin/knowledgeos control
 bin/knowledgeos verify-ledger
 rake test
 ```
@@ -66,7 +69,7 @@ lib/          Compiler, index, ledger, services, API, connector and engine
 runtime/      Disposable generated state
 tests/        Architecture and behavior tests
 docs/         Architecture decisions and implementation mapping
+prototype/    KnowledgeOS structure and governance control panel
 ```
 
 See [docs/architecture-v3.md](docs/architecture-v3.md) for the frozen design-to-code mapping and [docs/contracts.md](docs/contracts.md) for authoring and API contracts.
-

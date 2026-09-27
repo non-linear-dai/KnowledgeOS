@@ -11,7 +11,7 @@ module KnowledgeOS
       @registry = registry
     end
 
-    def validate_document!(document)
+    def validate_document!(document, assertions: nil)
       data = document.data
       base = required_hash(data, "base", document.path)
       node = required_hash(base, "node", document.path)
@@ -24,7 +24,7 @@ module KnowledgeOS
       raise ValidationError, "#{document.path}: invalid lifecycle #{lifecycle}" unless LIFECYCLES.include?(lifecycle)
 
       attrs = knowledge["attrs"] || {}
-      assertions = knowledge["assertions"] || []
+      assertions = assertions || knowledge["assertions"] || []
       relations = knowledge["relations"] || []
       raise ValidationError, "#{document.path}: attrs must be a mapping" unless attrs.is_a?(Hash)
       raise ValidationError, "#{document.path}: assertions must be a list" unless assertions.is_a?(Array)
@@ -32,7 +32,9 @@ module KnowledgeOS
 
       attrs.each { |predicate, value| validate_attr!(document.path, predicate, value) }
       assertions.each { |item| validate_assertion!(document.path, item) }
-      relations.each { |item| validate_relation!(document.path, item) }
+      relations.each { |item| validate_relation!(document.path, item, source_type: node["type"]) }
+      validate_concept_shape!(document.path, node["type"], attrs, assertions)
+      validate_logic_refs!(document.path, knowledge["logic_refs"] || [])
       true
     end
 
@@ -65,13 +67,41 @@ module KnowledgeOS
       true
     end
 
-    def validate_relation!(path, relation)
+    def validate_relation!(path, relation, source_type: nil)
       raise ValidationError, "#{path}: relation must be a mapping" unless relation.is_a?(Hash)
       %w[predicate target].each { |key| required_value(relation, key, path) }
       raise ValidationError, "#{path}: unknown relation #{relation['predicate']}" unless @registry.relation?(relation["predicate"])
+      definition = @registry.relation(relation["predicate"])
+      connections = Array(definition["connections"])
+      if source_type && !connections.empty? && connections.none? { |item| item["source_type"] == source_type }
+        raise ValidationError, "#{path}: relation #{relation['predicate']} does not allow source type #{source_type}"
+      end
     end
 
     private
+
+    def validate_concept_shape!(path, type, attrs, assertions)
+      concept = @registry.concept(type)
+      bindings = Array(concept && concept["properties"])
+      return if bindings.empty?
+
+      used = attrs.keys.map(&:to_s) + assertions.map { |item| item["predicate"].to_s }
+      allowed = bindings.map { |item| item["predicate"].to_s }
+      (used - allowed).each do |predicate|
+        raise ValidationError, "#{path}: predicate #{predicate} is not declared for concept #{type}"
+      end
+      bindings.select { |item| item["required"] }.each do |binding|
+        next if used.include?(binding["predicate"].to_s)
+        raise ValidationError, "#{path}: concept #{type} requires predicate #{binding['predicate']}"
+      end
+    end
+
+    def validate_logic_refs!(path, logic_refs)
+      raise ValidationError, "#{path}: logic_refs must be a list" unless logic_refs.is_a?(Array)
+      logic_refs.each do |id|
+        raise ValidationError, "#{path}: unknown logic model #{id}" unless @registry.model(id)
+      end
+    end
 
     def validate_attr!(path, id, value)
       predicate = predicate!(path, id)
@@ -127,4 +157,3 @@ module KnowledgeOS
     end
   end
 end
-

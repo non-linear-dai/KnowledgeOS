@@ -1,30 +1,115 @@
 concept_types:
   - id: organization
     label: Organization
+    description: Enterprise, supplier, and partner identity.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: legal_name, required: true, cardinality: inherit, group: identity }
+      - { predicate: country, required: false, cardinality: inherit, group: profile }
+      - { predicate: finding, required: false, cardinality: inherit, group: governance }
+      - { predicate: lead_time_days, required: false, cardinality: inherit, group: measurement }
   - id: market
     label: Market
+    description: A research subject and bounded market scope.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: summary, required: false, cardinality: inherit, group: profile }
+      - { predicate: market_size, required: false, cardinality: inherit, group: measurement }
+      - { predicate: finding, required: false, cardinality: inherit, group: governance }
   - id: product
     label: Product
+    description: A product that may be analyzed, supplied, or used.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: summary, required: false, cardinality: inherit, group: profile }
+      - { predicate: unit_cost, required: false, cardinality: inherit, group: measurement }
+      - { predicate: lead_time_days, required: false, cardinality: inherit, group: measurement }
   - id: project
     label: Project
+    description: A governed project work unit.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: summary, required: false, cardinality: inherit, group: profile }
+      - { predicate: risk_level, required: false, cardinality: inherit, group: governance }
   - id: task
     label: Task
+    description: A trackable task or milestone within a project.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: summary, required: false, cardinality: inherit, group: profile }
+      - { predicate: task_status, required: true, cardinality: inherit, group: governance }
+      - { predicate: risk_level, required: false, cardinality: inherit, group: governance }
   - id: relation
     label: Reified Relation
+    description: A relation promoted to a node because it needs identity, evidence, or temporal state.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: lead_time_days, required: false, cardinality: inherit, group: measurement }
+      - { predicate: risk_level, required: false, cardinality: inherit, group: governance }
   - id: decision
     label: Decision
+    description: A governed business or research decision.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: summary, required: false, cardinality: inherit, group: profile }
+      - { predicate: finding, required: false, cardinality: inherit, group: governance }
+      - { predicate: risk_level, required: false, cardinality: inherit, group: governance }
 
 relation_types:
   - id: participates_in
     label: participates in
+    description: Connects an organization or product to a market.
+    status: { lifecycle: active, equivalent_to: }
+    mode: simple
+    connections:
+      - { source_type: organization, target_type: market, source_cardinality: many, target_cardinality: many }
+      - { source_type: product, target_type: market, source_cardinality: many, target_cardinality: many }
   - id: supplies
     label: supplies
+    description: Connects a supplier organization to a product.
+    status: { lifecycle: active, equivalent_to: }
+    mode: reifiable
+    connections:
+      - { source_type: organization, target_type: product, source_cardinality: many, target_cardinality: many }
+    reification:
+      node_type: relation
+      identity: required
+      properties:
+        - { predicate: lead_time_days, required: false, cardinality: inherit, group: measurement }
+        - { predicate: risk_level, required: false, cardinality: inherit, group: governance }
   - id: contains
     label: contains
+    description: Connects a project or composition to its contained work or component.
+    status: { lifecycle: active, equivalent_to: }
+    mode: simple
+    connections:
+      - { source_type: project, target_type: task, source_cardinality: one, target_cardinality: many }
   - id: depends_on
     label: depends on
+    description: Connects tasks to task or organization dependencies.
+    status: { lifecycle: active, equivalent_to: }
+    mode: simple
+    connections:
+      - { source_type: task, target_type: task, source_cardinality: many, target_cardinality: many }
+      - { source_type: task, target_type: organization, source_cardinality: many, target_cardinality: many }
   - id: uses
     label: uses
+    description: Connects products to component products or provider organizations they use.
+    status: { lifecycle: active, equivalent_to: }
+    mode: simple
+    connections:
+      - { source_type: product, target_type: product, source_cardinality: many, target_cardinality: many }
+      - { source_type: product, target_type: organization, source_cardinality: many, target_cardinality: many }
   - id: threatens
     label: threatens
-
+    description: Connects a reified risk relation to a governed project or task.
+    status: { lifecycle: active, equivalent_to: }
+    mode: reified
+    connections:
+      - { source_type: relation, target_type: project, source_cardinality: many, target_cardinality: many }
+      - { source_type: relation, target_type: task, source_cardinality: many, target_cardinality: many }
+    reification:
+      node_type: relation
+      identity: required
+      properties:
+        - { predicate: risk_level, required: true, cardinality: inherit, group: governance }

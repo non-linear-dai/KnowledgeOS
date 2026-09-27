@@ -46,4 +46,17 @@ class CompilerTest < Minitest::Test
       service.close
     end
   end
+
+  def test_concept_shape_and_logic_refs_are_compiler_contracts
+    with_workspace do |config|
+      path = config.knowledge_dir.join("entities/org-acme.md")
+      source = path.read.sub("country: China", "country: China\n    summary: Not declared for organizations")
+      path.write(source)
+      compiler = KnowledgeOS::Compiler.new(config: config)
+
+      error = assert_raises(KnowledgeOS::ValidationError) { compiler.compile(rebuild: true) }
+      assert_match(/summary is not declared for concept organization/, error.message)
+      compiler.close
+    end
+  end
 end

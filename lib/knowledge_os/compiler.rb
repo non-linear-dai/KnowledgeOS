@@ -39,8 +39,7 @@ module KnowledgeOS
             next
           end
 
-          @validator.validate_document!(document)
-          assertions.each { |item| @validator.validate_assertion!(rel, item) }
+          @validator.validate_document!(document, assertions: assertions)
           project_document!(document, assertions, full_hash)
           database.execute(
             "INSERT INTO metadata(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -48,6 +47,7 @@ module KnowledgeOS
           )
           changed << rel
         end
+        validate_projected_relations!
         rebuild_cards!
         scan_maintenance!
         database.execute(
@@ -203,6 +203,22 @@ module KnowledgeOS
         [node_id, relation["predicate"], relation["target"], relation["id"] || "",
          temporal["valid_from"] || "", temporal["valid_to"] || "", relation["weight"], source_path]
       )
+    end
+
+    def validate_projected_relations!
+      database.execute(<<~SQL).each do |row|
+        SELECT e.src, source.type AS source_type, e.predicate, e.dst, target.type AS target_type
+        FROM edge e
+        LEFT JOIN node source ON source.id = e.src
+        LEFT JOIN node target ON target.id = e.dst
+      SQL
+        next unless row["source_type"] && row["target_type"]
+        definition = registry.relation(row["predicate"])
+        connections = Array(definition && definition["connections"])
+        next if connections.empty?
+        next if connections.any? { |item| item["source_type"] == row["source_type"] && item["target_type"] == row["target_type"] }
+        raise ValidationError, "relation #{row['predicate']} does not allow #{row['source_type']} -> #{row['target_type']} (#{row['src']} -> #{row['dst']})"
+      end
     end
 
     def temperature(status, temporal)

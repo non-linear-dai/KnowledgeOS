@@ -39,6 +39,33 @@ module KnowledgeOS
       envelope(rows.map { |row| clean(row).merge("aliases" => JSON.parse(row["aliases_json"])).reject { |key, _| key == "aliases_json" } })
     end
 
+    def control_plane
+      envelope(registry.control_plane, source: { "class" => "git_authored", "roots" => ["control", "connectors"] })
+    end
+
+    def studio
+      data = registry.studio_catalog.merge("changesets" => changesets["data"])
+      envelope(data, source: { "class" => "git_authored", "roots" => ["control", "connectors"] },
+               quality: { "registry_valid" => true })
+    end
+
+    def changesets(status: nil, limit: 100)
+      sql = "SELECT * FROM changeset"
+      binds = []
+      if status
+        sql += " WHERE status = ?"
+        binds << status
+      end
+      sql += " ORDER BY created_at DESC LIMIT ?"
+      binds << limit.to_i
+      data = database.execute(sql, binds).map do |row|
+        clean(row).merge("patch" => JSON.parse(row["patch_json"]),
+                         "operations" => JSON.parse(row["operations_json"] || "[]"))
+                  .reject { |key, _| %w[patch_json operations_json].include?(key) }
+      end
+      envelope(data)
+    end
+
     def get(id, include_history: false)
       card = database.first("SELECT card_json, updated_at FROM entity_card WHERE node_id = ?", id)
       raise NotFoundError, "node not found: #{id}" unless card
@@ -185,13 +212,13 @@ module KnowledgeOS
                  "entity_card" => card, "assertions" => ordered, "relations" => relations }, gaps: gaps)
     end
 
-    def propose(actor:, target_source:, patch:, reason:, risk: "normal")
+    def propose(actor:, target_source:, patch:, reason:, risk: "normal", title: nil, operations: [])
       id = SecureRandom.uuid
       now = Time.now.utc.iso8601(6)
       status = risk == "low" ? "proposed" : "review_required"
       database.execute(
-        "INSERT INTO changeset(id, actor, target_source, risk, status, patch_json, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [id, actor, target_source, risk, status, JSON.generate(patch), reason, now]
+        "INSERT INTO changeset(id, actor, title, target_source, risk, status, patch_json, operations_json, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, actor, title, target_source, risk, status, JSON.generate(patch), JSON.generate(operations), reason, now]
       )
       event = ledger.append(event_type: "agent_proposal", actor: "agent", target_id: id, source_ref: target_source,
                             reason: reason, payload: { "actor" => actor, "risk" => risk, "patch" => patch })
@@ -214,17 +241,33 @@ module KnowledgeOS
       envelope(items)
     end
 
-    def review_changeset(id:, reviewer:, decision:)
-      raise ValidationError, "decision must be approved or rejected" unless %w[approved rejected].include?(decision)
+    def review_changeset(id:, reviewer:, decision:, note: nil)
+      raise ValidationError, "decision must be approved, rejected, or changes_requested" unless %w[approved rejected changes_requested].include?(decision)
       row = database.first("SELECT * FROM changeset WHERE id = ?", id)
       raise NotFoundError, "changeset not found: #{id}" unless row
       now = Time.now.utc.iso8601(6)
-      database.execute("UPDATE changeset SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?", [decision, reviewer, now, id])
+      review_note = note.to_s.strip
+      review_note = "governance decision: #{decision}" if review_note.empty?
+      database.execute("UPDATE changeset SET status = ?, reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?", [decision, reviewer, now, review_note, id])
       event = ledger.append(event_type: "changeset_#{decision}", actor: "human", target_id: id,
                             source_ref: row["target_source"], reason: "review decision",
                             payload: { "reviewer" => reviewer })
       mirror_event(event)
       envelope({ "id" => id, "status" => decision, "note" => "Approval records governance only; apply the patch to the real source of truth, then compile." })
+    end
+
+    def publish_changeset(id:, publisher:, source_revision:)
+      row = database.first("SELECT * FROM changeset WHERE id = ?", id)
+      raise NotFoundError, "changeset not found: #{id}" unless row
+      raise ValidationError, "changeset must be approved before publication" unless row["status"] == "approved"
+      raise ValidationError, "source_revision is required" if source_revision.to_s.empty?
+      now = Time.now.utc.iso8601(6)
+      database.execute("UPDATE changeset SET status = 'published', published_by = ?, published_at = ?, source_revision = ? WHERE id = ?", [publisher, now, source_revision, id])
+      event = ledger.append(event_type: "changeset_published", actor: "human", target_id: id,
+                            source_ref: row["target_source"], after_hash: source_revision,
+                            reason: "source of truth updated and compiled", payload: { "publisher" => publisher, "source_revision" => source_revision })
+      mirror_event(event)
+      envelope({ "id" => id, "status" => "published", "source_revision" => source_revision })
     end
 
     private
@@ -290,4 +333,3 @@ module KnowledgeOS
     end
   end
 end
-

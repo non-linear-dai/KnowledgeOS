@@ -184,16 +184,29 @@ module KnowledgeOS
         CREATE TABLE IF NOT EXISTS changeset (
           id TEXT PRIMARY KEY,
           actor TEXT NOT NULL,
+          title TEXT,
           target_source TEXT NOT NULL,
           risk TEXT NOT NULL,
           status TEXT NOT NULL,
           patch_json TEXT NOT NULL,
+          operations_json TEXT NOT NULL DEFAULT '[]',
           reason TEXT NOT NULL,
           created_at TEXT NOT NULL,
           reviewed_by TEXT,
-          reviewed_at TEXT
+          reviewed_at TEXT,
+          review_note TEXT,
+          published_by TEXT,
+          published_at TEXT,
+          source_revision TEXT
         );
       SQL
+
+      ensure_column!("changeset", "title", "TEXT")
+      ensure_column!("changeset", "operations_json", "TEXT NOT NULL DEFAULT '[]'")
+      ensure_column!("changeset", "review_note", "TEXT")
+      ensure_column!("changeset", "published_by", "TEXT")
+      ensure_column!("changeset", "published_at", "TEXT")
+      ensure_column!("changeset", "source_revision", "TEXT")
 
       begin
         connection.execute <<~SQL
@@ -208,6 +221,11 @@ module KnowledgeOS
       rescue SQLite3::SQLException
         @fts_enabled = false
       end
+    end
+
+    def ensure_column!(table, column, definition)
+      columns = connection.execute("PRAGMA table_info(#{table})").map { |row| row["name"] }
+      connection.execute("ALTER TABLE #{table} ADD COLUMN #{column} #{definition}") unless columns.include?(column)
     end
   end
 end

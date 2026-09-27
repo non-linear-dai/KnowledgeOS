@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 require_relative "knowledge_os/errors"
 require_relative "knowledge_os/config"
 require_relative "knowledge_os/frontmatter"
@@ -17,4 +19,3 @@ require_relative "knowledge_os/cli"
 module KnowledgeOS
   VERSION = "0.1.0"
 end
-
