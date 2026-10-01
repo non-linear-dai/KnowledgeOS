@@ -1,14 +1,23 @@
 # KnowledgeOS Ontology Studio
 
-KnowledgeOS 的非实例结构与治理控制面。界面从后端 `GET /v1/studio` 加载完整定义目录，并通过 ChangeSet API 提交、审核和登记发布。
+KnowledgeOS Studio 0.2.0 是面向 Contract 3.6 的非实例结构与治理控制面。界面从后端 `GET /v1/studio` 加载完整定义目录；结构白板显示 Schema、概念、关系、判断类型、模型、业务约束和业务规则卡片，均可查看和编辑草稿，再通过 ChangeSet API 提交、审核和登记发布。物理单位与货币仍由 Git 控制文件维护，不显示在白板。单文件模型、物理单位、货币、业务约束及业务规则经独立审核后，可由具备发布权限的用户在界面应用到 Git 真源，再验证发布；这一步不自动创建 Git commit。
+
+Studio 不提供知识抽取页，也不承担文件、图像、音频或视频的内容抽取。外部 Agent 与适配 Skill 负责把来源材料转换为带来源引用的结构化候选；KnowledgeOS 负责验证其数据结构、治理结构化真源并提供 ChangeSet 交互。后端现有抽取协议仅作为兼容接口保留，不通过 Studio 代理暴露。
+
+业务约束校验单个概念实例的事实，启用后也在知识编译及连接器记录接收时执行；业务规则对主体与候选实体的已确认事实作确定性比较。主体条件失败返回“未命中规则”，主体条件通过而候选条件失败返回“适用后条件失败”，通过全部条件返回“符合条件”，缺少判断所需事实时返回“信息不足”，并附事实来源。规则可以选填已注册的关系类型，结果中给出推导边，但不自动写入实体关系。白板提供适用概念、输入判断类型、比较条件、版本、样例事实试算和现有实体影响评估；试算与影响评估不写入真源。未发布的草稿可删除；已发布的定义通过递增版本修改或弃用。`control/constraints/business/` 和 `control/rules/business/` 只容纳业务定义，既有技术约束与维护规则不作为业务卡片。
 
 ## KnowledgeOS API connection
 
-Copy `.env.example` to `.env.local` for local development and set `KNOWLEDGEOS_API_BASE_URL` to the reachable Ruby API origin. The server-side `/api/knowledgeos/*` proxy exposes only the Studio routes required by this UI, so the browser never needs direct cross-origin access.
+Copy `.env.example` to `.env.local` for local development and set `KNOWLEDGEOS_API_BASE_URL` to the reachable Python API origin. The server-side `/api/knowledgeos/*` proxy exposes only the Studio routes required by this UI, so the browser never needs direct cross-origin access.
 
-Use Studio's login button with a personal bearer token from `KNOWLEDGEOS_AUTH_TOKENS`. The proxy forwards that token to the Ruby API; it does not use a shared service token. Credentials stay in page memory, and `/v1/session` supplies the user's identity and permissions. Hosting-platform sign-in described below is separate and does not grant KnowledgeOS permissions.
+Use Studio's login button with a personal bearer token from `KNOWLEDGEOS_AUTH_TOKENS`. The proxy forwards that token to the Python API; it does not use a shared service token. Credentials stay in page memory, and `/v1/session` supplies the user's identity and permissions. Hosting-platform sign-in described below is separate and does not grant KnowledgeOS permissions.
+
+For local development, start the backend with `bin/knowledgeos dev-serve --port 8787`, then enter `local-admin-token` in Studio's login dialog. The fixed key is accepted only by that explicit loopback-only command; normal `serve` continues to require `KNOWLEDGEOS_AUTH_TOKENS`.
+To test high-risk ChangeSet approval locally, submit as `local-admin-token`, switch Studio login to `local-reviewer-token`, approve, apply, and publish. The second development key has a distinct principal so the independent-review check remains active. Both keys work only with `dev-serve` on loopback.
 
 Missing configuration, authentication failure, insufficient permissions, and connection loss have distinct UI states. Existing snapshots and drafts are preserved on connection failure. Demo mode is entered only through the explicit demo button. Drafts are rebased on refresh; conflicting changes remain visible and cannot be submitted until resolved. Local demo decisions cannot affect a live ChangeSet.
+
+The built Worker preview reads `KNOWLEDGEOS_API_BASE_URL` as a Worker binding. For a local production-build check, start the Python API on port 8787 and run `npm start -- --port 15174 --var KNOWLEDGEOS_API_BASE_URL:http://127.0.0.1:8787`. Configure the same binding on the hosting platform for deployment. `.env.local` supplies the development server and does not by itself configure the built Worker preview.
 
 ## Prerequisites
 

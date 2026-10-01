@@ -1,0 +1,7 @@
+id: utilization_factor
+label: Utilization factor
+value: { type: quantity, dimension: dimensionless, units: [one], minimum: "0.000001", maximum: "1", cardinality: temporal_many }
+storage: { mode: assertion }
+semantics: { description: Evidence-based fraction of useful life allocated to productive time. }
+policy: { temporal: required, evidence: required, history: full, embedding: false, write: reviewed, freshness: research_180d, authority: research_sources, provenance_tier: B }
+status: { lifecycle: active, equivalent_to: }

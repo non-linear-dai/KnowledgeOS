@@ -14,15 +14,15 @@ formula:
     - op: multiply
       args:
         - { op: input, id: schedule_delay_days }
-        - { op: const, value: 0.2 }
+        - { op: const, value: 0.2, unit: risk_points_per_calendar_day }
     - op: multiply
       args:
         - { op: input, id: blocked_dependencies }
-        - { op: const, value: 2 }
+        - { op: const, value: 2, unit: risk_points_per_count }
     - op: multiply
       args:
         - { op: input, id: high_risk_items }
-        - { op: const, value: 3 }
+        - { op: const, value: 3, unit: risk_points_per_count }
 precision: 1
 rounding: half_up
 output_unit: risk_points

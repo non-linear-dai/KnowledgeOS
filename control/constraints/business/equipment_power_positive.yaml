@@ -1,0 +1,14 @@
+format: knowledgeos.business-constraint.v1
+id: equipment_power_positive
+label: 设备额定功率应为正值
+description: 设备声明额定功率时，数值必须大于零；缺少确认值时结果为未知。
+version: 1.0.0
+status: {lifecycle: draft}
+scope: {subject_concept: equipment}
+inputs:
+  - {id: rated, role: subject, predicate: rated_power}
+checks:
+  - left: rated
+    operator: gt
+    right: {value: {value: 0, unit: W}}
+    message: 额定功率必须大于零

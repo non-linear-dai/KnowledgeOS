@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>KnowledgeOS V3.5｜企业知识库与 Agent 架构使用指南</title>
+  <style>
+    :root { --ink:#17253b; --muted:#5e6f83; --line:#dce5ed; --paper:#f5f8fb; --white:#fff; --navy:#12253c; --blue:#2456a3; --cyan:#087f8c; --mint:#e5f6f3; --amber:#a66310; --rose:#a23d4e; --violet:#6650a4; --shadow:0 12px 34px rgba(25,54,81,.07); }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--ink); background:var(--paper); font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+    a { color:#176c9f; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    code,pre,.mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    code { padding:.1em .36em; border-radius:5px; background:#edf2f6; font-size:.9em; overflow-wrap:anywhere; }
+    pre { margin:0; padding:17px 19px; overflow:auto; background:#14243a; color:#e7f4ff; border-radius:12px; font-size:12px; line-height:1.65; white-space:pre; }
+    h1,h2,h3,h4,p { margin-top:0; }
+    h1 { font-size:clamp(2.5rem,5vw,4.25rem); line-height:1.12; letter-spacing:-.045em; }
+    h2 { font-size:clamp(1.65rem,3vw,2.2rem); letter-spacing:-.035em; line-height:1.3; }
+    h3 { font-size:1.12rem; line-height:1.45; }
+    p { margin-bottom:14px; }
+    .shell { display:grid; grid-template-columns:240px minmax(0,1fr); max-width:1600px; margin:auto; }
+    .sidebar { position:sticky; top:0; height:100vh; overflow:auto; padding:26px 18px; background:#11243a; color:#d7e5f3; border-right:1px solid #28435c; }
+    .brand { display:flex; gap:11px; align-items:center; padding:0 10px 22px; border-bottom:1px solid #2c4259; margin-bottom:20px; color:white; font-weight:800; letter-spacing:-.03em; }
+    .brand-mark { display:grid; place-items:center; width:37px; height:37px; border-radius:11px; background:linear-gradient(135deg,#4ed8cf,#638cf2); color:#0c2840; font-weight:900; }
+    .sidebar .eyebrow { color:#80a7c4; padding:0 11px; margin:17px 0 7px; font-size:10px; font-weight:800; letter-spacing:.17em; text-transform:uppercase; }
+    .sidebar nav a { display:block; color:#c6d6e6; border-radius:9px; padding:7px 11px; margin:2px 0; font-size:12px; }
+    .sidebar nav a:hover,.sidebar nav a:focus { background:#233e58; color:white; text-decoration:none; }
+    .side-note { margin:30px 8px 0; padding:14px; border:1px solid #365269; border-radius:13px; color:#a9c2d6; font-size:11px; line-height:1.6; }
+    main { min-width:0; }
+    .hero { color:#f5fbff; padding:64px clamp(24px,5vw,80px) 68px; background:radial-gradient(circle at 82% 8%,#276c83 0,transparent 28%),linear-gradient(130deg,#12253d 0%,#133551 57%,#0e5a62 100%); }
+    .hero .topline { color:#7be1d8; font-size:11px; font-weight:800; letter-spacing:.22em; text-transform:uppercase; margin-bottom:24px; }
+    .hero h1 { max-width:850px; margin-bottom:18px; }
+    .hero .lead { max-width:800px; color:#d1e3ec; font-size:17px; line-height:1.8; }
+    .hero-tags,.badges { display:flex; flex-wrap:wrap; gap:9px; margin-top:24px; }
+    .hero-tags span { border:1px solid #6895a7; border-radius:99px; padding:5px 12px; color:#dcf8f7; font-size:11px; }
+    .hero-meta { margin-top:30px; color:#a8c9d8; font-size:11px; }
+    .content { padding:34px clamp(20px,4.4vw,68px) 90px; max-width:1320px; }
+    section.chapter { scroll-margin-top:24px; margin:0 0 46px; }
+    .section-head { display:flex; align-items:start; gap:15px; margin-bottom:18px; }
+    .section-no { flex:none; display:grid; place-items:center; width:37px; height:37px; border-radius:10px; background:#d7edeb; color:#066a72; font-size:12px; font-weight:800; }
+    .section-head p { color:var(--muted); margin-bottom:0; }
+    .card { background:white; border:1px solid var(--line); border-radius:16px; padding:20px; box-shadow:var(--shadow); }
+    .card h3 { margin-bottom:8px; }
+    .grid { display:grid; gap:14px; }
+    .cols-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .cols-3 { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .cols-4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
+    .mini { color:var(--muted); font-size:12px; line-height:1.65; }
+    .kicker { color:var(--cyan); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px; }
+    .number { color:var(--blue); font-size:32px; font-weight:800; line-height:1.15; margin-bottom:8px; }
+    .callout { padding:17px 20px; border-radius:13px; border-left:4px solid var(--cyan); background:#e7f6f5; margin:15px 0; }
+    .callout.warn { border-color:#dc9d38; background:#fff4df; }
+    .callout.danger { border-color:#cf6571; background:#fff0f1; }
+    .callout p:last-child { margin-bottom:0; }
+    .diagram { margin:18px 0; padding:22px; background:#fff; border:1px solid var(--line); border-radius:17px; box-shadow:var(--shadow); overflow:auto; }
+    .diagram-title { display:flex; align-items:baseline; gap:10px; margin-bottom:18px; }
+    .diagram-title strong { font-size:13px; }
+    .diagram-title span { color:var(--muted); font-size:11px; }
+    .diagram svg { display:block; width:100%; height:auto; min-width:650px; }
+    svg text { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+    .flow { display:flex; align-items:stretch; gap:8px; overflow:auto; padding-bottom:3px; }
+    .flow .step { min-width:145px; flex:1; border:1px solid #cbdde7; border-radius:12px; padding:13px; background:#f8fbfd; }
+    .flow .step b { display:block; margin-bottom:5px; font-size:12px; }
+    .flow .step small { color:var(--muted); line-height:1.5; }
+    .flow .arrow { align-self:center; color:#6490a6; font-size:22px; font-weight:300; }
+    .flow .step.em { background:#e5f4f3; border-color:#9bcfcb; }
+    .flow .step.dark { background:#173552; border-color:#173552; color:white; }
+    .flow .step.dark small { color:#d1e2ed; }
+    .legend { display:flex; flex-wrap:wrap; gap:9px; margin-top:14px; }
+    .legend span,.chip { border-radius:99px; padding:4px 10px; font-size:10px; font-weight:700; background:#eaf0f7; color:#315a78; }
+    .legend .truth { background:#e4f4ed; color:#23654a; }
+    .legend .runtime { background:#e8eeff; color:#4a58a2; }
+    .legend .external { background:#fff0db; color:#916014; }
+    .table-wrap { overflow:auto; border:1px solid var(--line); border-radius:14px; background:white; margin:15px 0; }
+    table { border-collapse:collapse; width:100%; min-width:700px; font-size:12px; }
+    th,td { padding:11px 13px; border-bottom:1px solid #e7edf2; vertical-align:top; text-align:left; }
+    th { background:#edf4f7; color:#29475f; font-size:11px; }
+    tr:last-child td { border-bottom:0; }
+    td:first-child { font-weight:700; white-space:nowrap; }
+    .folder-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .folder { display:grid; grid-template-columns:190px 1fr; gap:10px; padding:12px 15px; background:white; border:1px solid var(--line); border-radius:11px; font-size:12px; }
+    .folder code { align-self:start; color:#1a6090; background:#e8f3fa; font-weight:700; }
+    .folder span { color:var(--muted); }
+    .tree { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:11px; }
+    .tree .tree-col { border:1px solid var(--line); border-radius:14px; padding:16px; background:white; }
+    .tree .tree-col h3 { margin:0 0 11px; font-size:13px; }
+    .tree .tree-item { padding:7px 0; border-top:1px dashed #dbe5eb; font-size:11px; }
+    .tree .tree-item b { color:#1e618a; }
+    .tree .tree-item span { display:block; color:var(--muted); }
+    .two-code { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
+    .code-title { background:#d9e8f1; border-radius:10px 10px 0 0; padding:7px 12px; color:#254864; font-size:11px; font-weight:800; }
+    .code-title + pre { border-radius:0 0 10px 10px; }
+    .pillrow { display:flex; flex-wrap:wrap; gap:7px; }
+    .pillrow span { border:1px solid #bfd6e6; color:#245b80; background:#f4f9fc; padding:5px 10px; border-radius:99px; font-size:11px; }
+    .swim { display:grid; grid-template-columns:130px 1fr; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:white; }
+    .swim .lane { display:contents; }
+    .swim .lane-label { background:#eaf2f6; border-bottom:1px solid #dce5ed; padding:12px; font-size:11px; font-weight:800; }
+    .swim .lane-body { border-bottom:1px solid #dce5ed; padding:12px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:11px; }
+    .swim .lane:last-child .lane-label,.swim .lane:last-child .lane-body { border-bottom:0; }
+    .bubble { padding:6px 10px; background:#e5f3f3; border:1px solid #a5cecd; border-radius:8px; }
+    .bubble.alt { background:#edf0fb; border-color:#bfc8e8; }
+    .bubble.gold { background:#fff3de; border-color:#efd298; }
+    .ui { background:#e8edf2; border:1px solid #cad5e0; border-radius:16px; overflow:hidden; font-size:11px; }
+    .ui-bar { display:flex; align-items:center; gap:9px; flex-wrap:wrap; padding:11px 14px; background:#17283c; color:#ecf5fb; }
+    .ui-logo { margin-right:9px; font-weight:900; font-size:13px; }
+    .ui-tab { border-radius:6px; padding:5px 8px; color:#b7c6d6; }
+    .ui-tab.active { background:#f7fafb; color:#16283e; }
+    .ui-status { margin-left:auto; color:#8ce2d6; }
+    .ui-main { display:grid; grid-template-columns:210px 1fr 240px; min-height:320px; }
+    .ui-panel { padding:14px; background:#f9fbfc; border-right:1px solid #d7e0e9; }
+    .ui-panel:last-child { border-right:0; border-left:1px solid #d7e0e9; }
+    .ui-canvas { display:grid; place-items:center; padding:14px; background-image:radial-gradient(#c5d3df 1px,transparent 1px); background-size:15px 15px; }
+    .ui-node { display:inline-block; background:white; padding:10px 12px; border-radius:9px; border:2px solid #76abb9; box-shadow:0 4px 12px #a2b7c653; font-size:11px; }
+    .ui-panel h4 { margin:0 0 11px; font-size:11px; }
+    .ui-row { padding:7px; margin:5px 0; border-radius:7px; border:1px solid #e1e8ed; background:white; }
+    .ui-btn { display:inline-block; padding:6px 9px; margin:8px 0 0; background:#1d6381; color:white; border-radius:7px; }
+    .annotation { font-size:10px; line-height:1.5; color:#416074; }
+    .status { display:inline-block; padding:3px 8px; border-radius:99px; font-size:10px; font-weight:800; }
+    .status.ok { background:#dcf3eb; color:#146449; }
+    .status.wait { background:#fff0d4; color:#86530e; }
+    .status.fail { background:#fae7e8; color:#a03645; }
+    .timeline { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+    .timeline .moment { border-top:4px solid #84b8c1; padding:10px; background:#f5fafb; border-radius:4px 4px 10px 10px; font-size:11px; }
+    .timeline .moment b { display:block; margin-bottom:6px; }
+    .timeline .moment span { color:var(--muted); }
+    .foot { color:#8093a3; font-size:11px; border-top:1px solid #d7e1e9; padding-top:22px; }
+    @media(max-width:1050px) { .shell{grid-template-columns:1fr;} .sidebar{position:relative;height:auto;padding:16px 20px;} .sidebar .brand{margin:0;padding:0;border:0;} .sidebar nav,.sidebar .eyebrow,.side-note{display:none;} .cols-4,.cols-3,.tree{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    @media(max-width:690px) { .hero{padding:38px 22px 44px;} .content{padding:26px 15px 60px;} .cols-2,.cols-3,.cols-4,.folder-grid,.tree,.two-code{grid-template-columns:1fr;} .folder{grid-template-columns:1fr;} .ui-main{grid-template-columns:120px 1fr;} .ui-main .ui-panel:last-child{grid-column:1/-1;border-left:0;border-top:1px solid #d7e0e9;} .ui-status{margin-left:0;} .timeline{grid-template-columns:1fr 1fr;} }
+    @media print { body{background:white;font-size:11px;} .shell{display:block;} .sidebar{display:none;} .hero{background:#12304b!important;print-color-adjust:exact;-webkit-print-color-adjust:exact;padding:32px;} .content{padding:20px 0;} section.chapter{break-inside:avoid;page-break-inside:avoid;} .card,.diagram{box-shadow:none;} a{color:#174a70;} }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" aria-label="目录">
+    <div class="brand"><span class="brand-mark">K</span><span>KnowledgeOS<br><small style="font-weight:500;color:#a7c7d8">V3.5 架构指南</small></span></div>
+    <div class="eyebrow">阅读导航</div>
+    <nav>
+      <a href="#overview">01 · 一页看懂目标</a><a href="#layers">02 · 架构分层</a><a href="#truth">03 · 真源与运行态</a><a href="#folders">04 · 目录与文件夹</a><a href="#data">05 · 核心数据结构</a><a href="#control">06 · 控制面语义</a><a href="#agent">07 · Agent 工作方式</a><a href="#ingest">08 · 连接器与抽取</a><a href="#governance">09 · 治理与发布</a><a href="#time">10 · 时间、质量与恢复</a><a href="#studio">11 · 前端 OS 使用</a><a href="#run">12 · 运行与边界</a>
+    </nav>
+    <div class="side-note">本指南对应仓库当前 V3.5 契约。<br>Canonical 源信封仍标记 <b>ckm: 3.0</b>，不等于版本落后。</div>
+  </aside>
+  <main>
+    <header class="hero">
+      <div class="topline">Architecture / User Guide / Contract 3.5</div>
+      <h1>企业知识库<br>与 Agent OS</h1>
+      <p class="lead">把“知识是什么、如何关联、如何判断、何时有效、为什么可信”统一到一套可追溯的内核；让 AI 能检索、解释、调用确定性能力，但不能绕过来源与治理流程直接写入事实。</p>
+      <div class="hero-tags"><span>单一 Canonical Kernel</span><span>C-R-L-T-P 五维语义</span><span>Git + 企业源系统双真源</span><span>ChangeSet 治理</span><span>个人身份与角色授权</span></div>
+      <div class="hero-meta">以当前仓库 <span class="mono">docs/iteration-3.5.md</span>、控制面、API 与 Ontology Studio 实现为准 · 2026-09-27</div>
+    </header>
+    <div class="content">
+
+    <section id="overview" class="chapter">
+      <div class="section-head"><span class="section-no">01</span><div><h2>需求目标：把“会回答”升级为“可依赖”</h2><p>这套系统面向企业知识与 Agent，而不是把所有资料塞进一个聊天窗口。</p></div></div>
+      <div class="grid cols-4">
+        <div class="card"><div class="number">01</div><h3>统一语义</h3><p class="mini">成本、行业、项目等领域共用同一个节点/判断/关系信封；领域包只调整工作流、检索、技能和工具策略。</p></div>
+        <div class="card"><div class="number">02</div><h3>可信来源</h3><p class="mini">企业运营事实留在 ERP 等权威系统；人工编写知识留在 Git。每个高等级判断必须带来源与证据。</p></div>
+        <div class="card"><div class="number">03</div><h3>安全变更</h3><p class="mini">Agent 的持久建议走 ChangeSet。批准不等于发布，发布必须校验真源语义结果与修订。</p></div>
+        <div class="card"><div class="number">04</div><h3>可重建运行</h3><p class="mini">索引可丢弃重建；治理状态和审计账本持久保存，成对备份并校验。</p></div>
+      </div>
+      <div class="diagram"><div class="diagram-title"><strong>图 1 · 从原始来源到可信回答的闭环</strong><span>实线是数据与控制路径</span></div>
+        <div class="flow"><div class="step"><b>Git 知识 / 企业源系统</b><small>分别保有各自的权威事实</small></div><span class="arrow">→</span><div class="step"><b>注册、校验、接入</b><small>Schema · Predicate · Policy · Connector</small></div><span class="arrow">→</span><div class="step em"><b>统一知识投影</b><small>Node · Assertion · Relation · Index</small></div><span class="arrow">→</span><div class="step"><b>Agent 上下文与工具</b><small>CRLTP + 确定性模型 + 引用</small></div><span class="arrow">→</span><div class="step dark"><b>有据可查的回答</b><small>缺口显式暴露；变更回到 ChangeSet</small></div></div>
+      </div>
+      <div class="callout"><b>五维语义 C-R-L-T-P</b>：Concept（是什么）／Relation（如何连接）／Logic（如何判断和计算）／Temporality（何时有效）／Provenance（凭什么可信）。它们是一个知识对象的不同维度，不是五套数据库。</div>
+    </section>
+
+    <section id="layers" class="chapter">
+      <div class="section-head"><span class="section-no">02</span><div><h2>架构分层：一套内核，多种入口</h2><p>从上到下是用户体验、智能服务、知识 API、编译治理、持久与来源。</p></div></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 2 · V3.5 六层架构</strong><span>横向箭头代表不同入口共享同一内核</span></div>
+      <svg viewBox="0 0 1060 675" role="img" aria-label="KnowledgeOS 六层架构图">
+        <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="#7297aa"/></marker></defs>
+        <rect x="18" y="15" width="1024" height="81" rx="14" fill="#dceaf4"/><text x="43" y="46" font-size="14" font-weight="700" fill="#163954">体验层</text><text x="43" y="72" font-size="12" fill="#3d6077">Ontology Studio 前端 OS · CLI · 外部 Agent / LLM 平台</text>
+        <path d="M530 97v24" stroke="#7297aa" stroke-width="2" marker-end="url(#arr)"/>
+        <rect x="18" y="126" width="1024" height="79" rx="14" fill="#e9e6f7"/><text x="43" y="157" font-size="14" font-weight="700" fill="#493c78">Agent 服务层</text><text x="43" y="183" font-size="12" fill="#5e5382">Capabilities / Skill / Request / Invoke / Respond · CRLTP 上下文 · 引证验证</text>
+        <path d="M530 207v23" stroke="#7297aa" stroke-width="2" marker-end="url(#arr)"/>
+        <rect x="18" y="235" width="1024" height="79" rx="14" fill="#e3f1f5"/><text x="43" y="266" font-size="14" font-weight="700" fill="#155c73">统一 API 层</text><text x="43" y="292" font-size="12" fill="#3f7382">/v1 查询、上下文、控制面、抽取、ChangeSet · 个人 Bearer Token + 角色权限</text>
+        <path d="M530 316v23" stroke="#7297aa" stroke-width="2" marker-end="url(#arr)"/>
+        <rect x="18" y="344" width="1024" height="94" rx="14" fill="#e5f4ef"/><text x="43" y="375" font-size="14" font-weight="700" fill="#1c674e">语义与治理内核</text><text x="43" y="399" font-size="12" fill="#426e60">Registry · Schema/Value 校验 · Compiler · Policy · 约束 · 确定性模型 · Publication Verifier</text><text x="43" y="420" font-size="12" fill="#426e60">增量失效 / 事务重建 / 来源保护 / 幂等状态迁移</text>
+        <path d="M530 440v23" stroke="#7297aa" stroke-width="2" marker-end="url(#arr)"/>
+        <rect x="18" y="468" width="324" height="131" rx="14" fill="#ecf1ff"/><text x="42" y="500" font-size="14" font-weight="700" fill="#415498">查询投影</text><text x="42" y="526" font-size="12" fill="#536496">runtime/knowledge.index.db</text><text x="42" y="550" font-size="12" fill="#536496">FTS · 向量 · 实体卡 · 图</text><text x="42" y="575" font-size="12" fill="#536496">可丢弃重建</text>
+        <rect x="369" y="468" width="324" height="131" rx="14" fill="#f1eaf8"/><text x="393" y="500" font-size="14" font-weight="700" fill="#694ca2">治理状态</text><text x="393" y="526" font-size="12" fill="#6f6090">runtime/knowledge.state.db</text><text x="393" y="550" font-size="12" fill="#6f6090">ChangeSet · Outbox · Connector</text><text x="393" y="575" font-size="12" fill="#6f6090">持久，须备份</text>
+        <rect x="718" y="468" width="324" height="131" rx="14" fill="#fff0e0"/><text x="742" y="500" font-size="14" font-weight="700" fill="#8a561b">审计账本</text><text x="742" y="526" font-size="12" fill="#8a561b">runtime/knowledge.ledger.db</text><text x="742" y="550" font-size="12" fill="#8a561b">哈希链 · 幂等事件</text><text x="742" y="575" font-size="12" fill="#8a561b">持久，与 state 成对备份</text>
+        <path d="M530 601v20" stroke="#7297aa" stroke-width="2" marker-end="url(#arr)"/>
+        <rect x="18" y="626" width="1024" height="42" rx="12" fill="#213d53"/><text x="43" y="652" font-size="12" fill="#f2f8fb">真源：Git 管理的 control/ + knowledge/ + connectors/ 映射　｜　企业源系统中的运营事实，经 Connector 接入</text>
+      </svg></div>
+      <div class="callout warn">本地 SQLite 的状态/索引事务与账本之间通过<strong>持久 Outbox</strong>异步、幂等地衔接；不要理解成三个文件处于同一个数据库事务。当前实现面向单主机、本地文件系统，跨节点部署需另做平台适配。</div>
+    </section>
+
+    <section id="truth" class="chapter">
+      <div class="section-head"><span class="section-no">03</span><div><h2>三种“真相”与一个可重建视图</h2><p>分清“内容从哪里来”和“运行时存在哪里”，就不会误把索引当主库。</p></div></div>
+      <div class="grid cols-2">
+        <div class="card"><div class="kicker">Authored truth</div><h3>Git 编写的知识与控制定义</h3><p class="mini"><code>knowledge/</code> 存经过编写/审核的知识；<code>control/</code> 存本体、谓词、模型、策略、领域与技能。修改走评审与编译。</p></div>
+        <div class="card"><div class="kicker">Operational truth</div><h3>企业业务系统</h3><p class="mini">ERP / QMS / PLM / PM 等源系统保留运营事实。连接器读取并投影，不能把这些事实反向写进 Markdown 充当真源。</p></div>
+        <div class="card"><div class="kicker">Durable runtime</div><h3>状态 + 审计</h3><p class="mini"><code>knowledge.state.db</code> 管 ChangeSet、Outbox、连接器记录、模型运行和录制快照；<code>knowledge.ledger.db</code> 是不可随意重建的审计账本。</p></div>
+        <div class="card"><div class="kicker">Disposable projection</div><h3>查询索引</h3><p class="mini"><code>knowledge.index.db</code> 用于检索、图、实体卡。它从 Git 真源与持久连接器记录重建，不单独备份为“数据真相”。</p></div>
+      </div>
+      <div class="diagram"><div class="diagram-title"><strong>图 3 · 写入与重建方向</strong><span>左侧为权威来源，右侧为运行态</span></div><div class="flow"><div class="step em"><b>control/ + knowledge/</b><small>Git 编写真源</small></div><span class="arrow">↘</span><div class="step"><b>校验 / 编译</b><small>统一注册表与 canonical 投影</small></div><span class="arrow">→</span><div class="step"><b>index.db</b><small>可重建的读取视图</small></div></div><div class="flow" style="margin-top:9px"><div class="step"><b>企业业务系统</b><small>运营事实真源</small></div><span class="arrow">→</span><div class="step"><b>Connector → state.db</b><small>保留版本与 tombstone</small></div><span class="arrow">↗</span><div class="step"><b>Outbox → ledger.db</b><small>提交后幂等投递审计事件</small></div></div><div class="legend"><span class="truth">Git 真源</span><span class="external">外部业务真源</span><span class="runtime">运行态</span></div></div>
+    </section>
+
+    <section id="folders" class="chapter">
+      <div class="section-head"><span class="section-no">04</span><div><h2>仓库目录：Agent 在哪里、每个文件夹做什么</h2><p>“Agent”不是一个单独装着全部知识的目录，而是由通用服务、领域包、技能包与可治理的数据共同组成。</p></div></div>
+      <div class="tree">
+        <div class="tree-col"><h3>① 真源与控制面</h3><div class="tree-item"><b>control/</b><span>跨领域规则、模型与 Agent 行为声明</span></div><div class="tree-item"><b>knowledge/</b><span>Git 编写的知识实体、研究、决策、上下文</span></div><div class="tree-item"><b>connectors/</b><span>源系统到 canonical 的映射和示例</span></div></div>
+        <div class="tree-col"><h3>② 执行与运行态</h3><div class="tree-item"><b>lib/knowledge_os/</b><span>编译、API、Agent、策略、连接器等 Ruby 实现</span></div><div class="tree-item"><b>bin/</b><span>knowledgeos 命令行入口</span></div><div class="tree-item"><b>runtime/</b><span>本地 SQLite 运行数据库；不要提交 Git</span></div></div>
+        <div class="tree-col"><h3>③ 用户体验与验证</h3><div class="tree-item"><b>prototype/ontology-studio/</b><span>前端 OS / 非实例控制面</span></div><div class="tree-item"><b>tests/</b><span>编译、策略、账本、API 等测试</span></div><div class="tree-item"><b>docs/</b><span>契约、Agent、抽取、迭代文档与本指南</span></div></div>
+      </div>
+      <h3 style="margin-top:24px">control/ 内部：Agent 所依赖的“行为与语义地图”</h3>
+      <div class="folder-grid">
+        <div class="folder"><code>ontology/</code><span>概念与关系类型。<code>core.yaml</code> 声明组织、产品、项目等类型及有向端点、关系实体化规则。</span></div>
+        <div class="folder"><code>predicates/</code><span>全局判断类型注册表。每个新 predicate 先在这里注册值类型、基数、存储模式、时态/证据/权威等。</span></div>
+        <div class="folder"><code>schemas/</code><span>Canonical 节点、抽取源、Studio 快照等 JSON Schema；支持的 Schema 子集执行失败关闭校验。</span></div>
+        <div class="folder"><code>policies/</code><span>权威、新鲜度、溯源等级与维护预算。决定哪些来源可被信任，以及查询/治理中的质量状态。</span></div>
+        <div class="folder"><code>models/</code><span>确定性模型定义：成本汇总、进度偏差、项目风险。单位、输入和版本由程序校验。</span></div>
+        <div class="folder"><code>domains/&lt;name&gt;/</code><span>成本、行业、项目领域包：<code>pack.yaml</code> 管工作流/工具策略，<code>retrieval_profile.yaml</code> 管检索行为；不创建领域专属真源信封。</span></div>
+        <div class="folder"><code>skills/&lt;skill&gt;/</code><span>Agent 可携带技能包：<code>SKILL.md</code> 是人/模型可读步骤，<code>contract.yaml</code> 是机器可验证输入、工具白名单、模型与输出约束。</span></div>
+        <div class="folder"><code>extraction/</code><span>多来源抽取 profile，定义允许的来源类型与抽取策略，不负责网页抓取、语音转写本身。</span></div>
+        <div class="folder"><code>constraints/</code><span>跨定义完整性约束，例如 canonical integrity；属于控制面校验，而非企业业务事实。</span></div>
+        <div class="folder"><code>rules/</code><span>维护规则等治理规则位置；不可把规则混写到不受控的 Agent 提示词中。</span></div>
+      </div>
+      <h3 style="margin-top:24px">knowledge/ 与实现目录</h3>
+      <div class="folder-grid">
+        <div class="folder"><code>entities/</code><span>实体 Markdown 或实体目录（可配外置 NDJSON assertions），使用唯一 canonical 信封与全局 ID。</span></div>
+        <div class="folder"><code>research/</code><span>编写型研究资料位置；必须保留源引用，不能替代运营系统中的事实。</span></div>
+        <div class="folder"><code>decisions/</code><span>人工形成的决策记录位置，与断言的时态、来源和审计区分。</span></div>
+        <div class="folder"><code>context/</code><span>编写型上下文位置，供解释与检索使用。</span></div>
+        <div class="folder"><code>lib/knowledge_os/</code><span><code>agent_service.rb</code> 组织 Agent；<code>compiler.rb</code> 编译；<code>connector.rb</code> 接入；<code>policy_engine.rb</code> 治理；<code>api.rb</code> 提供接口。</span></div>
+        <div class="folder"><code>prototype/ontology-studio/app/</code><span>前端页面、知识抽取工作台、控制中心、API 代理和交互状态；属于非实例结构编辑原型。</span></div>
+      </div>
+      <div class="callout warn">当前仓库没有一个必须叫 <code>Agent/</code> 的总目录。Agent 的可移植职责主要位于 <code>control/skills/</code>，执行门面位于 <code>lib/knowledge_os/agent_service.rb</code>，领域限制位于 <code>control/domains/</code>。</div>
+    </section>
+
+    <section id="data" class="chapter">
+      <div class="section-head"><span class="section-no">05</span><div><h2>核心数据结构：一个 Node 如何承载可信知识</h2><p>Canonical 信封与域无关；“稳定值”和“可争议判断”采用不同承载方式。</p></div></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 4 · Canonical Node 解剖图</strong><span>本图用结构示意，不代表新的字段语法</span></div>
+      <svg viewBox="0 0 1020 470" role="img" aria-label="Canonical Node 信封结构">
+        <rect x="10" y="10" width="1000" height="450" rx="22" fill="#f7fafc" stroke="#c9dce8" stroke-width="2"/>
+        <rect x="30" y="30" width="960" height="86" rx="13" fill="#dceaf4"/><text x="50" y="60" font-size="16" font-weight="700" fill="#214b66">base · 身份与生命周期</text><text x="50" y="88" font-size="13" fill="#426782">schema.ckm · node.id/kind/type/key/key_namespace/label · classification · lifecycle · version</text>
+        <rect x="30" y="132" width="224" height="204" rx="13" fill="#dff1ec"/><text x="48" y="163" font-size="15" font-weight="700" fill="#286b56">attrs</text><text x="48" y="190" font-size="12" fill="#4c7869">稳定的当前值</text><text x="48" y="219" font-size="12" fill="#4c7869">如 legal_name / country</text><text x="48" y="252" font-size="12" fill="#4c7869">受 predicate 注册约束</text><text x="48" y="279" font-size="12" fill="#4c7869">不承载独立证据时间线</text>
+        <rect x="270" y="132" width="342" height="204" rx="13" fill="#e7e5f6"/><text x="288" y="163" font-size="15" font-weight="700" fill="#5c4d94">assertions</text><text x="288" y="190" font-size="12" fill="#6e6395">predicate + typed value + qualifiers</text><text x="288" y="219" font-size="12" fill="#6e6395">temporal + epistemic + provenance</text><text x="288" y="248" font-size="12" fill="#6e6395">confidence / status / supersedes</text><text x="288" y="279" font-size="12" fill="#6e6395">独立时态、证据、争议与历史</text>
+        <rect x="628" y="132" width="173" height="204" rx="13" fill="#fff0dc"/><text x="647" y="163" font-size="15" font-weight="700" fill="#8f611f">relations</text><text x="647" y="190" font-size="12" fill="#946f36">有向连接</text><text x="647" y="219" font-size="12" fill="#946f36">predicate → target</text><text x="647" y="248" font-size="12" fill="#946f36">复杂关系可实体化</text>
+        <rect x="817" y="132" width="173" height="204" rx="13" fill="#e3edf7"/><text x="835" y="163" font-size="15" font-weight="700" fill="#366685">logic_refs</text><text x="835" y="190" font-size="12" fill="#5a7b91">关联模型 / 规则</text><text x="835" y="219" font-size="12" fill="#5a7b91">计算由确定性代码</text><text x="835" y="248" font-size="12" fill="#5a7b91">执行并留运行轨迹</text>
+        <rect x="30" y="352" width="960" height="81" rx="13" fill="#e8eef1"/><text x="50" y="381" font-size="15" font-weight="700" fill="#4e6978">external · 大体量外置内容</text><text x="50" y="408" font-size="12" fill="#657d8b">assertions_ref 指向外置 NDJSON；仍属于同一个 Node 的语义信封，不是第二套领域格式</text>
+      </svg></div>
+      <div class="two-code">
+        <div><div class="code-title">例：稳定属性</div><pre>base:
+  schema: { ckm: "3.0" }
+  node:
+    id: "org:acme"
+    kind: entity
+    type: organization
+    key: ACME
+    label: Acme Industrial Systems
+knowledge:
+  attrs:
+    legal_name: Acme Industrial Systems Ltd.
+    country: China</pre></div>
+        <div><div class="code-title">例：带时态与来源的判断（摘录）</div><pre>knowledge:
+  assertions:
+    - id: assertion:acme-finding-2026-01
+      predicate: finding
+      value:
+        type: text
+        literal: ...
+      temporal:
+        valid_from: 2026-09-01T00:00:00Z
+      epistemic:
+        status: confirmed
+        confidence: 0.82
+      provenance:
+        source_refs: [source:...]
+        evidence_refs: [evidence:...]</pre></div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>结构</th><th>代表什么</th><th>典型约束</th><th>不要误用为</th></tr></thead><tbody>
+        <tr><td>Node ID</td><td>跨领域的全局规范身份；局部业务 key 可按 namespace + type 定位</td><td>不得用同名企业/项目在不同领域复制节点</td><td>只靠展示名称去合并身份</td></tr>
+        <tr><td>attrs</td><td>稳定当前属性</td><td>必须使用已注册 predicate，类型正确</td><td>独立有证据/争议/时态的事实</td></tr>
+        <tr><td>assertions</td><td>可独立验证的判断</td><td>predicate、值、状态、时间、溯源；Tier A 完整溯源</td><td>随意写入的自由文本</td></tr>
+        <tr><td>relations</td><td>有向节点关系</td><td>端点类型、基数与实体化模式受本体约束</td><td>匿名复杂合同关系的全部语义</td></tr>
+        <tr><td>logic_refs</td><td>对逻辑/模型的引用</td><td>计算结果保留模型版本、输入哈希、run ID 与 trace</td><td>让模型临时心算的依据</td></tr>
+      </tbody></table></div>
+      <div class="callout"><b>关系何时变成节点？</b> 只有轻量连接用 simple edge；关系一旦需要自身 ID、属性、证据、有效期或置信度，按 <code>reifiable</code> / <code>reified</code> 规则将它作为普通知识节点建模。</div>
+    </section>
+
+    <section id="control" class="chapter">
+      <div class="section-head"><span class="section-no">06</span><div><h2>控制面：定义系统能知道什么、相信什么、怎么算</h2><p>新 predicate 必须先注册，才能被概念绑定、编译、查询与 Agent 使用。</p></div></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 5 · 一项事实通过控制面约束的路径</strong><span>示例：unit_cost（单位成本）</span></div><div class="flow"><div class="step"><b>Predicate</b><small>quantity · temporal_many · assertion</small></div><span class="arrow">→</span><div class="step"><b>Ontology</b><small>绑定到允许的概念；检查端点与基数</small></div><span class="arrow">→</span><div class="step"><b>Policies</b><small>ERP 权威 · Tier A · 证据与时间必填</small></div><span class="arrow">→</span><div class="step"><b>Value Contract</b><small>显式单位、数值、引用、日期</small></div><span class="arrow">→</span><div class="step em"><b>Compiler / API</b><small>只投影合法数据，携带质量状态</small></div></div></div>
+      <div class="grid cols-3">
+        <div class="card"><h3>概念与关系</h3><p class="mini">当前核心本体有 organization、market、product、project、task、relation、decision 等概念。关系声明有向 domain → range、端点基数和 simple/reifiable/reified 承载方式。</p></div>
+        <div class="card"><h3>Predicate 与值契约</h3><p class="mini">决定值是 string、text、number、quantity、enum、date、node_ref 等；量纲和货币不可暗中转换，未声明的默认单位不能猜测。</p></div>
+        <div class="card"><h3>策略与模型</h3><p class="mini">策略决定权威、时效、证据、写入审查和嵌入许可；成本、进度、风险运算由版本化确定性模型执行。</p></div>
+      </div>
+      <div class="callout warn">Embedding 默认关闭，仅在 predicate 策略允许时使用。当前本地向量是无需外部模型的确定性 hash-vector 检索；企业级 embedding provider 是扩展点，不应把它写成已接通。</div>
+    </section>
+
+    <section id="agent" class="chapter">
+      <div class="section-head"><span class="section-no">07</span><div><h2>Agent：在受约束的知识与工具之间工作</h2><p>模型负责理解与表述；身份、检索边界、数值计算、证据核查和持久写入由系统把关。</p></div></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 6 · Agent 五段式交互</strong><span>接口按使用顺序阅读</span></div><div class="flow"><div class="step dark"><b>① capabilities</b><small>获取领域、技能、工具白名单、schema 与指纹</small></div><span class="arrow">→</span><div class="step"><b>② skill</b><small>读取 SKILL.md + contract.yaml 的精准版本</small></div><span class="arrow">→</span><div class="step"><b>③ request</b><small>解析问题，生成 CRLTP 上下文与稳定证据引用</small></div><span class="arrow">→</span><div class="step"><b>④ invoke</b><small>仅按域白名单调用 resolve/get/context/calculate 等</small></div><span class="arrow">→</span><div class="step em"><b>⑤ respond</b><small>校验每个 claim 的证据、run ID、指纹与置信度</small></div></div></div>
+      <div class="swim" aria-label="Agent 责任分工示意">
+        <div class="lane"><div class="lane-label">用户 / 前端</div><div class="lane-body"><span class="bubble">提出问题、领域、目标、时间点</span><span>→</span><span class="bubble">接收含引证和缺口的答案</span></div></div>
+        <div class="lane"><div class="lane-label">Agent 服务</div><div class="lane-body"><span class="bubble alt">鉴权 + 领域策略</span><span>→</span><span class="bubble alt">组装 grounded packet</span><span>→</span><span class="bubble alt">响应校验</span></div></div>
+        <div class="lane"><div class="lane-label">模型 / 工具</div><div class="lane-body"><span class="bubble gold">模型只引用给定 evidence refs</span><span>＋</span><span class="bubble gold">确定性工具计算算术/单位/时程</span></div></div>
+        <div class="lane"><div class="lane-label">持久变更</div><div class="lane-body"><span class="bubble">仅生成 ChangeSet 提议</span><span>→</span><span class="bubble">人工/角色审核与真源验证发布</span></div></div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Agent 相关文件</th><th>数据结构含义</th><th>使用时机</th></tr></thead><tbody>
+        <tr><td>control/domains/*/pack.yaml</td><td>领域名、入口工作流、默认技能、required_models、tool_policy</td><td>Agent 决定能调用什么、先做什么</td></tr>
+        <tr><td>control/domains/*/retrieval_profile.yaml</td><td>关系深度、过滤、predicate 优先级、检索顺序</td><td>组装上下文与图遍历</td></tr>
+        <tr><td>control/skills/*/SKILL.md</td><td>人和模型可读的任务步骤与输出要求</td><td>执行具体分析工作流</td></tr>
+        <tr><td>control/skills/*/contract.yaml</td><td>技能 ID、entrypoint、输入字段、工具白名单、模型、输出章节、引证要求</td><td>服务端注册、分发与验证</td></tr>
+        <tr><td>lib/knowledge_os/agent_service.rb</td><td>能力发现、请求包、受控调用和响应校验的实现</td><td>HTTP / CLI 运行时</td></tr>
+      </tbody></table></div>
+      <div class="callout"><b>一个成本问题示例：</b>选择 cost 领域 → 读取 <code>cost-rollup-analysis</code> 技能 → 对目标实体做受控解析与证据检索 → 调用 <code>cost_rollup</code> 模型计算 → 回答中列出分解、假设、知识缺口与引用。若发现需要更新知识，只能提出 ChangeSet。</div>
+    </section>
+
+    <section id="ingest" class="chapter">
+      <div class="section-head"><span class="section-no">08</span><div><h2>进入知识库的两条路：Connector 与候选抽取</h2><p>两条路的写入权完全不同：连接器投影运营事实，抽取只生成候选。</p></div></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 7 · 数据摄入双通道</strong><span>不要把抽取候选理解成入库成功</span></div>
+        <div class="grid cols-2">
+          <div class="card" style="box-shadow:none;border-color:#a9d0c8;background:#f5fbf8"><div class="kicker">通道 A · Enterprise Connector</div><h3>源记录 → Canonical 投影</h3><div class="flow"><div class="step"><b>源系统记录</b><small>稳定业务 key / version</small></div><span class="arrow">→</span><div class="step"><b>映射 + 校验</b><small>注册表、Schema、权威</small></div><span class="arrow">→</span><div class="step em"><b>state + index</b><small>持久记录与可查询投影</small></div></div><p class="mini" style="margin-top:12px">支持更新、错误隔离与 tombstone 删除；源引用必须保留。</p></div>
+          <div class="card" style="box-shadow:none;border-color:#ebd0a2;background:#fffcf7"><div class="kicker" style="color:#a66310">通道 B · Model-neutral extraction</div><h3>来源材料 → 受校验候选</h3><div class="flow"><div class="step"><b>文本信封</b><small>正文、定位符、分段、哈希</small></div><span class="arrow">→</span><div class="step"><b>模型输出</b><small>当前注册表动态 Schema</small></div><span class="arrow">→</span><div class="step"><b>候选校验</b><small>create / update / no_change</small></div></div><p class="mini" style="margin-top:12px">最终结果 <code>write_performed = false</code>；Git 节点走 governed_changeset，运营节点回上游源系统。</p></div>
+        </div>
+      </div>
+      <div class="callout warn">网页、图片、音频、视频、邮件等可以作为<strong>来源类型</strong>；但前端需要用户粘贴已经物化的文本、OCR、字幕或转写。抓取、OCR、语音识别和企业平台导出是上游 materializer，不是这个 Studio 自动完成的事情。</div>
+      <div class="grid cols-3"><div class="card"><h3>指纹防过期</h3><p class="mini">模型输出需回传 protocol_version 与 registry_fingerprint；本体或策略变更后，旧输出不能继续落成候选。</p></div><div class="card"><h3>证据逐条匹配</h3><p class="mini">Builder 会核对引用的来源分段与证据原文，未知 predicate 与不合法实体被拒绝或列为未映射事实。</p></div><div class="card"><h3>权威不倒置</h3><p class="mini">研究材料中的属性候选不能悄悄覆盖 ERP 等更高权威的运营值；断言仍需治理确认。</p></div></div>
+    </section>
+
+    <section id="governance" class="chapter">
+      <div class="section-head"><span class="section-no">09</span><div><h2>ChangeSet：从建议到真实发布</h2><p>所有 Agent 发起的持久变更以及 Studio 定义编辑，都必须经过显式治理状态机。</p></div></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 8 · 变更状态机与关键门槛</strong><span>“批准”只是治理决策</span></div><div class="flow"><div class="step"><b>proposed / review_required</b><small>目标、原因、操作、base_revision 与幂等键</small></div><span class="arrow">→</span><div class="step"><b>approved</b><small>审核人、意见、预期语义结果</small></div><span class="arrow">→</span><div class="step"><b>真源应用</b><small>Git 或上游系统实际修改；编译校验</small></div><span class="arrow">→</span><div class="step em"><b>published</b><small>source revision + 预期内容验证 + 条件事务</small></div></div><div class="legend"><span>审核亦可 rejected / changes_requested</span><span>幂等 proposal / publication</span><span>并发 lock_version 检查</span></div></div>
+      <div class="callout danger"><b>重要：</b>点击“批准”不会写入 <code>knowledge/</code> 或 <code>control/</code>；填一个 Git commit 也不会自动让内容变正确。V3.5 要比较实际源文件与预期语义结果，完成编译后才登记发布。Agent 不允许直接绕过这条路径。</div>
+      <div class="grid cols-2"><div class="card"><h3>为什么要“预期语义结果”？</h3><p class="mini">只检查源文件哈希或修订号，可能漏掉“审批的 A 变更被发布成 B 变更”。V3.5 把批准结果与发布时的真实内容绑定，降低冒名、竞态和误发布风险。</p></div><div class="card"><h3>为什么要幂等与条件迁移？</h3><p class="mini">网络重试与多人同时操作不可避免。idempotency_key、lock_version 和条件状态迁移避免重复创建、重复发布及覆盖别人的审核结果。</p></div></div>
+    </section>
+
+    <section id="time" class="chapter">
+      <div class="section-head"><span class="section-no">10</span><div><h2>时间、质量、冷热层与灾后恢复</h2><p>“现在是真的”与“当时系统知道什么”是两个不同的问题。</p></div></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 9 · 有效时间 vs 记录时间</strong><span>区间采用 UTC 明确时区、左闭右开 [from, to)</span></div><div class="timeline"><div class="moment"><b>t₁ 业务发生</b><span>事实自此时起有效：valid_from</span></div><div class="moment"><b>t₂ 首次入库</b><span>系统开始知道它：recorded snapshot</span></div><div class="moment"><b>t₃ 来源更正</b><span>新版本可能 supersede 旧判断</span></div><div class="moment"><b>as_of 查询</b><span>问 t₁ 至 t₃ 中某刻有效什么</span></div><div class="moment"><b>recorded_as_of 查询</b><span>问当时系统实际记录过什么</span></div></div><p class="mini" style="margin:14px 0 0">如果早期没有录制快照，系统会显式报告历史记录缺口，不倒推伪造“当时已知”的属性。</p></div>
+      <div class="grid cols-3"><div class="card"><h3>Hot</h3><p class="mini">高频使用、近期或需快速响应的内容。生命周期由策略与时间判定，不代表更可信。</p></div><div class="card"><h3>Warm</h3><p class="mini">仍可用但访问/更新频率降低；可继续检索与追溯。</p></div><div class="card"><h3>Cold</h3><p class="mini">长期保留的历史或低频内容；不等于删除证据或账本。</p></div></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 10 · 备份与恢复边界</strong><span>state.db 与 ledger.db 必须成对操作</span></div><div class="flow"><div class="step"><b>停止所有写入者</b><small>API / CLI / connector</small></div><span class="arrow">→</span><div class="step"><b>离线备份</b><small>两库 + 校验和 + authored fingerprint</small></div><span class="arrow">→</span><div class="step"><b>匹配 Git checkout</b><small>空 runtime，校验编写文件版本</small></div><span class="arrow">→</span><div class="step em"><b>restore → rebuild</b><small>重建 index，重放连接器记录</small></div><span class="arrow">→</span><div class="step"><b>verify-ledger</b><small>验证哈希链与审计一致性</small></div></div></div>
+      <div class="callout warn">V3.5 的离线备份不是在线多节点高可用方案。恢复拒绝覆盖既有数据库；<code>index.db</code> 通过重建得到。升级前只有哈希、没有原始字节的旧连接器事件需要从上游重新接入。</div>
+    </section>
+
+    <section id="studio" class="chapter">
+      <div class="section-head"><span class="section-no">11</span><div><h2>前端 OS：Ontology Studio 怎么用</h2><p>它是“非实例结构与治理控制面”，不在画布里编辑企业事实记录。</p></div></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 11 · 前端主要区域示意</strong><span>线框是操作地图，不是逐像素截图</span></div>
+        <div class="ui"><div class="ui-bar"><span class="ui-logo">KnowledgeOS</span><span class="ui-tab">控制中心</span><span class="ui-tab">知识抽取</span><span class="ui-tab active">结构白板</span><span class="ui-tab">治理审核</span><span class="ui-status">● API 已连接 · 3.5</span><span class="ui-tab">登录 / 专家 / 刷新</span></div>
+          <div class="ui-main"><div class="ui-panel"><h4>① 定义目录 / 筛选</h4><div class="ui-row">Schema · 核心契约</div><div class="ui-row">Concept · 概念</div><div class="ui-row">Relation · 关系</div><div class="ui-row">Predicate · 判断</div><div class="ui-row">Model</div><div class="annotation">选择对象聚焦依赖；Schema、概念、关系、判断和模型可在白板编辑草稿；固定单位和货币不在白板展示。</div></div>
+            <div class="ui-canvas"><div style="text-align:center"><div class="ui-node">工作领域 → 概念</div><div style="color:#597d90;margin:8px">↓ 关系 / 判断 / 策略</div><div class="ui-node">有向依赖与语义标签</div><p class="annotation" style="margin:16px 0 0">② 画布：浏览注册定义与实际依赖，不是实例数据表</p></div></div>
+            <div class="ui-panel"><h4>③ 选中项 Inspector</h4><div class="ui-row">ID / 来源文件 / 引用数</div><div class="ui-row">概念属性与判断绑定</div><div class="ui-row">关系端点 / 实体化模板</div><div class="ui-row">策略 / 模型 / 连接器详情</div><span class="ui-btn">管理 / 加入草稿</span><p class="annotation">草稿校验后提交 ChangeSet；不能直接改写真源。</p></div></div></div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>界面入口</th><th>用户具体操作</th><th>得到什么 / 不会发生什么</th></tr></thead><tbody>
+        <tr><td>控制中心</td><td>看 10 类定义覆盖、C-R-L-T-P 映射、结构校验与扩展点；点击某项跳到白板</td><td>了解当前控制面闭环；不是业务实体列表</td></tr>
+        <tr><td>知识抽取</td><td>选择来源类型与定位符，粘贴已物化文本 → 生成契约 → 将请求交给模型 → 粘贴模型 JSON → 校验候选</td><td>看到有效/拒绝/未映射候选；<code>write_performed=false</code>，不创建 ChangeSet</td></tr>
+        <tr><td>结构白板</td><td>筛选或聚焦定义；查看依赖；编辑 Schema 必填字段、概念绑定、关系端点、predicate 与声明式模型；试算模型草稿并暂存</td><td>形成待提交操作；白板不直接写 Git</td></tr>
+        <tr><td>治理审核</td><td>查看 ChangeSet、风险与 diff；有权限者批准/驳回；真源更新后输入修订并验证发布</td><td>批准与发布分步；服务端再核验语义结果</td></tr>
+        <tr><td>顶部状态区</td><td>个人 Token 登录、刷新同步、显式进入演示、查看 API/错误状态、专家视图和快捷命令</td><td>演示状态与真实连接区分；刷新会尝试重基线草稿并展示冲突</td></tr>
+      </tbody></table></div>
+      <div class="diagram"><div class="diagram-title"><strong>图 12 · 首次使用的推荐路线</strong><span>需要真实写入时必须连接后端且具备相应角色</span></div><div class="flow"><div class="step"><b>1. 启动后端与 Studio</b><small>配置 API URL；个人 Bearer Token 登录</small></div><span class="arrow">→</span><div class="step"><b>2. 控制中心</b><small>确认连接、版本、10 类定义与结构错误</small></div><span class="arrow">→</span><div class="step"><b>3. 结构白板</b><small>找 Schema/概念/关系/判断/模型；查看依赖并编辑草稿</small></div><span class="arrow">→</span><div class="step"><b>4. 提交 ChangeSet</b><small>处理校验错误和草稿冲突</small></div><span class="arrow">→</span><div class="step em"><b>5. 治理审核</b><small>批准 → 真源应用 → 编译 → 验证发布</small></div></div></div>
+      <div class="grid cols-2"><div class="card"><h3>登录与离线状态</h3><p class="mini">Studio 使用用户个人 Bearer Token，浏览器页面内存保存，刷新后需重新登录；前端服务端代理仅转发允许的路由。未配置、未登录、权限不足和断连是不同状态。连接失败保留已有快照与草稿，但不能本地代替真实批准/发布。</p></div><div class="card"><h3>演示与草稿冲突</h3><p class="mini">演示模式必须主动点击进入；本地演示决策不会影响后端 ChangeSet。同步时尝试将独立编辑重基线，重叠冲突会显式显示，解决前不能提交。登录身份与 Sites/ChatGPT 托管登录是两套独立权限。</p></div></div>
+      <div class="callout warn"><b>界面中的“目标契约”提示：</b>概念属性绑定、关系端点与实体化的白板设计须由当前编译器/校验器实际接受，不能只凭画布无错就认定已在服务器发布。以服务端注册表、编译和发布验证结果为准。</div>
+    </section>
+
+    <section id="run" class="chapter">
+      <div class="section-head"><span class="section-no">12</span><div><h2>运行检查、版本边界与来源索引</h2><p>把这个 HTML 当作导览，把仓库文件和测试当作可核验依据。</p></div></div>
+      <div class="two-code"><div><div class="code-title">后端：快速检查与本地 API</div><pre>bin/knowledgeos doctor
+bin/knowledgeos rebuild
+bin/knowledgeos verify-ledger
+
+# 开发用示例；请换成长随机个人凭证
+export KNOWLEDGEOS_AUTH_TOKENS='{"token":{"principal":"local:admin","roles":["admin"]}}'
+bin/knowledgeos serve --bind 127.0.0.1 --port 8787</pre></div><div><div class="code-title">前端：配置与验证</div><pre>cd prototype/ontology-studio
+# 在 .env.local 中设置 KNOWLEDGEOS_API_BASE_URL
+npm run install:ci
+npm run dev
+
+# 回归检查
+npm test
+npm run lint
+npm run build</pre></div></div>
+      <div class="callout">前端以 <code>prototype/ontology-studio/.env.example</code> 为配置模板。开发服务端口与启动方式取决于本机 execution profile；按终端实际输出 URL 打开。真实企业部署还需要身份联邦、托管密钥、正式连接器及平台适配。</div>
+      <div class="grid cols-3"><div class="card"><h3>已实现的核心</h3><p class="mini">Canonical 编译与校验、统一查询/API、Agent 门面、ChangeSet 治理、状态与账本恢复、连接器通用投影、候选抽取、确定性模型、Studio 控制面。</p></div><div class="card"><h3>不要误认为已实现</h3><p class="mini">真实 ERP/QMS/PLM/PM 生产适配器、企业身份联邦、托管密钥、自动网页抓取/OCR/语音转写、指定云平台多节点部署与高质量外部 embedding provider。</p></div><div class="card"><h3>版本辨析</h3><p class="mini">当前治理/API 契约是 V3.5；Canonical 内容信封继续使用 <code>ckm: "3.0"</code>。V3.5 迭代清单中的部署平台适配与扩展 CI（第 5 项）明确不在本轮范围内。</p></div></div>
+      <h3 style="margin-top:27px">原始规范与代码定位</h3>
+      <div class="pillrow"><a class="chip" href="iteration-3.5.md">V3.5 迭代契约</a><a class="chip" href="architecture-v3.md">总架构与冻结决策</a><a class="chip" href="contracts.md">数据/API/治理契约</a><a class="chip" href="agent-service.md">Agent 服务契约</a><a class="chip" href="extraction.md">抽取协议</a><a class="chip" href="../control/ontology/core.yaml">核心本体</a><a class="chip" href="../control/skills/cost-rollup-analysis/contract.yaml">技能契约示例</a><a class="chip" href="../prototype/ontology-studio/README.md">Studio 运行说明</a></div>
+      <div class="foot" style="margin-top:32px">KnowledgeOS V3.5 · 中文架构与使用导览。图示为解释性示意；权威行为以仓库中的注册表、代码和测试为准。</div>
+    </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

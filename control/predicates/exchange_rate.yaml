@@ -1,0 +1,7 @@
+id: exchange_rate
+label: Exchange rate
+value: { type: quantity, minimum: "0.000000000001", cardinality: temporal_many }
+storage: { mode: assertion }
+semantics: { description: Quote currency units per one base currency unit, with explicit pair and rate type. }
+policy: { temporal: required, evidence: required, history: full, embedding: false, write: auto, freshness: operational_30d, authority: fx_market, provenance_tier: A }
+status: { lifecycle: active, equivalent_to: }

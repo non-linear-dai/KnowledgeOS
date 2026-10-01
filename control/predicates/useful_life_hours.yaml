@@ -1,0 +1,7 @@
+id: useful_life_hours
+label: Useful life in hours
+value: { type: quantity, dimension: duration, units: [hour], cardinality: temporal_many }
+storage: { mode: assertion }
+semantics: { description: Total expected usable equipment hours. }
+policy: { temporal: required, evidence: required, history: full, embedding: false, write: reviewed, freshness: stable, authority: erp_operational, provenance_tier: A }
+status: { lifecycle: active, equivalent_to: }

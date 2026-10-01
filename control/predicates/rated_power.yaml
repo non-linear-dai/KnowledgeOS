@@ -1,0 +1,11 @@
+id: rated_power
+label: Rated power
+value:
+  type: quantity
+  dimension: power
+  units: [W, kW, MW]
+  cardinality: temporal_many
+storage: { mode: assertion }
+semantics: { description: Nameplate rated power, preserving its source unit. }
+policy: { temporal: required, evidence: required, history: full, embedding: false, write: reviewed, freshness: stable, authority: erp_operational, provenance_tier: A }
+status: { lifecycle: active, equivalent_to: }

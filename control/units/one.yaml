@@ -1,0 +1,6 @@
+id: one
+version: "1.0.0"
+label: Dimensionless ratio
+dimension: dimensionless
+base: true
+factor_to_base: "1"

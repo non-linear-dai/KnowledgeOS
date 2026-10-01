@@ -35,4 +35,9 @@ authority_policies:
     supporting: [web]
     conflict:
       strategy: preserve_all
-
+  - id: fx_market
+    primary: [fx_provider]
+    secondary: []
+    supporting: [research]
+    conflict:
+      strategy: review_equal_authority

@@ -1,0 +1,5 @@
+id: hour
+version: "1.0.0"
+label: Hour
+dimension: duration
+factor_to_base: "3600"

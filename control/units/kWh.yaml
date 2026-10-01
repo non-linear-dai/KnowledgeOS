@@ -1,0 +1,5 @@
+id: kWh
+version: "1.0.0"
+label: Kilowatt hour
+dimension: energy
+factor_to_base: "3600000"

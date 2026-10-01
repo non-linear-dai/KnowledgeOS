@@ -1,5 +1,7 @@
 import { z } from "zod";
-import contract from "../../../control/schemas/studio-snapshot.schema.json";
+// Vendored from control/schemas/studio-snapshot.schema.json so the Sites
+// checkout can validate the wire contract without reaching outside its root.
+import contract from "./studio-snapshot.schema.json";
 
 const definition = contract.$defs.definition.properties;
 const data = contract.properties.data.properties;

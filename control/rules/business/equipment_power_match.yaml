@@ -1,0 +1,15 @@
+format: knowledgeos.business-rule.v1
+id: equipment_power_match
+label: 设备功率匹配业务规则
+description: 在试算中选出额定功率不低于基准设备要求的候选设备；正式认知需审核后启用。
+version: 1.0.0
+status: {lifecycle: draft}
+scope: {subject_concept: equipment, candidate_concept: equipment}
+inputs:
+  - {id: required_power, role: subject, predicate: rated_power}
+  - {id: available_power, role: candidate, predicate: rated_power}
+checks:
+  - left: available_power
+    operator: gte
+    right: {input: required_power}
+    message: 候选设备的额定功率应达到基准要求

@@ -1,0 +1,4 @@
+id: USD
+version: "1.0.0"
+label: US dollar
+minor_units: 2

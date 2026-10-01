@@ -1,7 +1,7 @@
 id: cost
 label: Cost analysis
 default_skill: cost-rollup-analysis
-concept_scopes: [product, organization]
+concept_scopes: [product, organization, equipment]
 workflow:
   - resolve_target
   - traverse_components_materials_processes
@@ -12,8 +12,8 @@ workflow:
 retrieval:
   depth: 2
   relation_types: [contains, uses, supplies]
-  predicate_priority: [unit_cost, lead_time_days, risk_level]
-required_models: [cost_rollup]
+  predicate_priority: [unit_cost, depreciation_cost_per_hour, rated_power, utilization_factor, lead_time_days, risk_level]
+required_models: [cost_rollup, equipment_hourly_depreciation, fx_conversion]
 tool_policy:
-  allow: [resolve, get, query, neighbors, history, calculate, explain, context]
+  allow: [resolve, get, query, neighbors, history, calculate, calculate_entity, convert_currency, explain, context]
   durable_writes: changeset_only

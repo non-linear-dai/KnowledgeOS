@@ -1,0 +1,7 @@
+id: residual_value
+label: Residual value
+value: { type: currency, cardinality: temporal_many }
+storage: { mode: assertion }
+semantics: { description: Expected equipment residual value in its source currency. }
+policy: { temporal: required, evidence: required, history: full, embedding: false, write: reviewed, freshness: stable, authority: erp_operational, provenance_tier: A }
+status: { lifecycle: active, equivalent_to: }

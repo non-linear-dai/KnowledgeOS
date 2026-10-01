@@ -27,6 +27,7 @@ This repository implements the final architecture frozen in the “企业知识�
 - Embedding is off by default and is allowed only by predicate policy.
 - Agent durable writes are ChangeSets and must reach the real source of truth before compilation.
 - Precise calculations are deterministic and retain model version, input hash, run ID, output, and trace.
+- Physical units and currencies are versioned control definitions; empirical coefficients and exchange quotes are time- and source-bound assertions. Bound formula runs retain the exact input assertion references and a model snapshot.
 - Human governance is exception-based; maintenance queues are budgeted and prioritized.
 - API identities are authenticated from environment-managed bearer tokens and authorized by explicit roles; caller-supplied actor names are never trusted at the HTTP boundary.
 - Projection mutations and ledger writes use a transactional outbox. Pending events are replayed idempotently after interruption.

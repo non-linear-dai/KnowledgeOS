@@ -4,8 +4,12 @@
 /runtime/cache/*
 /runtime/indexes/*
 /tmp/
-/.bundle/
-/vendor/bundle/
+/build/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
 /.pnpm-store/
 .DS_Store
 

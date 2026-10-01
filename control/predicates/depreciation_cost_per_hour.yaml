@@ -1,0 +1,7 @@
+id: depreciation_cost_per_hour
+label: Depreciation cost per productive hour
+value: { type: quantity, cardinality: temporal_many }
+storage: { mode: assertion }
+semantics: { description: Derived equipment depreciation cost per productive hour in a declared currency. }
+policy: { temporal: required, evidence: required, history: full, embedding: false, write: reviewed, freshness: operational_30d, authority: erp_operational, provenance_tier: A }
+status: { lifecycle: active, equivalent_to: }

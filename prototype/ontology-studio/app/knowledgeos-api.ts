@@ -20,26 +20,12 @@ export type UserSession = { principal: string; roles: string[]; permissions: str
 export function loadSession() { return request<UserSession>("/v1/session"); }
 
 const API_ROOT = "/api/knowledgeos";
-const definitionKinds: DefinitionKind[] = ["schema", "domain", "concept", "relation", "predicate", "model", "policy", "connector"];
+const definitionKinds: DefinitionKind[] = ["schema", "domain", "concept", "relation", "predicate", "model", "unit", "currency", "policy", "connector", "business_constraint", "business_rule"];
 const lifecycles: Lifecycle[] = ["draft", "active", "deprecated", "merged", "retired"];
 const changeStatuses: ChangeSetStatus[] = ["proposed", "review_required", "approved", "rejected", "changes_requested", "published"];
 const operationTypes: ChangeOperationType[] = ["create", "update", "deprecate", "delete"];
 
 type JsonRecord = Record<string, unknown>;
-
-export type ExtractionSourceKind = "text" | "file" | "web" | "audio" | "meeting_minutes" | "image" | "video" | "email" | "chat";
-export type ExtractionRequest = JsonRecord & {
-  protocol_version?: string;
-  registry_fingerprint?: string;
-  source?: JsonRecord & { segments?: unknown[] };
-  output_schema?: JsonRecord;
-};
-export type ExtractionCandidates = JsonRecord & {
-  candidates?: unknown[];
-  rejected?: unknown[];
-  unmapped_facts?: unknown[];
-  write_performed?: boolean;
-};
 
 export type ApiConnectionState = "connecting" | "connected" | "demo" | "unauthorized" | "forbidden" | "offline" | "unconfigured";
 
@@ -233,6 +219,36 @@ export async function proposeChangeSet(input: { title: string; reason: string; r
   });
 }
 
+export async function previewModel(model: Record<string, unknown>, inputs: Record<string, unknown>) {
+  return request<{ data: { output: { value: string; unit: string }; trace: unknown[]; persisted: boolean } }>("/v1/models/preview", {
+    method: "POST", body: JSON.stringify({ model, inputs }),
+  });
+}
+
+export async function previewBusiness(kind: "business_constraint" | "business_rule", definition: Record<string, unknown>, facts: Record<string, unknown>) {
+  return request<{ data: { results: { verdict: string; candidate_id: string | null; checks: { passed: boolean | null; message: string; left_value: string | null; right_value: string | null }[] }[]; eligible_candidate_ids: string[] } }>("/v1/business/preview", {
+    method: "POST", body: JSON.stringify({ kind, definition, facts }),
+  });
+}
+
+export async function impactBusiness(kind: "business_constraint" | "business_rule", definition: Record<string, unknown>, subjectId: string, candidateIds: string[] | null) {
+  return request<{ data: { results: { verdict: string; candidate_id: string | null; entity_id?: string; checks: { passed: boolean | null; message: string; left_value: string | null; right_value: string | null }[] }[]; eligible_candidate_ids?: string[]; verdict_counts: Record<string, number>; source_refs: unknown } }>("/v1/business/impact", {
+    method: "POST", body: JSON.stringify({ kind, definition, subject_id: subjectId || null, candidate_ids: candidateIds }),
+  });
+}
+
+export async function evaluateBusiness(kind: "business_constraint" | "business_rule", id: string, subjectId: string, candidateIds: string[] | null) {
+  return request<{ data: { results: { verdict: string; candidate_id: string | null }[]; eligible_candidate_ids: string[]; source_refs: unknown } }>("/v1/business/evaluate", {
+    method: "POST", body: JSON.stringify({ kind, id, subject_id: subjectId, candidate_ids: candidateIds }),
+  });
+}
+
+export type ModelRevision = { id: string; model_id: string; version: string; definition: Record<string, ConfigValue>; recorded_at: string; source_path: string };
+export async function loadModelHistory(modelId: string): Promise<ModelRevision[]> {
+  const envelope = await request<{ data: ModelRevision[] }>(`/v1/models/history?id=${encodeURIComponent(modelId)}`);
+  return envelope.data;
+}
+
 export async function reviewChangeSet(id: string, decision: "approved" | "rejected" | "changes_requested", note: string) {
   return request("/v1/changesets/review", {
     method: "POST",
@@ -247,18 +263,9 @@ export async function publishChangeSet(id: string, sourceRevision: string) {
   });
 }
 
-export async function createExtractionRequest(source: { kind: ExtractionSourceKind; locator: string; content: string }): Promise<ExtractionRequest> {
-  const envelope = record(await request<unknown>("/v1/extraction/request", {
-    method: "POST",
-    body: JSON.stringify({ source }),
-  }));
-  return record(envelope.data) as ExtractionRequest;
-}
-
-export async function createExtractionCandidates(extractionRequest: ExtractionRequest, modelOutput: JsonRecord): Promise<ExtractionCandidates> {
-  const envelope = record(await request<unknown>("/v1/extraction/candidates", {
-    method: "POST",
-    body: JSON.stringify({ request: extractionRequest, model_output: modelOutput }),
-  }));
-  return record(envelope.data) as ExtractionCandidates;
+export async function applyChangeSet(id: string): Promise<string> {
+  const envelope = await request<{ data: { source_revision: string } }>("/v1/changesets/apply", {
+    method: "POST", body: JSON.stringify({ id }),
+  });
+  return envelope.data.source_revision;
 }

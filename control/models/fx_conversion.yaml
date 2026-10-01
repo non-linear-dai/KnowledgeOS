@@ -1,0 +1,15 @@
+id: fx_conversion
+version: "1.0.0"
+description: Convert a monetary amount with one confirmed, source-backed currency quote.
+governed_only: true
+inputs:
+  - { id: amount, unit: currency }
+  - { id: rate, unit: one }
+formula:
+  op: multiply
+  args:
+    - { op: input, id: amount }
+    - { op: input, id: rate }
+precision: 2
+rounding: half_up
+output_unit: currency

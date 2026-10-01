@@ -1,18 +1,18 @@
 # Review iteration — contract 3.5
 
-This iteration implements review items 1–4 and 6–10. Review item 5 (deployment platform adapters and expanded CI) is excluded.
+This document records the V3.5 review contract. The Python migration preserves its service behavior and adds separate Python and TypeScript CI jobs. Deployment platform adapters remain outside this repository.
 
 | Review | Result | Primary regression coverage |
 | --- | --- | --- |
-| 1. End-to-end identity | Personal bearer credentials, session discovery, upstream role enforcement, no shared proxy identity | security_test.rb, Studio proxy tests |
-| 2. Durable state and recovery | Separate state database, legacy migration, durable outbox, connector replay, checksummed offline backup/restore | iteration_test.rb |
-| 3. Incremental compilation | Control fingerprint invalidation, transactional rebuild, failed-compile rollback, affected-card updates | compiler_test.rb, iteration_test.rb |
-| 4. Verified publication | Expected semantic result, atomic conditional transitions, idempotent proposals/publications | service_test.rb, iteration_test.rb |
-| 6. Value/Schema contracts | Fail-closed Schema subset, typed quantities/decimals/dates/references, explicit model conversions | iteration_test.rb |
-| 7. Shared ingest projection | Canonical validation, shared compiler projection, durable versions, tombstones, error isolation | service_test.rb, iteration_test.rb |
-| 8. Domain identity | Namespace/type-scoped business keys, global canonical IDs, actual ontology source locations | iteration_test.rb |
-| 9. Temporal consistency | UTC instants, half-open intervals, query-time freshness, recorded snapshots and historical graph | policy_test.rb, iteration_test.rb |
-| 10. Frontend state | Explicit demo mode, distinct failure states, personal login, draft rebase/conflicts, live labels and dependency edges | tests/studio.test.mjs |
+| 1. End-to-end identity | Personal bearer credentials, upstream role enforcement, no shared proxy identity | `pytests/test_backend.py`, Studio proxy tests |
+| 2. Durable state and recovery | Separate state database, legacy migration, durable outbox, connector replay, checksummed offline backup/restore | `pytests/test_backend.py` |
+| 3. Incremental compilation | Control fingerprint invalidation, transactional rebuild, failed-compile rollback, affected-card updates | `pytests/test_backend.py` |
+| 4. Verified publication | Expected semantic result, conditional transitions, idempotent proposals/publications | `pytests/test_backend.py` |
+| 6. Value/Schema contracts | Fail-closed Schema subset, typed quantities/decimals/dates/references, explicit model conversions | `pytests/test_backend.py` |
+| 7. Shared ingest projection | Canonical validation, shared compiler projection, durable versions, tombstones, error isolation | `pytests/test_backend.py` |
+| 8. Domain identity | Namespace/type-scoped business keys, global canonical IDs, actual ontology source locations | `pytests/test_backend.py` |
+| 9. Temporal consistency | UTC instants, half-open intervals, query-time freshness, recorded snapshots and historical graph | `pytests/test_backend.py` |
+| 10. Frontend state | Explicit demo mode, distinct failure states, personal login, draft rebase/conflicts, live labels and dependency edges | `prototype/ontology-studio/tests/*.test.mjs` |
 
 ## Upgrade and operation
 
@@ -33,7 +33,7 @@ Studio credentials are personal backend bearer tokens, held only in memory. Refr
 ## Validation commands
 
 ```bash
-rake test
+python3 -m pytest -q
 cd prototype/ontology-studio
 pnpm test
 pnpm exec tsc --noEmit --incremental false
@@ -41,4 +41,4 @@ pnpm lint
 pnpm build
 ```
 
-The regression suite works on temporary workspaces; it covers index deletion, failed rebuilds, legacy migration, concurrent review, exact-result publication, timezone equivalence, long-running expiration, typed values, connector deletion/replay, backup/restore and historical snapshots. Frontend tests cover credential forwarding, failure states, draft merging/conflicts and live-contract validation.
+The Python regression suite works on temporary workspaces and covers index deletion, failed compilation, legacy migration, verified publication, typed values, connector deletion/replay, backup/restore, Agent grounding, API authorization, and historical snapshots. Frontend tests cover credential forwarding, failure states, draft merging/conflicts and live-contract validation.

@@ -6,9 +6,8 @@ domain: cost
 inputs:
   required: [target]
   optional: [as_of, scenario, model_inputs]
-tools: [resolve, get, context, calculate, explain]
-deterministic_models: [cost_rollup]
+tools: [resolve, get, context, calculate, calculate_entity, convert_currency, explain]
+deterministic_models: [cost_rollup, equipment_hourly_depreciation, fx_conversion]
 output:
   sections: [answer, cost_breakdown, assumptions, knowledge_gaps, recommended_actions]
   citations_required: true
-

@@ -1,0 +1,25 @@
+id: equipment_hourly_depreciation
+version: "1.0.0"
+description: Depreciation per productive hour using a governed utilization estimate.
+applies_to: equipment
+output_predicate: depreciation_cost_per_hour
+inputs:
+  - { id: acquisition_cost, unit: currency, source: subject, predicate: acquisition_cost }
+  - { id: residual_value, unit: currency, source: subject, predicate: residual_value }
+  - { id: useful_life_hours, unit: hour, source: subject, predicate: useful_life_hours }
+  - { id: utilization_factor, unit: one, source: subject, predicate: utilization_factor }
+formula:
+  op: divide
+  left:
+    op: subtract
+    args:
+      - { op: input, id: acquisition_cost }
+      - { op: input, id: residual_value }
+  right:
+    op: multiply
+    args:
+      - { op: input, id: useful_life_hours }
+      - { op: input, id: utilization_factor }
+precision: 2
+rounding: half_up
+output_unit: currency_per_hour

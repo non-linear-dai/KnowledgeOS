@@ -1,0 +1,6 @@
+id: W
+version: "1.0.0"
+label: Watt
+dimension: power
+base: true
+factor_to_base: "1"

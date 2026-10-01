@@ -1,0 +1,5 @@
+id: kW
+version: "1.0.0"
+label: Kilowatt
+dimension: power
+factor_to_base: "1000"

@@ -54,6 +54,23 @@ concept_types:
       - { predicate: summary, required: false, cardinality: inherit, group: profile }
       - { predicate: finding, required: false, cardinality: inherit, group: governance }
       - { predicate: risk_level, required: false, cardinality: inherit, group: governance }
+  - id: equipment
+    label: Equipment
+    description: Capital equipment with measured properties and governed costing parameters.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: rated_power, required: false, cardinality: inherit, group: measurement }
+      - { predicate: acquisition_cost, required: false, cardinality: inherit, group: measurement }
+      - { predicate: residual_value, required: false, cardinality: inherit, group: measurement }
+      - { predicate: useful_life_hours, required: false, cardinality: inherit, group: measurement }
+      - { predicate: utilization_factor, required: false, cardinality: inherit, group: measurement }
+      - { predicate: depreciation_cost_per_hour, required: false, cardinality: inherit, group: measurement }
+  - id: exchange_quote
+    label: Exchange quote
+    description: Source-backed currency pair quote at a declared business time.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: exchange_rate, required: false, cardinality: inherit, group: measurement }
 
 relation_types:
   - id: participates_in

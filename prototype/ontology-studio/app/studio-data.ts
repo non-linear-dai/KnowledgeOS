@@ -4,9 +4,13 @@ export type DefinitionKind =
   | "predicate"
   | "policy"
   | "model"
+  | "unit"
+  | "currency"
   | "domain"
   | "connector"
-  | "schema";
+  | "schema"
+  | "business_constraint"
+  | "business_rule";
 
 export type Lifecycle = "draft" | "active" | "deprecated" | "merged" | "retired";
 
@@ -57,7 +61,7 @@ export interface DependencyEdge {
   id: string;
   source: string;
   target: string;
-  relation: "governed_by" | "applies_to" | "relation_source" | "relation_target" | "domain_scope" | "reifies_as" | "reification_property" | "requires_model" | "uses_relation" | "prioritizes" | "maps_to" | "conforms_to";
+  relation: "governed_by" | "applies_to" | "relation_source" | "relation_target" | "domain_scope" | "reifies_as" | "reification_property" | "requires_model" | "model_input" | "model_output" | "model_scope" | "uses_relation" | "prioritizes" | "maps_to" | "conforms_to" | "business_scope" | "business_input";
   editable: boolean;
 }
 
@@ -337,7 +341,7 @@ export const initialDefinitions: OntologyDefinition[] = [
       rounding: "half_up",
       output_unit: "currency_per_unit",
     },
-    readOnly: true,
+    readOnly: false,
   },
   {
     id: "model:schedule_variance",
@@ -353,7 +357,7 @@ export const initialDefinitions: OntologyDefinition[] = [
       inputs: [{ id: "baseline_finish", type: "date" }, { id: "forecast_finish", type: "date" }],
       formula: "forecast_finish − baseline_finish", precision: 0, rounding: "half_up", output_unit: "calendar_days",
     },
-    readOnly: true,
+    readOnly: false,
   },
   {
     id: "model:project_risk_score",
@@ -369,7 +373,7 @@ export const initialDefinitions: OntologyDefinition[] = [
       inputs: [{ id: "schedule_delay_days" }, { id: "blocked_dependencies" }, { id: "high_risk_items" }],
       formula: "delay × 0.2 + blocked × 2 + high-risk × 3", precision: 1, rounding: "half_up", output_unit: "risk_points",
     },
-    readOnly: true,
+    readOnly: false,
   },
   {
     id: "domain:cost",
@@ -467,7 +471,7 @@ export const initialDefinitions: OntologyDefinition[] = [
       required_knowledge: ["attrs", "assertions", "relations", "logic_refs"],
       external_assertions: true,
     },
-    readOnly: true,
+    readOnly: false,
   },
 ];
 
@@ -526,6 +530,10 @@ export const kindMeta: Record<DefinitionKind, { label: string; short: string; co
   predicate: { label: "判断类型", short: "P", color: "#7c3aed" },
   policy: { label: "治理策略", short: "G", color: "#0891b2" },
   model: { label: "确定性模型", short: "L", color: "#dc2626" },
+  business_constraint: { label: "业务约束", short: "BC", color: "#b91c1c" },
+  business_rule: { label: "业务规则", short: "BR", color: "#0d9488" },
+  unit: { label: "物理单位", short: "U", color: "#b45309" },
+  currency: { label: "货币", short: "¥", color: "#0f766e" },
   domain: { label: "工作领域", short: "D", color: "#475569" },
   connector: { label: "连接器映射", short: "X", color: "#0f766e" },
   schema: { label: "核心契约", short: "S", color: "#111827" },
@@ -588,6 +596,7 @@ export const authorityOptions = [
   "organization_master",
   "git_authored",
   "erp_operational",
+  "fx_market",
   "pm_operational",
   "project_governance",
   "research_sources",

@@ -13,12 +13,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/setup-python@v5
         with:
-          ruby-version: "3.2"
-          bundler-cache: true
-      - run: bundle exec rake test
-      - run: bundle exec ruby -Ilib bin/knowledgeos doctor
-      - run: bundle exec ruby -Ilib bin/knowledgeos rebuild
-      - run: bundle exec ruby -Ilib bin/knowledgeos verify-ledger
+          python-version: "3.12"
+      - run: python -m pip install -e '.[test]'
+      - run: python -m pytest -q
+      - run: bin/knowledgeos doctor
+      - run: bin/knowledgeos rebuild
+      - run: bin/knowledgeos verify-ledger
 
+  studio:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prototype/ontology-studio
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install -g pnpm@11.25.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm lint
+      - run: pnpm build

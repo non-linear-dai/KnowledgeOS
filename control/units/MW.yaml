@@ -1,0 +1,5 @@
+id: MW
+version: "1.0.0"
+label: Megawatt
+dimension: power
+factor_to_base: "1000000"

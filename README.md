@@ -1,6 +1,6 @@
 # KnowledgeOS
 
-KnowledgeOS is an executable foundation for the V3.0 enterprise knowledge and AI-agent architecture. It keeps one domain-independent knowledge language while separating authored truth, enterprise operational truth, immutable audit history, and rebuildable runtime indexes.
+KnowledgeOS is an executable foundation for the V3.6 enterprise knowledge and AI-agent architecture. It keeps one domain-independent knowledge language while separating authored truth, enterprise operational truth, immutable audit history, and rebuildable runtime indexes.
 
 The core contract is:
 
@@ -20,8 +20,8 @@ Cost analysis, industry research, project management, and future domains all use
 - Hot/Warm/Cold assertion classification
 - Source references, Tier A/B/C provenance checks, review queue, and maintenance priority
 - Generic NDJSON enterprise connector with canonical mapping (no Markdown copy)
-- Provider-neutral extraction workflow for text, files, captured web pages, audio transcripts, and meeting minutes
-- Ontology-derived JSON extraction contracts with create/update candidates, evidence checks, and no implicit writes
+- Structured source envelopes and compatibility contracts for external Agent/Skill adapters; KnowledgeOS itself does not provide multimodal extraction UI or media extraction
+- Ontology-derived validation for externally proposed structured candidates, with evidence checks and no implicit writes
 - Authenticated, role-authorized domain-independent Knowledge API and HTTP server
 - Agent/LLM facade for capability discovery, grounded task packets, governed tool calls, and cited output validation
 - C-R-L-T-P context-plan output
@@ -36,10 +36,13 @@ KnowledgeOS includes a deterministic local hash-vector index for provider-free h
 
 ## Quick start
 
-Ruby 2.6+ with `sqlite3` and `webrick` is required.
+Python 3.10+ is required for the backend. Install its YAML, JSON Schema, and test dependencies with:
 
 ```bash
-bundle install
+python3 -m pip install -e '.[test]'
+```
+
+```bash
 bin/knowledgeos doctor
 bin/knowledgeos rebuild
 bin/knowledgeos search "KnowledgeOS"
@@ -49,12 +52,17 @@ bin/knowledgeos agent-capabilities --domain industry
 bin/knowledgeos agent-skill industry-evidence-brief
 bin/knowledgeos agent-request "What is Acme's market position?" --domain industry --target org:acme
 bin/knowledgeos control
-bin/knowledgeos extract-contract --source-type file --source notes.md
 bin/knowledgeos verify-ledger
-rake test
+python3 -m pytest -q
 ```
 
 Start the local API:
+
+```bash
+bin/knowledgeos dev-serve --port 8787
+```
+
+`dev-serve` always binds `127.0.0.1` and accepts the development-only admin token `local-admin-token`. It also accepts `local-reviewer-token` as a distinct reviewer identity for testing high-risk ChangeSets. These keys remain available after restarting the local API. For a separately configured server, use:
 
 ```bash
 export KNOWLEDGEOS_AUTH_MODE=required
@@ -64,7 +72,7 @@ curl -H 'Authorization: Bearer replace-with-a-long-random-token' \
   'http://127.0.0.1:8787/v1/get?id=org:acme'
 ```
 
-Supported roles are `reader`, `agent`, `reviewer`, `publisher`, and `admin`. Tokens live only in the process environment. `KNOWLEDGEOS_AUTH_MODE=disabled` is available solely for explicit local test harnesses.
+Supported roles are `reader`, `agent`, `reviewer`, `publisher`, and `admin`. Normal `serve` tokens live only in the process environment. `KNOWLEDGEOS_AUTH_MODE=disabled` is available solely for explicit local test harnesses.
 
 Runtime databases are created in `runtime/` and intentionally ignored by Git. The query index is disposable; both `knowledge.state.db` and `knowledge.ledger.db` must be backed up together. Rebuild replays durable connector records and preserves governance state:
 
@@ -76,7 +84,7 @@ Studio users sign in using their own backend bearer token. The proxy forwards th
 
 For an offline, checksummed backup, stop API/CLI writers and run `bin/knowledgeos backup /absolute/new-backup-directory`. Restore the matching Git-authored checkout into a separate workspace with an empty runtime, then run `bin/knowledgeos restore /absolute/backup-directory`, `bin/knowledgeos rebuild`, and `bin/knowledgeos verify-ledger`. Restore refuses to overwrite existing databases.
 
-See [docs/iteration-3.5.md](docs/iteration-3.5.md) for the nine accepted review items, compatibility changes, recovery, and validation boundaries. Deployment-platform adapters and the CI matrix are unchanged in this iteration.
+The current control/API contract is V3.6. [docs/iteration-3.5.md](docs/iteration-3.5.md) remains the preceding accepted review baseline; CI validates the Python backend and TypeScript Studio separately.
 
 ## Repository map
 
@@ -84,13 +92,17 @@ See [docs/iteration-3.5.md](docs/iteration-3.5.md) for the nine accepted review 
 control/      Knowledge code: ontology, predicates, policies, models, domain packs
 knowledge/    Git-authored knowledge truth
 connectors/   Enterprise source mapping examples
-lib/          Compiler, index, ledger, services, API, connector and engine
+src/          Python compiler, index, ledger, services, API, connector and engine
 runtime/      Rebuildable query state plus durable local audit ledger
-tests/        Architecture and behavior tests
+pytests/      Python backend architecture and behavior tests
+prototype/ontology-studio/tests/  TypeScript Studio tests
 docs/         Architecture decisions and implementation mapping
 prototype/    KnowledgeOS structure and governance control panel
 ```
 
 See [docs/architecture-v3.md](docs/architecture-v3.md) for the frozen design-to-code mapping and [docs/contracts.md](docs/contracts.md) for authoring and API contracts.
-See [docs/extraction.md](docs/extraction.md) for the multi-source, model-portable candidate extraction protocol.
+See [docs/extraction.md](docs/extraction.md) for the compatibility protocol used by external extraction Agents and Skills; it is not a KnowledgeOS Studio product page.
 See [docs/agent-service.md](docs/agent-service.md) for the Agent/LLM request, tool, grounding, and response protocol.
+See [docs/python-backend.md](docs/python-backend.md) for migration and validation commands.
+See [docs/knowledgeos-v3.5-guide.html](docs/knowledgeos-v3.5-guide.html) for a Chinese, diagram-rich V3.5 architecture and Ontology Studio user guide.
+See [docs/units-formulas-fx.md](docs/units-formulas-fx.md) for physical units, currencies, source-backed FX, bound empirical formulas, and Studio review behavior.

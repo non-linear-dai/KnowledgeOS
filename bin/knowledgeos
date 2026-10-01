@@ -1,8 +1,9 @@
-#!/usr/bin/env ruby
-# frozen_string_literal: true
+#!/usr/bin/env python3
+"""Repository-local KnowledgeOS Python CLI."""
+from pathlib import Path
+import sys
 
-$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
-require "knowledge_os"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from knowledge_os.cli import main
 
-exit(KnowledgeOS::CLI.run(ARGV) || 0)
-
+raise SystemExit(main())

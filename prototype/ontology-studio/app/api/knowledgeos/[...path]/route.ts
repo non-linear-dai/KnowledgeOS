@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ path?: string[] }> };
 
 const allowedRoutes: Record<string, Set<string>> = {
-  GET: new Set(["/health", "/v1/session", "/v1/studio", "/v1/changesets"]),
-  POST: new Set(["/v1/propose", "/v1/changesets/review", "/v1/changesets/publish", "/v1/extraction/request", "/v1/extraction/candidates"]),
+  GET: new Set(["/health", "/v1/session", "/v1/studio", "/v1/changesets", "/v1/models/history"]),
+  POST: new Set(["/v1/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate"]),
 };
 
 function json(status: number, body: Record<string, unknown>) {
@@ -46,14 +46,18 @@ async function forward(request: NextRequest, context: RouteContext) {
         ...(request.headers.get("content-type") ? { "Content-Type": request.headers.get("content-type")! } : {}) },
       body,
       signal: AbortSignal.timeout(30_000),
-      redirect: "error",
+      redirect: "manual",
       cache: "no-store",
     });
+    if (upstream.status >= 300 && upstream.status < 400) {
+      return json(502, { error: "KnowledgeOS 后端返回了意外跳转", code: "BACKEND_REDIRECT" });
+    }
     return new Response(upstream.body, {
       status: upstream.status,
       headers: { "Content-Type": upstream.headers.get("content-type") ?? "application/json; charset=utf-8", "Cache-Control": "no-store" },
     });
-  } catch {
+  } catch (error) {
+    console.error("KnowledgeOS upstream request failed:", error);
     return json(502, { error: "无法连接 KnowledgeOS 后端", code: "BACKEND_UNREACHABLE" });
   }
 }
