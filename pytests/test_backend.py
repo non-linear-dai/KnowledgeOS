@@ -404,19 +404,21 @@ def test_recorded_time_keeps_earlier_snapshot(service, workspace):
 def test_control_studio_and_portable_agent_skill(service, workspace):
     control = service.control_plane()["data"]
     assert control["contract_version"] == "3.6"
-    assert len(control["ontology"]["concept_types"]) == 9
-    assert len(control["ontology"]["relation_types"]) == 6
-    assert len(control["predicates"]) == 16
-    assert set(control["models"]) == {"cost_rollup", "schedule_variance", "project_risk_score", "equipment_hourly_depreciation", "fx_conversion"}
-    assert len(control["units"]) == 8
+    assert len(control["ontology"]["concept_types"]) == 14
+    assert len(control["ontology"]["relation_types"]) == 10
+    assert len(control["predicates"]) == 34
+    assert {"route_template", "route_group", "route_step", "operation_template", "decision_table"}.issubset(
+        {item["id"] for item in control["ontology"]["concept_types"]})
+    assert set(control["models"]) == {"cost_rollup", "schedule_variance", "project_risk_score", "equipment_hourly_depreciation", "fx_conversion", "operation_cycle_time", "operation_energy"}
+    assert len(control["units"]) == 9
     assert len(control["currencies"]) == 4
     assert set(control["domains"]) == {"cost", "industry", "pm"}
     studio = service.studio()["data"]
-    assert len(studio["definitions"]) == 61
-    assert studio["coverage"]["concept"] == 9
-    assert studio["coverage"]["relation"] == 6
-    assert studio["coverage"]["predicate"] == 16
-    assert studio["coverage"]["unit"] == 8
+    assert len(studio["definitions"]) == 91
+    assert studio["coverage"]["concept"] == 14
+    assert studio["coverage"]["relation"] == 10
+    assert studio["coverage"]["predicate"] == 34
+    assert studio["coverage"]["unit"] == 9
     assert studio["coverage"]["currency"] == 4
     assert next(item for item in studio["definitions"] if item["id"] == "risk_level")["source_path"] == "control/predicates/risk_level.yaml"
     bundle = service.agent_skill("industry-evidence-brief")

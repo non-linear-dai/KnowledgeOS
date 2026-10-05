@@ -1,0 +1,7 @@
+id: iteration_set
+label: Iteration set
+value: { type: string, cardinality: one }
+storage: { mode: attr }
+semantics: { description: Named typed collection in an input scenario over which a route group repeats. }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

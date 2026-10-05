@@ -1,0 +1,7 @@
+id: decision_assets
+label: Decision Assets
+value: { type: json, cardinality: one }
+storage: { mode: attr }
+semantics: { description: "Version-pinned decision definitions authored in this route package." }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

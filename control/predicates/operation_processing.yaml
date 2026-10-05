@@ -1,0 +1,7 @@
+id: operation_processing
+label: Operation Processing
+value: { type: json, cardinality: one }
+storage: { mode: attr }
+semantics: { description: "Processing time, setup, batch capacity and model input mappings." }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

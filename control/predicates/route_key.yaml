@@ -1,0 +1,7 @@
+id: route_key
+label: Route item key
+value: { type: string, cardinality: one }
+storage: { mode: attr }
+semantics: { description: Stable key of a group or step within one route template version. }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

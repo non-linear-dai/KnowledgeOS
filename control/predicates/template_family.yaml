@@ -1,0 +1,7 @@
+id: template_family
+label: Template family
+value: { type: string, cardinality: one }
+storage: { mode: attr }
+semantics: { description: Stable manufacturing family or product class for expert route selection. }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

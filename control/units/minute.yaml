@@ -1,0 +1,5 @@
+id: minute
+version: "1.0.0"
+label: Minute
+dimension: duration
+factor_to_base: "60"

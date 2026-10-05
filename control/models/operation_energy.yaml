@@ -1,0 +1,15 @@
+id: operation_energy
+version: "1.0.0"
+description: Energy demand from effective power and process duration.
+status: { lifecycle: active }
+inputs:
+  - { id: effective_power, unit: kW }
+  - { id: elapsed_time, unit: hour }
+formula:
+  op: multiply
+  args:
+    - { op: input, id: effective_power }
+    - { op: input, id: elapsed_time }
+precision: 8
+rounding: half_up
+output_unit: kWh

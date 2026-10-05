@@ -1,0 +1,15 @@
+id: operation_cycle_time
+version: "1.0.0"
+description: One operation cycle duration from a baseline time and workload factor.
+status: { lifecycle: active }
+inputs:
+  - { id: baseline_time, unit: hour }
+  - { id: workload_factor, unit: one }
+formula:
+  op: multiply
+  args:
+    - { op: input, id: baseline_time }
+    - { op: input, id: workload_factor }
+precision: 8
+rounding: half_up
+output_unit: hour

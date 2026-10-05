@@ -425,6 +425,9 @@ class Service:
             raise ValidationError("risk must be low, normal, or high")
         if not str(actor).strip() or not str(reason).strip():
             raise ValidationError("actor and reason are required")
+        if isinstance(patch, dict) and patch.get("op") == "template_package":
+            patch = {**patch, "actor": actor}
+            risk = "high"
         operations = operations or []
         if any((operation.get("targetKind") or operation.get("target_kind")) in ("schema", "model", "unit", "currency", "business_constraint", "business_rule") for operation in operations) or any(
             path.strip().startswith(("control/schemas/", "control/models/", "control/units/", "control/currencies/", "control/constraints/business/", "control/rules/business/")) for path in target_source.split(",")
@@ -533,7 +536,7 @@ class Service:
         return envelope({"id": id, "status": "published", "source_revision": source_revision, "verification": verification})
 
     def apply_changeset(self, *, id, publisher):
-        """Write an approved standalone control definition to the Git-authored source tree."""
+        """Write an approved standalone control definition or expert template package."""
         row = self.db.first("SELECT * FROM changeset WHERE id=?", (id,))
         if not row:
             raise NotFoundError(f"changeset not found: {id}")
@@ -547,8 +550,9 @@ class Service:
                              "next_action": "publish_changeset"})
         if current_revision != row["base_revision"]:
             raise ConflictError("source changed since ChangeSet approval; refresh and propose again")
-        revision = plan.apply_approved_control(row["target_source"], json.loads(row["patch_json"]),
-                                               json.loads(row["operations_json"]), json.loads(row["expected_json"]))
+        patch = json.loads(row["patch_json"])
+        apply = plan.apply_approved_template if isinstance(patch, dict) and patch.get("op") == "template_package" else plan.apply_approved_control
+        revision = apply(row["target_source"], patch, json.loads(row["operations_json"]), json.loads(row["expected_json"]))
         with self.db.transaction():
             updated = self.db.write("UPDATE changeset SET source_revision=?,lock_version=lock_version+1 WHERE id=? AND status='approved' AND lock_version=?",
                                     (revision, id, row["lock_version"]))
@@ -561,6 +565,86 @@ class Service:
         self.audit.flush()
         return envelope({"id": id, "status": "approved", "source_revision": revision,
                          "next_action": "publish_changeset"})
+
+    def _unpublished_template_assets(self):
+        """Keep proposed package identities private until verification is published."""
+        templates, operations, published_templates, published_operations = set(), set(), set(), set()
+        for row in self.db.execute("SELECT status,patch_json FROM changeset"):
+            patch = json.loads(row["patch_json"])
+            if patch.get("op") != "template_package":
+                continue
+            spec = patch["template"]
+            template_id = f"route:{spec['id']}:{spec['version']}"
+            operation_ids = {f"operation:{item['id']}:{item['version']}" for item in spec["operations"]}
+            if row["status"] == "published":
+                published_templates.add(template_id)
+                published_operations.update(operation_ids)
+            else:
+                templates.add(template_id)
+                operations.update(operation_ids)
+        return templates - published_templates, operations - published_operations
+
+    def template_catalog(self):
+        from .templates import TemplateWorkbench
+        workbench = TemplateWorkbench(self)
+        hidden_templates, hidden_operations = self._unpublished_template_assets()
+        return envelope({"templates": [item for item in workbench.list_templates() if item["id"] not in hidden_templates],
+                         "operations": [item for item in workbench.list_operations() if item["id"] not in hidden_operations],
+                         "decisions": [table for table in workbench.list_decisions() if workbench.decision_id(table) not in self._unpublished_decision_assets()],
+                         "currencies": sorted(self.registry.currencies),
+                         "quantity_models": [{"id":m["id"],"version":m["version"],"description":m.get("description", ""),"inputs":m.get("inputs", []),"output_unit":m["output_unit"]} for m in self.registry.models.values() if m["output_unit"] in self.registry.units and m.get("status", {}).get("lifecycle", "active") == "active"],
+                         "units": sorted(self.registry.units), "models": [
+                             {"id": model["id"], "version": model["version"], "description": model.get("description", ""), "inputs": model.get("inputs", []), "output_unit": model["output_unit"]}
+                             for model in self.registry.models.values()
+                             if self.registry.units.get(model["output_unit"], {}).get("dimension") == "duration"],
+                         "registry_fingerprint": self.registry.fingerprint},
+                        source={"class": "git_authored", "roots": ["knowledge/templates", "knowledge/operations", "knowledge/decisions"]})
+
+    def _unpublished_decision_assets(self):
+        pending, published = set(), set()
+        for row in self.db.execute("SELECT status,patch_json FROM changeset"):
+            patch = json.loads(row["patch_json"])
+            if patch.get("op") == "template_package":
+                refs = {f"decision:{d['id']}:{d['version']}" for d in patch["template"].get("decisions", [])}
+                (published if row["status"] == "published" else pending).update(refs)
+        return pending - published
+
+    def template_calculate(self, template, case, scenario):
+        from .route_costs import calculate_route
+        return envelope(calculate_route(self, template, case, scenario), quality={"write_performed": False, "preview_only": True})
+
+    def template_get(self, identifier):
+        from .templates import TemplateWorkbench
+        if identifier in self._unpublished_template_assets()[0]:
+            raise NotFoundError(f"route template not published: {identifier}")
+        return envelope(TemplateWorkbench(self).get(identifier), source={"class": "git_authored"})
+
+    def template_preview(self, template, case):
+        from .templates import TemplateWorkbench
+        workbench = TemplateWorkbench(self)
+        result = workbench.preview(template, case)
+        return envelope(result, quality={"write_performed": False})
+
+    def template_propose(self, *, actor, template, reason, idempotency_key=None):
+        from .templates import TemplateWorkbench
+        if idempotency_key:
+            existing = self.db.first("SELECT id,status,patch_json,reason,base_revision,target_source FROM changeset WHERE actor=? AND request_key=?",
+                                     (actor, idempotency_key))
+            if existing:
+                patch = json.loads(existing["patch_json"])
+                if patch.get("op") != "template_package" or patch.get("template") != template or existing["reason"] != reason:
+                    raise ConflictError("idempotency key was already used with different content")
+                return envelope({"id": existing["id"], "status": existing["status"],
+                                 "target_source": existing["target_source"], "base_revision": existing["base_revision"]})
+        workbench = TemplateWorkbench(self)
+        documents = workbench.render(template, actor)
+        failures = [case["id"] for case in template["cases"] if not workbench.preview(template, case)["matches_expected"]]
+        if failures:
+            raise ValidationError("expert sample cases failed: " + ", ".join(failures))
+        return self.propose(actor=actor, target_source=",".join(sorted(documents)),
+                            patch={"op": "template_package", "template": template}, operations=[],
+                            reason=reason, title=f"Expert route {template['label']} v{template['version']}",
+                            risk="high", idempotency_key=idempotency_key)
 
     def control_plane(self):
         self.refresh_registry()

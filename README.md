@@ -72,7 +72,7 @@ curl -H 'Authorization: Bearer replace-with-a-long-random-token' \
   'http://127.0.0.1:8787/v1/get?id=org:acme'
 ```
 
-Supported roles are `reader`, `agent`, `reviewer`, `publisher`, and `admin`. Normal `serve` tokens live only in the process environment. `KNOWLEDGEOS_AUTH_MODE=disabled` is available solely for explicit local test harnesses.
+Supported roles are `reader`, `agent`, `reviewer`, `publisher`, `template_author`, `template_reviewer`, `template_publisher`, and `admin`. Normal `serve` tokens live only in the process environment. `KNOWLEDGEOS_AUTH_MODE=disabled` is available solely for explicit local test harnesses.
 
 Runtime databases are created in `runtime/` and intentionally ignored by Git. The query index is disposable; both `knowledge.state.db` and `knowledge.ledger.db` must be backed up together. Rebuild replays durable connector records and preserves governance state:
 

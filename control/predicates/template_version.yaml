@@ -1,0 +1,7 @@
+id: template_version
+label: Template version
+value: { type: string, cardinality: one }
+storage: { mode: attr }
+semantics: { description: Immutable semantic version of an expert route template. }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

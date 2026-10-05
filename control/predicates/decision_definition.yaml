@@ -1,0 +1,7 @@
+id: decision_definition
+label: Decision Definition
+value: { type: json, cardinality: one }
+storage: { mode: attr }
+semantics: { description: "Typed, bounded decision table with explicit hit policy and version." }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

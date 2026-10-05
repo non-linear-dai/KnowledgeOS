@@ -1,0 +1,7 @@
+id: join_policy
+label: Join policy
+value: { type: enum, cardinality: one, allowed: [all] }
+storage: { mode: attr }
+semantics: { description: Completion condition for a repeated group before its successor can begin. }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

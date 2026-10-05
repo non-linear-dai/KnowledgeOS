@@ -1,0 +1,7 @@
+id: output_basis
+label: Output basis
+value: { type: string, cardinality: one }
+storage: { mode: attr }
+semantics: { description: Declared unit of finished output for a standard route. }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

@@ -8,7 +8,7 @@ The UI must treat this response as read-only source state. Durable edits use `PO
 
 ## Authentication and authorization
 
-All `/v1/*` routes require `Authorization: Bearer <token>`. `KNOWLEDGEOS_AUTH_TOKENS` is an environment-only JSON object mapping tokens to principals and roles. `reader` can query, `agent` can prepare/invoke/extract/propose, `reviewer` can govern, `publisher` can publish, and `admin` has all permissions. HTTP mutation actors are always derived from the authenticated principal.
+All `/v1/*` routes require `Authorization: Bearer <token>`. `KNOWLEDGEOS_AUTH_TOKENS` is an environment-only JSON object mapping tokens to principals and roles. `reader` can query, `agent` can prepare/invoke/extract/propose, `reviewer` can govern ordinary ChangeSets, `publisher` can publish ordinary ChangeSets, and `admin` has all permissions. `template_author`, `template_reviewer`, and `template_publisher` separately govern expert template ChangeSets. HTTP mutation actors are always derived from the authenticated principal.
 
 `GET /v1/session` returns the current principal, roles, and permissions. Studio forwards the user's bearer token, never a server-wide admin token. The proxy rejects cross-origin writes, bounds request bodies, and times out upstream requests. Credentials remain in browser memory only. Service tokens and user tokens are not substituted for one another.
 
@@ -76,6 +76,10 @@ Responses use a uniform envelope:
 ## Ontology shape contract
 
 Concept definitions may declare `properties` with a registered predicate, required flag, concept-local cardinality, and display group. Relation definitions may declare allowed typed `connections`, a `simple`, `reifiable`, or `reified` mode, and a reification node template. JSON Schema and Git-authored constraints run before semantic validation. The compiler enforces endpoint existence/types, endpoint cardinality, reified identity, required reification properties, predicate enum/cardinality, and deterministic-model references.
+
+## Expert route template workbench
+
+The /templates workbench authors instances separately from the non-instance Studio whiteboard. It composes the registered route_template, route_group, route_step, and operation_template concepts without changing the canonical envelope. The template API lists and reads published versions, previews bounded deterministic expansion over named scenario collections, and proposes an immutable multi-file Git-authored package. The compiler checks route membership, acyclic precedence, version-pinned operation references and expert sample expansion counts. Proposed packages require an independent high-risk review, publisher-only source application, and verified compilation and publication. Template author, reviewer, and publisher permissions are separate from ontology control-plane roles. See [expert-template-workbench.md](expert-template-workbench.md).
 
 ## Business constraint and rule contract
 

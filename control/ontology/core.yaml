@@ -71,6 +71,55 @@ concept_types:
     status: { lifecycle: active, equivalent_to: }
     properties:
       - { predicate: exchange_rate, required: false, cardinality: inherit, group: measurement }
+  - id: route_template
+    label: Route template
+    description: Expert-approved, versioned manufacturing route composed of groups and step occurrences.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: template_family, required: true, cardinality: one, group: profile }
+      - { predicate: template_version, required: true, cardinality: one, group: governance }
+      - { predicate: output_basis, required: true, cardinality: one, group: measurement }
+      - { predicate: template_cases, required: true, cardinality: one, group: governance }
+      - { predicate: template_author, required: true, cardinality: one, group: governance }
+      - { predicate: decision_assets, required: false, cardinality: one, group: governance }
+      - { predicate: summary, required: false, cardinality: inherit, group: profile }
+  - id: route_group
+    label: Route group
+    description: Non-cost-bearing repeat or branch container within a route template.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: route_key, required: true, cardinality: one, group: identity }
+      - { predicate: iteration_set, required: true, cardinality: one, group: profile }
+      - { predicate: join_policy, required: true, cardinality: one, group: profile }
+      - { predicate: group_execution, required: false, cardinality: one, group: profile }
+      - { predicate: decision_binding, required: false, cardinality: one, group: profile }
+      - { predicate: template_condition, required: false, cardinality: one, group: profile }
+  - id: route_step
+    label: Route step
+    description: One occurrence of a reusable operation template in a manufacturing route.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: route_key, required: true, cardinality: one, group: identity }
+      - { predicate: cost_basis, required: true, cardinality: one, group: measurement }
+      - { predicate: template_condition, required: false, cardinality: one, group: profile }
+      - { predicate: decision_binding, required: false, cardinality: one, group: profile }
+  - id: operation_template
+    label: Operation template
+    description: Reusable expert-authored standard operation referenced by route steps.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: cost_basis, required: true, cardinality: one, group: measurement }
+      - { predicate: operation_method, required: false, cardinality: one, group: profile }
+      - { predicate: resource_plan, required: false, cardinality: one, group: measurement }
+      - { predicate: time_model_ref, required: false, cardinality: one, group: measurement }
+      - { predicate: operation_processing, required: false, cardinality: one, group: measurement }
+      - { predicate: summary, required: false, cardinality: inherit, group: profile }
+  - id: decision_table
+    label: Decision table
+    description: Reusable expert-authored decision table with typed rules and a deterministic hit policy.
+    status: { lifecycle: active, equivalent_to: }
+    properties:
+      - { predicate: decision_definition, required: true, cardinality: one, group: profile }
 
 relation_types:
   - id: participates_in
@@ -130,3 +179,35 @@ relation_types:
       identity: required
       properties:
         - { predicate: risk_level, required: true, cardinality: inherit, group: governance }
+  - id: route_contains
+    label: route contains
+    description: Owns a top-level group or step occurrence in a route.
+    status: { lifecycle: active, equivalent_to: }
+    mode: simple
+    connections:
+      - { source_type: route_template, target_type: route_group, source_cardinality: one, target_cardinality: many }
+      - { source_type: route_template, target_type: route_step, source_cardinality: one, target_cardinality: many }
+  - id: group_contains
+    label: group contains
+    description: Owns a step occurrence within a repeating group.
+    status: { lifecycle: active, equivalent_to: }
+    mode: simple
+    connections:
+      - { source_type: route_group, target_type: route_step, source_cardinality: one, target_cardinality: many }
+  - id: route_precedes
+    label: route precedes
+    description: Requires one route group or step to finish before another at the same nesting level.
+    status: { lifecycle: active, equivalent_to: }
+    mode: simple
+    connections:
+      - { source_type: route_group, target_type: route_group, source_cardinality: many, target_cardinality: many }
+      - { source_type: route_group, target_type: route_step, source_cardinality: many, target_cardinality: many }
+      - { source_type: route_step, target_type: route_group, source_cardinality: many, target_cardinality: many }
+      - { source_type: route_step, target_type: route_step, source_cardinality: many, target_cardinality: many }
+  - id: route_uses_operation
+    label: route uses operation
+    description: Binds a route step occurrence to one version-pinned reusable operation template.
+    status: { lifecycle: active, equivalent_to: }
+    mode: simple
+    connections:
+      - { source_type: route_step, target_type: operation_template, source_cardinality: many, target_cardinality: one }

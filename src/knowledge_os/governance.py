@@ -77,7 +77,17 @@ class ChangePlan:
 
     def staged_documents(self, target_source, patch, operations):
         documents = {name: self._read(path) for name, path in self.paths(target_source).items()}
-        if isinstance(patch, dict) and patch.get("op") == "studio_batch":
+        if isinstance(patch, dict) and patch.get("op") == "template_package":
+            if operations:
+                raise ValidationError("template package cannot include Studio operations")
+            from .templates import TemplateWorkbench
+            rendered = TemplateWorkbench(self.service).render(patch.get("template"), patch.get("actor"))
+            if set(rendered) != set(documents):
+                raise ValidationError("template package paths do not match the ChangeSet targets")
+            if any(document is not None for document in documents.values()):
+                raise ConflictError("template package versions are immutable")
+            documents = rendered
+        elif isinstance(patch, dict) and patch.get("op") == "studio_batch":
             if not operations:
                 raise ValidationError("studio batch requires operations")
             for operation in operations:
@@ -96,6 +106,41 @@ class ChangePlan:
                 document["data"] = self._pointer(document["data"], change)
             documents[name] = document
         return documents
+
+    def apply_approved_template(self, target_source, patch, operations, expected):
+        """Atomically materialize an approved, immutable expert template package."""
+        if not isinstance(patch, dict) or patch.get("op") != "template_package":
+            raise ValidationError("direct template application requires a template package ChangeSet")
+        from .templates import serialize_document
+        documents = self.staged_documents(target_source, patch, operations)
+        if {name: digest(document) for name, document in documents.items()} != expected:
+            raise ConflictError("approved template content no longer matches its proposal")
+        paths = self.paths(target_source)
+        staged, applied = [], []
+        try:
+            for name, document in documents.items():
+                if not name.startswith(("knowledge/templates/", "knowledge/operations/", "knowledge/decisions/")) or not name.endswith(".md"):
+                    raise ValidationError("template package path is outside its authored roots")
+                target = paths[name] or self.root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target.parent,
+                                                 prefix=".knowledgeos-template-", suffix=".md", delete=False) as stream:
+                    stream.write(serialize_document(document))
+                    staged.append((Path(stream.name), target))
+            if any(target.exists() for _, target in staged):
+                raise ConflictError("template source appeared while applying approved package")
+            for source, target in staged:
+                os.replace(source, target)
+                applied.append(target)
+            self.verify(target_source, expected)
+        except Exception:
+            for target in reversed(applied):
+                target.unlink(missing_ok=True)
+            raise
+        finally:
+            for source, _ in staged:
+                source.unlink(missing_ok=True)
+        return self.revision(target_source)
 
     def apply_approved_control(self, target_source, patch, operations, expected):
         """Materialize reviewed, standalone control definitions into the Git checkout."""

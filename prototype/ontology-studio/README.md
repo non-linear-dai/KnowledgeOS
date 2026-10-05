@@ -1,5 +1,7 @@
 # KnowledgeOS Ontology Studio
 
+标准工艺路线实例由独立的 [专家工艺模板工作台](../../docs/expert-template-workbench.md)维护，入口为 /templates。其作者、审核和发布权限在 Python API 分开校验；结构白板仍只维护本体与控制定义。
+
 KnowledgeOS Studio 0.2.0 是面向 Contract 3.6 的非实例结构与治理控制面。界面从后端 `GET /v1/studio` 加载完整定义目录；结构白板显示 Schema、概念、关系、判断类型、模型、业务约束和业务规则卡片，均可查看和编辑草稿，再通过 ChangeSet API 提交、审核和登记发布。物理单位与货币仍由 Git 控制文件维护，不显示在白板。单文件模型、物理单位、货币、业务约束及业务规则经独立审核后，可由具备发布权限的用户在界面应用到 Git 真源，再验证发布；这一步不自动创建 Git commit。
 
 Studio 不提供知识抽取页，也不承担文件、图像、音频或视频的内容抽取。外部 Agent 与适配 Skill 负责把来源材料转换为带来源引用的结构化候选；KnowledgeOS 负责验证其数据结构、治理结构化真源并提供 ChangeSet 交互。后端现有抽取协议仅作为兼容接口保留，不通过 Studio 代理暴露。

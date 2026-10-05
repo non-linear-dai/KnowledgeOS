@@ -1,0 +1,7 @@
+id: template_condition
+label: Template condition
+value: { type: json, cardinality: one }
+storage: { mode: attr }
+semantics: { description: Bounded declarative fact comparison that controls inclusion of a group or step. }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

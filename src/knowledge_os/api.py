@@ -16,7 +16,11 @@ from .service import Service
 
 ROLE_PERMISSIONS = {"reader": ["read"], "agent": ["read", "agent", "extract", "propose"],
                     "reviewer": ["read", "review"], "publisher": ["read", "publish"],
-                    "admin": ["read", "agent", "extract", "propose", "review", "publish"]}
+                    "template_author": ["read", "template_edit"],
+                    "template_reviewer": ["read", "template_review"],
+                    "template_publisher": ["read", "template_publish"],
+                    "admin": ["read", "agent", "extract", "propose", "review", "publish",
+                              "template_edit", "template_review", "template_publish"]}
 
 
 class AccessControl:
@@ -74,12 +78,13 @@ PERMISSIONS = {
     "/v1/agent/request": "agent", "/v1/agent/respond": "agent", "/v1/agent/invoke": "agent",
     "/v1/extraction/request": "extract", "/v1/extraction/candidates": "extract",
     "/v1/calculate": "agent", "/v1/calculate/entity": "agent", "/v1/fx/convert": "agent",
-    "/v1/models/preview": "propose", "/v1/business/preview": "propose", "/v1/business/impact": "propose", "/v1/propose": "propose", "/v1/changesets/review": "review",
-    "/v1/changesets/apply": "publish", "/v1/changesets/publish": "publish", "/v1/review": "review",
+    "/v1/models/preview": "propose", "/v1/business/preview": "propose", "/v1/business/impact": "propose",
+    "/v1/templates/propose": "template_edit", "/v1/review": "review",
 }
 POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/extraction/request",
              "/v1/extraction/candidates", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/query",
-             "/v1/calculate", "/v1/calculate/entity", "/v1/fx/convert", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/propose"}
+             "/v1/calculate", "/v1/calculate/entity", "/v1/fx/convert", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/propose",
+             "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose"}
 
 
 class KnowledgeServer(ThreadingHTTPServer):
@@ -122,14 +127,19 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                 return
             principal = self.server.auth.authenticate(self.headers.get("Authorization"))
             self.server.auth.authorize(principal, PERMISSIONS.get(path, "read"))
+            if path in ("/v1/templates/preview", "/v1/templates/calculate"):
+                permissions = {permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]}
+                if not permissions.intersection({"template_edit", "template_review", "template_publish"}):
+                    raise AuthorizationError("template preview requires expert template permission")
             if path in POST_ONLY and self.command != "POST":
                 self._send(405, {"error": "POST required"}, principal)
                 return
             body = self._body() if self.command == "POST" else {}
             with service.db.lock:
                 service.refresh_registry()
+                self._authorize_governed_mutation(path, body, principal)
                 result = self._dispatch(path, params, body, principal)
-            status = 201 if path == "/v1/propose" else 200
+            status = 201 if path in ("/v1/propose", "/v1/templates/propose") else 200
             self._send(status, result, principal)
         except AuthenticationError as exc:
             self._send(401, {"error": str(exc)}, extra={"WWW-Authenticate": 'Bearer realm="KnowledgeOS"'})
@@ -175,6 +185,33 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             raise ValidationError(f"missing parameter: {name}")
         return value
 
+    def _authorize_governed_mutation(self, path, body, principal):
+        if path == "/v1/agent/invoke" and body.get("operation") == "propose":
+            arguments = body.get("arguments") or {}
+            source = str(arguments.get("target_source") or "")
+            if any(part.strip().startswith(("knowledge/templates/", "knowledge/operations/", "knowledge/decisions/")) for part in source.split(",")):
+                self.server.auth.authorize(principal, "template_edit")
+            return
+        if path not in ("/v1/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish"):
+            return
+        if path == "/v1/propose":
+            source = str(body.get("target_source") or "")
+            is_template = any(part.strip().startswith(("knowledge/templates/", "knowledge/operations/", "knowledge/decisions/")) for part in source.split(","))
+            if is_template and (not isinstance(body.get("patch"), dict) or body["patch"].get("op") != "template_package"):
+                raise ValidationError("expert templates require the governed template package workflow")
+        else:
+            row = self.server.service.db.first("SELECT target_source FROM changeset WHERE id=?", (body.get("id"),))
+            if not row:
+                fallback = {"/v1/changesets/review": "review", "/v1/changesets/apply": "publish", "/v1/changesets/publish": "publish"}
+                self.server.auth.authorize(principal, fallback[path])
+                raise NotFoundError("changeset not found")
+            is_template = any(part.strip().startswith(("knowledge/templates/", "knowledge/operations/", "knowledge/decisions/")) for part in row["target_source"].split(","))
+        ordinary = {"/v1/propose": "propose", "/v1/changesets/review": "review",
+                    "/v1/changesets/apply": "publish", "/v1/changesets/publish": "publish"}
+        specialized = {"/v1/propose": "template_edit", "/v1/changesets/review": "template_review",
+                       "/v1/changesets/apply": "template_publish", "/v1/changesets/publish": "template_publish"}
+        self.server.auth.authorize(principal, specialized[path] if is_template else ordinary[path])
+
     def _dispatch(self, path, p, body, principal):
         s = self.server.service
         if path == "/v1/session":
@@ -186,6 +223,10 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return s.control_plane()
         if path == "/v1/studio":
             return s.studio()
+        if path == "/v1/templates":
+            return s.template_catalog()
+        if path == "/v1/templates/get":
+            return s.template_get(self._required(p, "id"))
         if path == "/v1/models/history":
             return s.model_history(self._required(p, "id"))
         if path == "/v1/changesets":
@@ -214,6 +255,13 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                                       rate_type=body.get("rate_type", "mid"))
         if path == "/v1/models/preview":
             return s.preview_model(body["model"], body["inputs"])
+        if path == "/v1/templates/preview":
+            return s.template_preview(body["template"], body["case"])
+        if path == "/v1/templates/calculate":
+            return s.template_calculate(body["template"], body["case"], body["scenario"])
+        if path == "/v1/templates/propose":
+            return s.template_propose(actor=principal["id"], template=body["template"],
+                                      reason=body["reason"], idempotency_key=body.get("idempotency_key"))
         if path == "/v1/business/preview":
             return s.preview_business(body["definition"], body["kind"], body["facts"])
         if path == "/v1/business/impact":

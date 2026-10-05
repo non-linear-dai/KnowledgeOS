@@ -1,0 +1,7 @@
+id: operation_method
+label: Operation method
+value: { type: string, cardinality: one }
+storage: { mode: attr }
+semantics: { description: Expert-facing name of the manufacturing method used by a reusable operation. }
+policy: { temporal: none, evidence: optional, history: git_only, embedding: false, write: reviewed, freshness: stable, authority: git_authored, provenance_tier: C }
+status: { lifecycle: active, equivalent_to: }

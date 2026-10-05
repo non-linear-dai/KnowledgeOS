@@ -77,6 +77,23 @@ class Compiler:
         if base.get("lifecycle", {}).get("state") not in ("draft", "active", "deprecated", "merged", "retired"):
             raise ValidationError(f"{path}: invalid lifecycle")
         attrs = knowledge.get("attrs") or {}
+        if node["type"] == "decision_table":
+            from .decisions import validate_table
+            table = attrs.get("decision_definition")
+            validate_table(table, self.registry.units)
+            if node["id"] != f"decision:{table['id']}:{table['version']}":
+                raise ValidationError("decision node identity disagrees with its definition")
+        if node["type"] == "operation_template":
+            from .templates import _validate_model_ref, validate_resource_plan, validate_processing
+            if attrs.get("time_model_ref"):
+                _validate_model_ref(attrs["time_model_ref"], self.registry, output_dimension="duration")
+            if attrs.get("operation_processing"):
+                validate_processing(attrs["operation_processing"], self.registry)
+            if attrs.get("resource_plan"):
+                plan = attrs["resource_plan"]
+                if not isinstance(plan, dict) or set(plan) != {"resources"}:
+                    raise ValidationError(f"{path}: resource plan must contain resources")
+                validate_resource_plan(plan["resources"], self.registry)
         concept = next(item for item in self.registry.ontology.get("concept_types", []) if item["id"] == node["type"])
         bindings = {item["predicate"]: item for item in concept.get("properties", [])}
         for identifier in attrs:
@@ -241,6 +258,7 @@ class Compiler:
                 shell.config, shell.registry, shell.db, shell.ledger, shell.audit = self.config, self.registry, self.db, self.ledger, self.audit
                 Connector(shell).replay()
             self._validate_edges()
+            self._validate_templates()
             if rebuild or control_changed:
                 self._validate_connector_business_constraints()
             impacted.update(self._reclassify())
@@ -349,6 +367,24 @@ class Compiler:
             if definition and definition.get("connections") and not any(edge["source_type"] == nodes[row["src"]] and edge["target_type"] == nodes[row["dst"]]
                                                                     for edge in definition["connections"]):
                 raise ValidationError(f"relation {row['predicate']} does not allow {nodes[row['src']]} -> {nodes[row['dst']]}")
+
+    def _validate_templates(self):
+        from .templates import TemplateWorkbench
+        workbench = TemplateWorkbench(self)
+        expected_items = set()
+        for summary in workbench.list_templates():
+            spec = workbench.get(summary["id"])
+            workbench.validate(spec, check_refs=False)
+            expected_items.update(
+                [f"route-group:{spec['id']}:{spec['version']}:{item['id']}" for item in spec["groups"]] +
+                [f"route-step:{spec['id']}:{spec['version']}:{item['id']}" for item in spec["steps"]])
+            for case in spec["cases"]:
+                if not workbench.preview(spec, case)["matches_expected"]:
+                    raise ValidationError(f"template {summary['id']} case {case['id']} no longer matches its expected operations")
+        actual_items = {row["id"] for row in self.db.execute(
+            "SELECT id FROM node WHERE type IN ('route_group','route_step') AND source_class='git_authored'")}
+        if actual_items != expected_items:
+            raise ValidationError("route group and step nodes must belong to exactly one authored template package")
 
     def _reclassify(self):
         changed = set()

@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ path?: string[] }> };
 
 const allowedRoutes: Record<string, Set<string>> = {
-  GET: new Set(["/health", "/v1/session", "/v1/studio", "/v1/changesets", "/v1/models/history"]),
-  POST: new Set(["/v1/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate"]),
+  GET: new Set(["/health", "/v1/session", "/v1/studio", "/v1/changesets", "/v1/models/history", "/v1/templates", "/v1/templates/get"]),
+  POST: new Set(["/v1/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose"]),
 };
 
 function json(status: number, body: Record<string, unknown>) {
