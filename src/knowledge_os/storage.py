@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS durable.changeset(id TEXT PRIMARY KEY,actor TEXT NOT 
  risk TEXT NOT NULL,status TEXT NOT NULL,patch_json TEXT NOT NULL,operations_json TEXT NOT NULL DEFAULT '[]',
  reason TEXT NOT NULL,created_at TEXT NOT NULL,reviewed_by TEXT,reviewed_at TEXT,review_note TEXT,published_by TEXT,
  published_at TEXT,source_revision TEXT,base_revision TEXT,publication_json TEXT,expected_json TEXT,
- lock_version INTEGER NOT NULL DEFAULT 0,request_key TEXT);
+ lock_version INTEGER NOT NULL DEFAULT 0,request_key TEXT,extraction_json TEXT);
 CREATE TABLE IF NOT EXISTS durable.audit_outbox(event_id TEXT PRIMARY KEY,event_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',
  created_at TEXT NOT NULL,delivered_at TEXT,last_error TEXT);
 CREATE INDEX IF NOT EXISTS durable.idx_outbox_pending ON audit_outbox(status,created_at);
@@ -82,6 +82,11 @@ CREATE TABLE IF NOT EXISTS durable.connector_record(source_ref_id TEXT NOT NULL,
  observed_at TEXT NOT NULL,record_json TEXT NOT NULL,mapping_json TEXT NOT NULL,PRIMARY KEY(source_ref_id,source_hash));
 CREATE TABLE IF NOT EXISTS durable.entity_snapshot(node_id TEXT NOT NULL,recorded_at TEXT NOT NULL,content_hash TEXT NOT NULL,
  snapshot_json TEXT NOT NULL,PRIMARY KEY(node_id,recorded_at));
+CREATE TABLE IF NOT EXISTS durable.source_entity_binding(source_id TEXT NOT NULL,entity_type TEXT NOT NULL,
+ mention TEXT NOT NULL,context_json TEXT NOT NULL,node_id TEXT NOT NULL,source_hash TEXT NOT NULL,
+ locator TEXT NOT NULL,evidence_json TEXT NOT NULL,changeset_id TEXT NOT NULL,confirmed_by TEXT NOT NULL,
+ confirmed_at TEXT NOT NULL,PRIMARY KEY(source_id,entity_type,mention,context_json));
+CREATE INDEX IF NOT EXISTS durable.idx_source_entity_binding_node ON source_entity_binding(node_id);
 CREATE TABLE IF NOT EXISTS durable.schema_migration(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);
 INSERT OR IGNORE INTO durable.schema_migration VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 """
@@ -128,7 +133,7 @@ class Database:
         for name, definition in {"title": "TEXT", "operations_json": "TEXT NOT NULL DEFAULT '[]'", "review_note": "TEXT",
                                  "published_by": "TEXT", "published_at": "TEXT", "source_revision": "TEXT", "base_revision": "TEXT",
                                  "publication_json": "TEXT", "expected_json": "TEXT", "lock_version": "INTEGER NOT NULL DEFAULT 0",
-                                 "request_key": "TEXT"}.items():
+                                 "request_key": "TEXT", "extraction_json": "TEXT"}.items():
             if name not in columns:
                 self.connection.execute(f"ALTER TABLE durable.changeset ADD COLUMN {name} {definition}")
         self.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS durable.idx_changeset_request ON changeset(actor,request_key) WHERE request_key IS NOT NULL")

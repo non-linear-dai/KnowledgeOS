@@ -420,7 +420,7 @@ class Service:
         return envelope(data)
 
     def propose(self, *, actor, target_source, patch, reason, risk="normal", title=None, operations=None,
-                base_revision=None, idempotency_key=None):
+                base_revision=None, idempotency_key=None, extraction=None):
         if risk not in ("low", "normal", "high"):
             raise ValidationError("risk must be low, normal, or high")
         if not str(actor).strip() or not str(reason).strip():
@@ -440,7 +440,8 @@ class Service:
             existing = self.db.first("SELECT * FROM changeset WHERE actor=? AND request_key=?", (actor, idempotency_key)) if idempotency_key else None
             if existing:
                 if any((existing["patch_json"] != json_text(patch), existing["operations_json"] != json_text(operations),
-                        existing["target_source"] != target_source, existing["risk"] != risk, existing["reason"] != reason)):
+                        existing["target_source"] != target_source, existing["risk"] != risk, existing["reason"] != reason,
+                        existing["extraction_json"] != (json_text(extraction) if extraction else None))):
                     raise ConflictError("idempotency key was already used with different content")
                 return envelope({"id": existing["id"], "status": existing["status"], "target_source": target_source,
                                  "base_revision": existing["base_revision"]})
@@ -450,10 +451,10 @@ class Service:
             expected = plan.expectation(target_source, patch, operations)
             if plan.revision(target_source) != revision:
                 raise ConflictError("source changed while preparing proposal")
-            self.db.write("""INSERT INTO changeset(id,actor,title,target_source,risk,status,patch_json,operations_json,reason,created_at,base_revision,expected_json,request_key)
-              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            self.db.write("""INSERT INTO changeset(id,actor,title,target_source,risk,status,patch_json,operations_json,reason,created_at,base_revision,expected_json,request_key,extraction_json)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
               (identifier, actor, title, target_source, risk, status, json_text(patch), json_text(operations), reason, now,
-               revision, json_text(expected), idempotency_key))
+               revision, json_text(expected), idempotency_key, json_text(extraction) if extraction else None))
             self.audit.stage(event_type="agent_proposal", actor=actor, target_id=identifier, source_ref=target_source,
                              before_hash=revision, reason=reason,
                              payload={"actor": actor, "risk": risk, "patch": patch, "operations": operations,
@@ -473,7 +474,7 @@ class Service:
             if decision == "approved" and not row["expected_json"]:
                 raise ValidationError("approval requires a verifiable patch")
             if decision == "approved" and row["risk"] == "high" and reviewer == row["actor"]:
-                raise ValidationError("high-risk control changes require an independent reviewer")
+                raise ValidationError("high-risk changes require an independent reviewer")
             review_note = str(note or "").strip() or f"governance decision: {decision}"
             updated = self.db.write("UPDATE changeset SET status=?,reviewed_by=?,reviewed_at=?,review_note=?,lock_version=lock_version+1 WHERE id=? AND lock_version=?",
                                     (decision, reviewer, utcnow(), review_note, id, row["lock_version"]))
@@ -528,6 +529,30 @@ class Service:
               (publisher, utcnow(), source_revision, json_text(verification), id, row["lock_version"]))
             if updated != 1:
                 raise ConflictError("ChangeSet changed concurrently")
+            if row.get("extraction_json"):
+                binding = json.loads(row["extraction_json"])
+                node = self.db.first("SELECT type,source_path FROM node WHERE id=?", (binding["target_id"],))
+                if not node or node["type"] != binding["entity_type"] or node["source_path"] != row["target_source"]:
+                    raise ConflictError("published extraction target no longer matches the resolved instance")
+                context_json = json_text(sorted(binding["context_ids"]))
+                prior = self.db.first("""SELECT node_id FROM durable.source_entity_binding
+                  WHERE source_id=? AND entity_type=? AND mention=? AND context_json=?""",
+                  (binding["source_id"], binding["entity_type"], binding["mention"], context_json))
+                if prior and prior["node_id"] != binding["target_id"]:
+                    raise ConflictError("source mention is already bound to a different instance")
+                self.db.write("""INSERT INTO durable.source_entity_binding(source_id,entity_type,mention,context_json,
+                  node_id,source_hash,locator,evidence_json,changeset_id,confirmed_by,confirmed_at)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_id,entity_type,mention,context_json)
+                  DO UPDATE SET source_hash=excluded.source_hash,locator=excluded.locator,
+                  evidence_json=excluded.evidence_json,changeset_id=excluded.changeset_id,
+                  confirmed_by=excluded.confirmed_by,confirmed_at=excluded.confirmed_at""",
+                  (binding["source_id"], binding["entity_type"], binding["mention"], context_json,
+                   binding["target_id"], binding["source_hash"], binding["locator"], json_text(binding["evidence"]),
+                   id, row["reviewed_by"] or publisher, utcnow()))
+                self.audit.stage(event_type="source_entity_bound", actor=publisher, target_id=binding["target_id"],
+                                 source_ref=binding["source_id"], after_hash=binding["source_hash"],
+                                 reason="published extraction identity binding",
+                                 payload={"changeset_id": id, "mention": binding["mention"], "context_ids": binding["context_ids"]})
             self.audit.stage(event_type="changeset_published", actor=publisher, target_id=id,
                              source_ref=row["target_source"], before_hash=row["base_revision"], after_hash=source_revision,
                              reason="approved source result verified and compiled",
@@ -551,7 +576,12 @@ class Service:
         if current_revision != row["base_revision"]:
             raise ConflictError("source changed since ChangeSet approval; refresh and propose again")
         patch = json.loads(row["patch_json"])
-        apply = plan.apply_approved_template if isinstance(patch, dict) and patch.get("op") == "template_package" else plan.apply_approved_control
+        if isinstance(patch, dict) and patch.get("op") == "template_package":
+            apply = plan.apply_approved_template
+        elif row["target_source"].startswith("knowledge/entities/"):
+            apply = plan.apply_approved_instance
+        else:
+            apply = plan.apply_approved_control
         revision = apply(row["target_source"], patch, json.loads(row["operations_json"]), json.loads(row["expected_json"]))
         with self.db.transaction():
             updated = self.db.write("UPDATE changeset SET source_revision=?,lock_version=lock_version+1 WHERE id=? AND status='approved' AND lock_version=?",
@@ -712,10 +742,45 @@ class Service:
         from .extraction import Extraction
         data = Extraction(self, profile).finalize(request, model_output)
         return envelope(data, source=data["source"], quality={"valid_candidates": len(data["candidates"]),
+                                                                  "unresolved_candidates": len(data["unresolved"]),
                                                                   "rejected_candidates": len(data["rejected"]),
                                                                   "registry_fingerprint": data["registry_fingerprint"],
                                                                   "write_performed": False},
                         gaps=data["unmapped_facts"], traces=[data["source"]["id"]])
+
+    def propose_extraction_candidate(self, *, request, model_output, input_index, actor, reason,
+                                     profile="default", idempotency_key=None, resolved_id=None,
+                                     resolution_reason=None):
+        """Re-resolve against the current index before binding an extracted patch to a ChangeSet."""
+        if resolved_id and not str(resolution_reason or "").strip():
+            raise ValidationError("manual resolution requires a reason")
+        input_digest = digest([request, model_output, input_index, profile, resolved_id, resolution_reason])
+        if idempotency_key:
+            prior = self.db.first("SELECT * FROM changeset WHERE actor=? AND request_key=?", (actor, idempotency_key))
+            if prior:
+                metadata = json.loads(prior["extraction_json"]) if prior["extraction_json"] else {}
+                if metadata.get("input_digest") != input_digest or prior["reason"] != reason:
+                    raise ConflictError("idempotency key was already used with different extraction content")
+                return envelope({"id": prior["id"], "status": prior["status"], "target_source": prior["target_source"],
+                                 "base_revision": prior["base_revision"]})
+        if resolved_id:
+            from .extraction import Extraction
+            data = Extraction(self, profile).finalize(request, model_output, {input_index: resolved_id})
+        else:
+            data = self.extraction_candidates(request=request, model_output=model_output, profile=profile)["data"]
+        candidate = next((item for item in data["candidates"] if item["input_index"] == input_index), None)
+        if not candidate:
+            raise ValidationError("extracted entity is unresolved or rejected; no ChangeSet can be proposed")
+        if candidate["publication_route"] != "governed_changeset":
+            raise ValidationError("connector-backed instances must be updated in the authoritative source system")
+        if candidate["action"] == "no_change":
+            raise ValidationError("extracted entity has no incremental change")
+        binding = {**candidate["source_binding"], "input_digest": input_digest}
+        if resolved_id:
+            binding["manual_resolution"] = {"resolved_id": resolved_id, "reason": resolution_reason, "actor": actor}
+        return self.propose(actor=actor, target_source=candidate["target_source"], patch=candidate["operations"],
+                            reason=reason, risk="high" if resolved_id else "normal", base_revision=candidate["base_revision"],
+                            idempotency_key=idempotency_key, extraction=binding)
 
     def studio(self):
         self.refresh_registry()

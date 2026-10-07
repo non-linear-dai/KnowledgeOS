@@ -77,12 +77,13 @@ class AccessControl:
 PERMISSIONS = {
     "/v1/agent/request": "agent", "/v1/agent/respond": "agent", "/v1/agent/invoke": "agent",
     "/v1/extraction/request": "extract", "/v1/extraction/candidates": "extract",
+    "/v1/extraction/propose": "propose",
     "/v1/calculate": "agent", "/v1/calculate/entity": "agent", "/v1/fx/convert": "agent",
     "/v1/models/preview": "propose", "/v1/business/preview": "propose", "/v1/business/impact": "propose",
     "/v1/templates/propose": "template_edit", "/v1/review": "review",
 }
 POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/extraction/request",
-             "/v1/extraction/candidates", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/query",
+             "/v1/extraction/candidates", "/v1/extraction/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/query",
              "/v1/calculate", "/v1/calculate/entity", "/v1/fx/convert", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/propose",
              "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose"}
 
@@ -139,7 +140,7 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                 service.refresh_registry()
                 self._authorize_governed_mutation(path, body, principal)
                 result = self._dispatch(path, params, body, principal)
-            status = 201 if path in ("/v1/propose", "/v1/templates/propose") else 200
+            status = 201 if path in ("/v1/propose", "/v1/templates/propose", "/v1/extraction/propose") else 200
             self._send(status, result, principal)
         except AuthenticationError as exc:
             self._send(401, {"error": str(exc)}, extra={"WWW-Authenticate": 'Bearer realm="KnowledgeOS"'})
@@ -305,6 +306,13 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return s.extraction_request(source=source, profile=body.get("profile", "default"))
         if path == "/v1/extraction/candidates":
             return s.extraction_candidates(request=body["request"], model_output=body["model_output"], profile=body.get("profile", "default"))
+        if path == "/v1/extraction/propose":
+            if body.get("resolved_id"):
+                self.server.auth.authorize(principal, "review")
+            return s.propose_extraction_candidate(request=body["request"], model_output=body["model_output"],
+                input_index=body["input_index"], actor=principal["id"], reason=body["reason"],
+                profile=body.get("profile", "default"), idempotency_key=body.get("idempotency_key"),
+                resolved_id=body.get("resolved_id"), resolution_reason=body.get("resolution_reason"))
         raise NotFoundError(f"route not found: {path}")
 
     def log_message(self, format, *args):

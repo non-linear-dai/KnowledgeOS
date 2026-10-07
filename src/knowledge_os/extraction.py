@@ -1,12 +1,14 @@
 """Provider neutral extraction requests and evidence checked candidate proposals."""
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 
-from .core import ValidationError, digest, utcnow
+from .core import ValidationError, digest, frontmatter, utcnow
+from .entity_resolution import EntityResolver, norm
 from .values import validate_value
 
 
@@ -26,6 +28,12 @@ class Extraction:
         return digest({"ontology": self.registry.ontology, "predicates": self.registry._public(self.registry.predicates),
                        "schemas": self.registry.schemas, "policies": self.registry.policies,
                        "profile": {k: v for k, v in self.profile.items() if not k.startswith("_")}})
+
+    def _connector_only(self, predicate_id):
+        policy = self.registry.predicates[predicate_id].get("policy", {})
+        authority = next((item for item in self.registry.policies.get("authority", {}).get("authority_policies", [])
+                          if item["id"] == policy.get("authority")), {})
+        return "git_authored" not in authority.get("primary", []) and policy.get("history") != "git_only"
 
     def prepare(self, source):
         if not isinstance(source, dict):
@@ -56,7 +64,8 @@ class Extraction:
                 if text:
                     offset = start + chunk.index(text)
                     segments.append({"id": f"segment:{len(segments)+1:04d}", "text": text, "start": offset, "end": offset + len(text)})
-            envelope = {"version": "1.0", "id": source.get("id") or f"source:{kind}:{hashlib.sha256((locator + ':' + content_hash).encode()).hexdigest()[:24]}",
+            source_identity = locator if source.get("locator") else locator + ":" + content_hash
+            envelope = {"version": "1.0", "id": source.get("id") or f"source:{kind}:{hashlib.sha256(source_identity.encode()).hexdigest()[:24]}",
                         "kind": kind, "locator": locator, "mime_type": source.get("mime_type"), "content_hash": content_hash,
                         "captured_at": captured_at, "metadata": source.get("metadata") if isinstance(source.get("metadata"), dict) else {},
                         "segments": segments}
@@ -78,10 +87,7 @@ class Extraction:
                                       "target_types": list(dict.fromkeys(e["target_type"] for e in endpoints))})
             concepts.append({"id": concept["id"], "label": concept.get("label"), "description": concept.get("description"),
                              "properties": bindings, "relations": relations})
-        existing = [{"id": row["id"], "type": row["type"], "key": row["natural_key"], "key_namespace": row["key_namespace"],
-                     "label": row["label"], "aliases": json.loads(row["aliases_json"])} for row in self.service.db.execute(
-                         "SELECT id,type,natural_key,key_namespace,label,aliases_json FROM node ORDER BY id LIMIT ?",
-                         (int(self.profile.get("existing_entity_limit", 500)),))]
+        existing = EntityResolver(self.service.db).hints(envelope, int(self.profile.get("existing_entity_limit", 500)))
         fingerprint = self.fingerprint()
         return {"protocol_version": self.profile.get("protocol_version", "knowledgeos.extraction.v1"),
                 "registry_fingerprint": fingerprint,
@@ -141,6 +147,7 @@ class Extraction:
                                    "properties": {"predicate": {"const": identifier}, "value": value_schema,
                                                   "qualifiers": {"type": "object"}, "temporal": {"type": "object"},
                                                   "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                                                  "supersedes_id": {"type": "string"},
                                                   "evidence": {"type": "array", "items": self._evidence_schema()}},
                                    "additionalProperties": False})
             relation_ids = [relation["id"] for relation in self.registry.ontology.get("relation_types", [])
@@ -154,6 +161,8 @@ class Extraction:
                              "properties": {"type": {"const": concept["id"]}, "existing_id": {"type": "string"},
                                             "suggested_id": {"type": "string"}, "key": {"type": "string"},
                                             "key_namespace": {"type": "string", "minLength": 1},
+                                            "context_ids": {"type": "array", "items": {"type": "string"}},
+                                            "rename": {"type": "boolean"},
                                             "label": {"type": "string", "minLength": 1},
                                             "aliases": {"type": "array", "items": {"type": "string"}},
                                             "attrs": {"type": "object", "properties": attrs, "additionalProperties": False},
@@ -188,7 +197,7 @@ class Extraction:
             if item["quote"].strip() not in segments[item["segment_id"]]:
                 raise ValidationError(f"evidence quote is not present in {item['segment_id']}")
 
-    def finalize(self, request, model_output):
+    def finalize(self, request, model_output, resolutions=None):
         if not isinstance(request, dict) or request.get("registry_fingerprint") != self.fingerprint():
             raise ValidationError("extraction request is stale because ontology or profile changed")
         if not isinstance(model_output, dict) or model_output.get("protocol_version") != request.get("protocol_version") or model_output.get("registry_fingerprint") != request.get("registry_fingerprint"):
@@ -197,12 +206,16 @@ class Extraction:
             raise ValidationError("model output entities and unmapped_facts must be arrays")
         source = request["source"]
         self._validate_source(source)
-        candidates, rejected, identities = [], [], set()
+        resolutions = resolutions or {}
+        candidates, rejected, unresolved, identities = [], [], [], set()
+        unmapped = list(model_output.get("unmapped_facts", []))
+        resolver = EntityResolver(self.service.db)
         concepts = {item["id"]: item for item in self.registry.ontology.get("concept_types", [])}
         for index, entity in enumerate(model_output["entities"]):
             try:
                 if not isinstance(entity, dict):
                     raise ValidationError("entity must be an object")
+                entity = copy.deepcopy(entity)
                 for field in ("type", "label", "attrs", "assertions", "relations", "confidence", "evidence"):
                     if field not in entity:
                         raise ValidationError(f"entity is missing {field}")
@@ -217,11 +230,24 @@ class Extraction:
                 self._evidence(entity["evidence"], source)
                 if not isinstance(entity["attrs"], dict) or not isinstance(entity["assertions"], list) or not isinstance(entity["relations"], list):
                     raise ValidationError("attrs, assertions or relations have invalid shape")
-                existing = self.service.db.first("SELECT * FROM node WHERE id=?", (entity["existing_id"],)) if entity.get("existing_id") else None
-                if entity.get("existing_id") and not existing:
-                    raise ValidationError("existing_id not found")
-                if existing and existing["type"] != typ:
-                    raise ValidationError("existing_id type mismatch")
+                if typ == "decision_table":
+                    raise ValidationError("versioned decision tables must be maintained through the expert template workbench")
+                resolution = resolver.resolve(entity, source)
+                if index in resolutions and resolution["status"] != "needs_resolution":
+                    raise ValidationError("manual resolution is only allowed for an unresolved mention")
+                if resolution["status"] == "needs_resolution":
+                    selected = resolutions.get(index)
+                    chosen = next((item for item in resolution["candidates"] if item["id"] == selected), None)
+                    if selected and not chosen:
+                        raise ValidationError("manual resolution must select a cited server candidate")
+                    if chosen:
+                        resolution = {"status": "matched", "target": chosen,
+                                      "reason": "reviewed_manual_resolution", "candidates": resolution["candidates"]}
+                    else:
+                        unresolved.append({"index": index, "label": entity["label"],
+                                           "evidence": entity["evidence"], **resolution})
+                        continue
+                existing = self.service.db.first("SELECT * FROM node WHERE id=?", (resolution["target"]["id"],)) if resolution["status"] == "matched" else None
                 if existing:
                     identifier = existing["id"]
                 else:
@@ -233,31 +259,54 @@ class Extraction:
                         raise ValidationError("invalid suggested_id")
                     if self.service.db.first("SELECT id FROM node WHERE id=?", (identifier,)):
                         raise ValidationError("generated identity already exists; provide existing_id")
+                    if entity.get("key") and self.service.db.first(
+                        "SELECT id FROM node WHERE key_namespace=? AND type=? AND natural_key=?",
+                        (entity.get("key_namespace", ""), typ, entity["key"])):
+                        raise ValidationError("scoped business key already exists")
                 if identifier in identities:
                     raise ValidationError("duplicate extracted entity identity")
                 identities.add(identifier)
                 allowed = {binding["predicate"] for binding in concepts[typ].get("properties", [])}
-                for predicate_id in entity["attrs"]:
+                for predicate_id in list(entity["attrs"]):
                     if predicate_id not in allowed or self.registry.predicates[predicate_id].get("storage", {}).get("mode") != "attr":
                         raise ValidationError(f"predicate {predicate_id} is not declared as an attribute")
+                    if (not existing or existing["source_class"] == "git_authored") and self._connector_only(predicate_id):
+                        unmapped.append({"text": predicate_id, "reason": "authoritative connector required for operational fact",
+                                         "evidence": entity["evidence"]})
+                        del entity["attrs"][predicate_id]
+                        continue
                     entity["attrs"][predicate_id] = validate_value(self.registry.predicates[predicate_id], entity["attrs"][predicate_id], self.registry.units, self.registry.currencies)
                 assertions = []
                 for item in entity["assertions"]:
                     predicate_id = item.get("predicate")
                     if predicate_id not in allowed or self.registry.predicates[predicate_id].get("storage", {}).get("mode") not in ("assertion", "external"):
                         raise ValidationError(f"predicate {predicate_id} is not declared as an assertion")
+                    if (not existing or existing["source_class"] == "git_authored") and self._connector_only(predicate_id):
+                        unmapped.append({"text": predicate_id, "reason": "authoritative connector required for operational fact",
+                                         "evidence": item.get("evidence") or entity["evidence"]})
+                        continue
                     evidence = item.get("evidence") or entity["evidence"]
                     self._evidence(evidence, source)
+                    if (self.registry.predicates[predicate_id].get("policy", {}).get("provenance_tier") == "A"
+                            and source["locator"].startswith("inline:")):
+                        raise ValidationError(f"Tier A assertion {predicate_id} requires a stable source locator")
                     value = item["value"]
                     if not isinstance(value, dict):
                         value = {"type": self.registry.predicates[predicate_id]["value"]["type"], "literal": value}
                     value = validate_value(self.registry.predicates[predicate_id], value, self.registry.units, self.registry.currencies)
-                    assertions.append({"id": "assertion:extract:" + digest([identifier, predicate_id, value, item.get("qualifiers") or {}, source["content_hash"]])[:32],
+                    supersedes = item.get("supersedes_id")
+                    if supersedes:
+                        prior = self.service.db.first("SELECT node_id,predicate,source_path,status FROM assertion WHERE id=?", (supersedes,))
+                        if (not prior or prior["node_id"] != identifier or prior["predicate"] != predicate_id
+                                or prior["status"] != "confirmed" or not existing or prior["source_path"] != existing["source_path"]):
+                            raise ValidationError("supersedes_id must identify a confirmed assertion from the same authored instance and predicate")
+                    assertions.append({"id": "assertion:extract:" + digest([identifier, predicate_id, value, item.get("qualifiers") or {}, source["id"], source["content_hash"]])[:32],
                                        "predicate": predicate_id, "value": value, "qualifiers": item.get("qualifiers") or {},
                                        "temporal": {**(item.get("temporal") or {}), "observed_at": (item.get("temporal") or {}).get("observed_at") or source["captured_at"]},
                                        "epistemic": {"assertion_kind": "extracted_claim", "status": "proposed", "confidence": float(item.get("confidence", confidence))},
-                                       "provenance": {"source_refs": [source["id"]], "evidence_refs": list(dict.fromkeys(source["id"] + "#" + e["segment_id"] for e in evidence))},
-                                       "version": {"supersedes": None}})
+                                       "provenance": {"source_refs": list(dict.fromkeys((source["id"], source["locator"]))),
+                                                      "evidence_refs": list(dict.fromkeys(source["id"] + "#" + e["segment_id"] for e in evidence))},
+                                       "version": {"supersedes": supersedes}})
                 relations = []
                 relation_candidates = []
                 definitions = {item["id"]: item for item in self.registry.ontology.get("relation_types", [])}
@@ -283,26 +332,48 @@ class Extraction:
                                                 "evidence_refs": list(dict.fromkeys(source["id"] + "#" + e["segment_id"] for e in relation_evidence)),
                                                 "evidence": relation_evidence})
                 if existing:
-                    base = {"schema": {"ckm": "3.0"}, "node": {"id": identifier, "kind": existing["kind"], "type": typ,
-                            "key": existing["natural_key"], "label": entity["label"],
-                            "aliases": list(dict.fromkeys(json.loads(existing["aliases_json"]) + (entity.get("aliases") or [])))},
-                            "classification": {"tags": json.loads(existing["tags_json"])},
-                            "lifecycle": {"state": existing["lifecycle"]}, "version": {"entity_revision": existing["revision"]}}
-                    current_attrs = json.loads(existing["attrs_json"])
-                    current_assertions = []
-                    for row in self.service.db.execute("SELECT * FROM assertion WHERE node_id=? ORDER BY id", (identifier,)):
-                        current_assertions.append({"id": row["id"], "predicate": row["predicate"], "value": json.loads(row["value_json"]),
-                                                   "qualifiers": json.loads(row["qualifiers_json"]),
-                                                   "temporal": {key: row[key] for key in ("observed_at", "valid_from", "valid_to")},
-                                                   "epistemic": {"assertion_kind": row["assertion_kind"], "status": row["status"], "confidence": row["confidence"]},
-                                                   "provenance": {"evidence_refs": json.loads(row["evidence_refs_json"]), "source_refs": json.loads(row["source_refs_json"])},
-                                                   "version": {"supersedes": row["supersedes"]}})
-                    current_relations = [{"predicate": row["predicate"], "target": row["dst"]} for row in self.service.db.execute("SELECT * FROM edge WHERE src=?", (identifier,))]
+                    if existing["source_class"] == "git_authored":
+                        authored, _ = frontmatter(self.service.config.root / existing["source_path"])
+                        base = copy.deepcopy(authored["base"])
+                        current_attrs = copy.deepcopy(authored["knowledge"]["attrs"])
+                        current_assertions = copy.deepcopy(authored["knowledge"]["assertions"])
+                        current_relations = copy.deepcopy(authored["knowledge"]["relations"])
+                        logic_refs = copy.deepcopy(authored["knowledge"]["logic_refs"])
+                        external = copy.deepcopy(authored.get("external", {"assertions_ref": None}))
+                    else:
+                        base = {"schema": {"ckm": "3.0"}, "node": {"id": identifier, "kind": existing["kind"], "type": typ,
+                                "key": existing["natural_key"], "key_namespace": existing["key_namespace"], "label": existing["label"],
+                                "aliases": json.loads(existing["aliases_json"])},
+                                "classification": {"tags": json.loads(existing["tags_json"])},
+                                "lifecycle": {"state": existing["lifecycle"]}, "version": {"entity_revision": existing["revision"]}}
+                        current_attrs = json.loads(existing["attrs_json"])
+                        current_assertions = []
+                        for row in self.service.db.execute("SELECT * FROM assertion WHERE node_id=? ORDER BY id", (identifier,)):
+                            current_assertions.append({"id": row["id"], "predicate": row["predicate"], "value": json.loads(row["value_json"]),
+                                                       "qualifiers": json.loads(row["qualifiers_json"]),
+                                                       "temporal": {key: row[key] for key in ("observed_at", "valid_from", "valid_to")},
+                                                       "epistemic": {"assertion_kind": row["assertion_kind"], "status": row["status"], "confidence": row["confidence"]},
+                                                       "provenance": {"evidence_refs": json.loads(row["evidence_refs_json"]), "source_refs": json.loads(row["source_refs_json"])},
+                                                       "version": {"supersedes": row["supersedes"]}})
+                        current_relations = [{"predicate": row["predicate"], "target": row["dst"]} for row in self.service.db.execute(
+                            "SELECT * FROM edge WHERE src=?", (identifier,))]
+                        logic_refs, external = [], {"assertions_ref": None}
+                    if entity.get("rename"):
+                        if not any(entity["label"].casefold() in item["quote"].casefold() for item in entity["evidence"]):
+                            raise ValidationError("renamed label requires exact cited evidence")
+                        base["node"]["label"] = entity["label"]
+                    for alias in entity.get("aliases") or []:
+                        if not any(alias.casefold() in item["quote"].casefold() for item in entity["evidence"]):
+                            raise ValidationError("new aliases require cited evidence")
+                        if alias not in base["node"]["aliases"]:
+                            base["node"]["aliases"].append(alias)
                 else:
                     base = {"schema": {"ckm": "3.0"}, "node": {"id": identifier, "kind": "entity", "type": typ,
                             "key": entity.get("key") or identifier.split(":", 1)[1].upper(), "label": entity["label"], "aliases": entity.get("aliases") or []},
                             "classification": {"tags": []}, "lifecycle": {"state": "draft"}, "version": {"entity_revision": 1}}
-                    current_attrs, current_assertions, current_relations = {}, [], []
+                    if entity.get("key_namespace"):
+                        base["node"]["key_namespace"] = entity["key_namespace"]
+                    current_attrs, current_assertions, current_relations, logic_refs, external = {}, [], [], [], {"assertions_ref": None}
                 merged_attrs = {**current_attrs, **entity["attrs"]}
                 merged_assertions = current_assertions + [item for item in assertions if item["id"] not in {old["id"] for old in current_assertions}]
                 merged_relations = current_relations + [item for item in relations if (item["predicate"], item["target"]) not in {(old["predicate"], old["target"]) for old in current_relations}]
@@ -311,12 +382,17 @@ class Extraction:
                     if binding.get("required") and binding["predicate"] not in used:
                         raise ValidationError(f"concept {typ} requires predicate {binding['predicate']}")
                 document = {"base": base, "knowledge": {"attrs": merged_attrs, "assertions": merged_assertions,
-                                                              "relations": merged_relations, "logic_refs": []},
-                            "external": {"assertions_ref": None}}
+                                                              "relations": merged_relations, "logic_refs": logic_refs},
+                            "external": external}
                 target_source = existing["source_path"] if existing else f"knowledge/entities/{identifier.replace(':', '-')}.md"
+                if not existing and (self.service.config.root / target_source).exists():
+                    raise ValidationError("new identity source path already exists; compile and resolve the authored instance")
+                publication_route = "upstream_source_system" if existing and existing["source_class"] != "git_authored" else "governed_changeset"
+                if publication_route == "upstream_source_system":
+                    target_source = target_source.removeprefix("connector:")
                 if existing:
                     operations = []
-                    if entity["label"] != existing["label"]:
+                    if base["node"]["label"] != existing["label"]:
                         operations.append({"op": "replace", "path": "/base/node/label", "value": entity["label"]})
                     aliases = base["node"]["aliases"]
                     if aliases != json.loads(existing["aliases_json"]):
@@ -330,14 +406,33 @@ class Extraction:
                     for item in relations:
                         if (item["predicate"], item["target"]) not in {(old["predicate"], old["target"]) for old in current_relations}:
                             operations.append({"op": "add", "path": "/knowledge/relations/-", "value": item})
+                    if operations and publication_route == "governed_changeset":
+                        document["base"]["version"]["entity_revision"] = existing["revision"] + 1
+                        operations.append({"op": "replace", "path": "/base/version/entity_revision", "value": existing["revision"] + 1})
                     action = "update_instance" if operations else "no_change"
                 else:
                     operations = [{"op": "add", "path": "", "value": document}]
                     action = "create_instance"
-                candidates.append({"action": action, "target_id": identifier,
-                                   "target_source": target_source, "publication_route": "governed_changeset",
-                                   "confidence": confidence, "operations": operations,
-                                   "evidence": entity["evidence"], "attribute_candidates": [], "relation_candidates": relation_candidates,
+                if publication_route == "governed_changeset":
+                    from .compiler import Compiler
+                    Compiler(self.service.config, self.registry, self.service.db, self.service.ledger).validate(
+                        self.service.config.root / target_source, document, merged_assertions)
+                from .governance import ChangePlan
+                base_revision = ChangePlan(self.service).revision(target_source)
+                candidates.append({"input_index": index, "action": action, "target_id": identifier,
+                                   "target_source": target_source, "publication_route": publication_route,
+                                   "base_revision": base_revision, "confidence": confidence, "operations": operations,
+                                   "resolution": resolution, "evidence": entity["evidence"],
+                                   "source_binding": {"source_id": source["id"], "source_hash": source["content_hash"],
+                                                      "locator": source["locator"], "entity_type": typ,
+                                                      "mention": norm(entity["label"]),
+                                                      "context_ids": sorted(entity.get("context_ids") or []),
+                                                      "target_id": identifier, "evidence": entity["evidence"]},
+                                   "attribute_candidates": [{"predicate": key, "value": value, "previous_value": current_attrs.get(key),
+                                                             "source_ref_id": source["id"], "source_hash": source["content_hash"],
+                                                             "evidence_refs": [source["id"] + "#" + e["segment_id"] for e in entity["evidence"]]}
+                                                            for key, value in entity["attrs"].items() if current_attrs.get(key) != value],
+                                   "relation_candidates": relation_candidates,
                                    "proposed_instance": document,
                                    "validation": {"valid": True, "registry_fingerprint": request["registry_fingerprint"]},
                                    "write_policy": "candidate_only"})
@@ -347,5 +442,5 @@ class Extraction:
         reference.update({"authority_class": self.profile.get("source_authority", {}).get(source["kind"], source["kind"]),
                           "segment_count": len(source["segments"])})
         return {"protocol_version": request["protocol_version"], "registry_fingerprint": request["registry_fingerprint"],
-                "source": reference, "candidates": candidates, "rejected": rejected,
-                "unmapped_facts": model_output.get("unmapped_facts", []), "write_performed": False}
+                "source": reference, "candidates": candidates, "unresolved": unresolved, "rejected": rejected,
+                "unmapped_facts": unmapped, "write_performed": False}

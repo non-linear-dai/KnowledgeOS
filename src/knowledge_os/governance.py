@@ -77,6 +77,7 @@ class ChangePlan:
 
     def staged_documents(self, target_source, patch, operations):
         documents = {name: self._read(path) for name, path in self.paths(target_source).items()}
+        originals = copy.deepcopy(documents)
         if isinstance(patch, dict) and patch.get("op") == "template_package":
             if operations:
                 raise ValidationError("template package cannot include Studio operations")
@@ -105,7 +106,28 @@ class ChangePlan:
             for change in changes:
                 document["data"] = self._pointer(document["data"], change)
             documents[name] = document
+        for name, document in documents.items():
+            if name.startswith("knowledge/entities/") and document and isinstance(document["data"], dict):
+                self._check_operational_git_updates(originals[name], document)
         return documents
+
+    def _check_operational_git_updates(self, before, after):
+        def connector_only(predicate_id):
+            predicate = self.service.registry.predicates.get(predicate_id, {})
+            policy = predicate.get("policy", {})
+            authority = next((item for item in self.service.registry.policies.get("authority", {}).get("authority_policies", [])
+                              if item["id"] == policy.get("authority")), {})
+            return bool(predicate) and "git_authored" not in authority.get("primary", []) and policy.get("history") != "git_only"
+
+        old = before["data"]["knowledge"] if before else {"attrs": {}, "assertions": []}
+        new = after["data"]["knowledge"]
+        for predicate_id, value in new.get("attrs", {}).items():
+            if old.get("attrs", {}).get(predicate_id) != value and connector_only(predicate_id):
+                raise ValidationError(f"operational predicate {predicate_id} requires its authoritative connector")
+        old_assertions = {item["id"]: item for item in old.get("assertions", [])}
+        for item in new.get("assertions", []):
+            if old_assertions.get(item.get("id")) != item and connector_only(item.get("predicate")):
+                raise ValidationError(f"operational predicate {item.get('predicate')} requires its authoritative connector")
 
     def apply_approved_template(self, target_source, patch, operations, expected):
         """Atomically materialize an approved, immutable expert template package."""
@@ -191,6 +213,62 @@ class ChangePlan:
             for source, _ in staged:
                 source.unlink(missing_ok=True)
         self.verify(target_source, expected)
+        return self.revision(target_source)
+
+    def apply_approved_instance(self, target_source, patch, operations, expected):
+        """Atomically apply a reviewed instance patch to its authored Markdown file."""
+        if operations or not target_source.startswith("knowledge/entities/") or not target_source.endswith(".md") or "," in target_source:
+            raise ValidationError("instance application requires one knowledge/entities Markdown target")
+        if not isinstance(patch, list) or not patch or any(item.get("op") not in ("add", "replace") for item in patch):
+            raise ValidationError("instance application requires additive or replacement JSON patches")
+        allowed = ("/knowledge/attrs/", "/knowledge/assertions/-", "/knowledge/relations/-",
+                   "/base/node/label", "/base/node/aliases", "/base/version/entity_revision")
+        original_path = self.paths(target_source)[target_source]
+        if original_path is None:
+            if len(patch) != 1 or patch[0].get("op") != "add" or patch[0].get("path") != "":
+                raise ValidationError("new instance requires one root add patch")
+        elif any(not any(item.get("path", "").startswith(prefix) for prefix in allowed) for item in patch):
+            raise ValidationError("instance patch changes a protected identity or envelope field")
+        documents = self.staged_documents(target_source, patch, operations)
+        if {name: digest(document) for name, document in documents.items()} != expected:
+            raise ConflictError("approved instance content no longer matches its proposal")
+        document = documents[target_source]
+        if not document or not isinstance(document["data"], dict):
+            raise ValidationError("instance patch must produce a canonical node")
+        if original_path:
+            original_data = self._read(original_path)["data"]
+            if any(document["data"]["base"]["node"].get(field) != original_data["base"]["node"].get(field)
+                   for field in ("id", "type", "key", "key_namespace")):
+                raise ValidationError("instance identity cannot change through an incremental patch")
+            if document["data"]["base"]["version"]["entity_revision"] != original_data["base"]["version"]["entity_revision"] + 1:
+                raise ValidationError("instance revision must increase by one")
+        from .compiler import Compiler
+        Compiler(self.service.config, self.service.registry, self.service.db, self.service.ledger).validate(
+            self.root / target_source, document["data"], document["data"]["knowledge"]["assertions"])
+        from .templates import serialize_document
+        target = original_path or self.root / target_source
+        target.parent.mkdir(parents=True, exist_ok=True)
+        original = target.read_bytes() if target.exists() else None
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target.parent,
+                                             prefix=".knowledgeos-instance-", suffix=".md", delete=False) as stream:
+                stream.write(serialize_document(document))
+                temporary = Path(stream.name)
+            os.replace(temporary, target)
+            self.verify(target_source, expected)
+        except Exception:
+            if original is None:
+                target.unlink(missing_ok=True)
+            else:
+                with tempfile.NamedTemporaryFile("wb", dir=target.parent, prefix=".knowledgeos-rollback-", delete=False) as stream:
+                    stream.write(original)
+                    rollback = Path(stream.name)
+                os.replace(rollback, target)
+            raise
+        finally:
+            if temporary:
+                temporary.unlink(missing_ok=True)
         return self.revision(target_source)
 
     @staticmethod

@@ -178,9 +178,9 @@ def test_upstream_changeset_requires_matching_connector_result(service, workspac
 
 
 def test_extraction_evidence_and_no_write(service):
-    request = service.extraction_request(source={"kind": "text", "content": "Acme builds servo modules."})["data"]
+    request = service.extraction_request(source={"kind": "text", "content": "Newco Ltd. builds servo modules."})["data"]
     entity = {"type": "organization", "label": "Newco", "attrs": {"legal_name": "Newco Ltd."}, "assertions": [], "relations": [],
-              "confidence": 0.8, "evidence": [{"segment_id": "segment:0001", "quote": "Acme builds servo modules."}]}
+              "confidence": 0.8, "evidence": [{"segment_id": "segment:0001", "quote": "Newco Ltd. builds servo modules."}]}
     model = {"protocol_version": request["protocol_version"], "registry_fingerprint": request["registry_fingerprint"],
              "entities": [entity], "unmapped_facts": []}
     result = service.extraction_candidates(request=request, model_output=model)["data"]
@@ -307,6 +307,20 @@ def test_http_auth_permissions_and_agent_routes(service):
         assert request("POST", "/v1/extraction/candidates", "agent-token", {"request": extract_packet, "model_output": {
             "protocol_version": extract_packet["protocol_version"], "registry_fingerprint": extract_packet["registry_fingerprint"],
             "entities": []}})[0] == 200
+        extracted_entity = {"type": "organization", "label": "Acme Industrial Systems",
+            "attrs": {"legal_name": "Acme Industrial Systems Limited"}, "assertions": [], "relations": [],
+            "confidence": 0.9, "evidence": [{"segment_id": "segment:0001", "quote": "Acme exists."}]}
+        extracted_output = {"protocol_version": extract_packet["protocol_version"],
+            "registry_fingerprint": extract_packet["registry_fingerprint"], "entities": [extracted_entity]}
+        assert request("POST", "/v1/extraction/propose", "reader-token", {"request": extract_packet,
+            "model_output": extracted_output, "input_index": 0, "reason": "reviewed source"})[0] == 403
+        assert request("POST", "/v1/extraction/propose", "agent-token", {"request": extract_packet,
+            "model_output": extracted_output, "input_index": 0, "reason": "manual match",
+            "resolved_id": "org:acme", "resolution_reason": "record checked"})[0] == 403
+        extraction_proposal = request("POST", "/v1/extraction/propose", "agent-token", {"request": extract_packet,
+            "model_output": extracted_output, "input_index": 0, "reason": "reviewed source"})
+        assert extraction_proposal[0] == 201, extraction_proposal
+        assert service.db.first("SELECT extraction_json FROM changeset WHERE id=?", (extraction_proposal[1]["data"]["id"],))["extraction_json"]
         proposed = request("POST", "/v1/propose", "agent-token", {"actor": "forged:admin",
             "target_source": "knowledge/entities/org-acme.md", "patch": {"op": "replace", "path": "/base/node/label", "value": "Acme Updated"},
             "reason": "verified correction"})
