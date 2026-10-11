@@ -32,8 +32,25 @@ def parser():
     root = argparse.ArgumentParser(prog="knowledgeos")
     root.add_argument("--root")
     commands = root.add_subparsers(dest="command", required=True)
-    for name in ("doctor", "control", "rebuild", "compile", "verify-ledger", "version"):
+    for name in ("doctor", "control", "rebuild", "compile", "verify-ledger", "version", "semantics", "semantic-evaluate", "semantic-history"):
         commands.add_parser(name)
+    sub = commands.add_parser("semantic-export")
+    sub.add_argument("--format", choices=("turtle", "json-ld"), default="turtle")
+    sub.add_argument("--scope", choices=("control", "provenance"), default="control")
+    sub.add_argument("--id")
+    sub = commands.add_parser("semantic-validate")
+    sub.add_argument("--document", required=True)
+    sub = commands.add_parser("ontology-request")
+    sub.add_argument("--goal", required=True)
+    sub.add_argument("--material-file", required=True)
+    for name in ("ontology-preview", "ontology-propose"):
+        sub = commands.add_parser(name)
+        sub.add_argument("--request", required=True)
+        sub.add_argument("--model-response", required=True)
+        if name == "ontology-propose":
+            sub.add_argument("--actor", required=True)
+            sub.add_argument("--reason", required=True)
+            sub.add_argument("--idempotency-key")
     for name, label in (("get", "id"), ("resolve", "query"), ("search", "query"), ("history", "id"),
                         ("explain", "target"), ("agent-skill", "id")):
         sub = commands.add_parser(name)
@@ -144,7 +161,17 @@ def _source(args):
 
 
 def _command(command, payload, timeout):
-    argv = shlex.split(command)
+    # CreateProcess parses a command line on Windows; POSIX needs an argv list.
+    # A JSON argv array is unambiguous on either platform, including paths with spaces.
+    if command.lstrip().startswith("["):
+        try:
+            argv = json.loads(command)
+        except json.JSONDecodeError as exc:
+            raise ValidationError("adapter command must be a valid JSON argv array") from exc
+        if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) and arg for arg in argv):
+            raise ValidationError("adapter command must be a nonempty JSON argv array of strings")
+    else:
+        argv = command if sys.platform == "win32" else shlex.split(command)
     if not argv:
         raise ValidationError("adapter command is required")
     try:
@@ -152,6 +179,8 @@ def _command(command, payload, timeout):
                                    capture_output=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
         raise ValidationError(f"adapter command timed out after {timeout}s") from exc
+    except OSError as exc:
+        raise ValidationError(f"adapter command could not start: {exc}") from exc
     if completed.returncode:
         raise ValidationError(f"adapter command failed ({completed.returncode}): {completed.stderr[:500]}")
     output = completed.stdout.strip()
@@ -195,6 +224,27 @@ def run(argv=None):
                 result = service.compile(rebuild=command == "rebuild")
             elif command == "control":
                 result = service.control_plane()
+            elif command == "semantics":
+                result = service.semantics()
+            elif command == "semantic-evaluate":
+                result = service.semantic_evaluate()
+            elif command == "semantic-history":
+                result = service.semantic_history()
+            elif command == "semantic-export":
+                print(service.semantic_export(args.format, args.scope, args.id)["data"]["content"])
+                return 0
+            elif command == "semantic-validate":
+                result = service.semantic_validate(document=json.loads(Path(args.document).read_text(encoding="utf-8")))
+            elif command == "ontology-request":
+                result = service.ontology_request(goal=args.goal, material=Path(args.material_file).read_text(encoding="utf-8"))
+            elif command in ("ontology-preview", "ontology-propose"):
+                packet = json.loads(Path(args.request).read_text(encoding="utf-8"))
+                packet = packet.get("data", packet)
+                output = json.loads(Path(args.model_response).read_text(encoding="utf-8"))
+                if command == "ontology-preview":
+                    result = service.ontology_preview(request=packet, model_output=output)
+                else:
+                    result = service.ontology_propose(request=packet, model_output=output, actor=args.actor, reason=args.reason, idempotency_key=args.idempotency_key)
             elif command == "verify-ledger":
                 result = service.ledger.verify()
             elif command == "get":
@@ -263,6 +313,8 @@ def run(argv=None):
         finally:
             service.close()
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    if args.command == "semantic-evaluate" and not result["data"]["conforms"]:
+        return 1
     return 0
 
 

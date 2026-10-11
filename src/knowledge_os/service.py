@@ -8,9 +8,9 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __contract_version__
+from . import __contract_version__, __version__
 from .compiler import Compiler, card_assertion, decode_assertion
-from .core import Config, ConflictError, NotFoundError, Registry, ValidationError, digest, json_text, utcnow
+from .core import Config, ConflictError, NotFoundError, Registry, ValidationError, digest, frontmatter, json_text, utcnow
 from .models import ModelEngine
 from .storage import Audit, Database, Ledger
 from .governance import ChangePlan
@@ -45,14 +45,79 @@ class Service:
     def compile(self, rebuild=False):
         result = Compiler(self.config, self.registry, self.db, self.ledger).compile(rebuild=rebuild)
         self._record_model_revisions()
+        self._record_semantic_revision()
         return result
+
+    def _record_semantic_revision(self):
+        from .semantic_contract import SemanticContract
+        definition = SemanticContract(self.registry).intermediate()
+        identifier = digest([self.registry.fingerprint, definition])
+        with self.db.transaction():
+            inserted = self.db.write("INSERT OR IGNORE INTO durable.semantic_revision(id,registry_fingerprint,contract_version,definition_json,recorded_at) VALUES(?,?,?,?,?)",
+                                     (identifier, self.registry.fingerprint, __contract_version__, json_text(definition), utcnow()))
+            if inserted:
+                self.audit.stage(event_type="semantic_revision_recorded", actor="compiler", target_id=identifier,
+                                 after_hash=identifier, reason="compiled semantic application profile snapshot",
+                                 payload={"contract_version": __contract_version__, "registry_fingerprint": self.registry.fingerprint})
+        self.audit.flush()
+
+    def semantics(self):
+        self.refresh_registry()
+        from .semantic_contract import SemanticContract
+        return envelope({**SemanticContract(self.registry).summary(), "application_version": __version__})
+
+    def semantic_export(self, format="turtle", scope="control", id=None):
+        self.refresh_registry()
+        from .semantic_contract import SemanticContract
+        contract = SemanticContract(self.registry)
+        if scope == "control":
+            return envelope(contract.export(format))
+        if scope != "provenance":
+            raise ValidationError("semantic export scope must be control or provenance")
+        return envelope(contract.export_provenance(self, format, id))
+
+    def semantic_validate(self, *, document):
+        if not isinstance(document, dict):
+            raise ValidationError("document must be a canonical object")
+        assertions = document.get("knowledge", {}).get("assertions", [])
+        Compiler(self.config, self.registry, self.db, self.ledger).validate(Path("candidate"), document, assertions)
+        from .semantic_contract import SemanticContract
+        return envelope(SemanticContract(self.registry).validate_document(document, assertions), quality={"native_checks_passed": True, "write_performed": False})
+
+    def semantic_evaluate(self):
+        from .semantic_workbench import SemanticWorkbench
+        return envelope(SemanticWorkbench(self).evaluate())
+
+    def semantic_impact(self, **arguments):
+        from .semantic_workbench import SemanticWorkbench
+        return envelope(SemanticWorkbench(self).impact(**arguments))
+
+    def ontology_request(self, **arguments):
+        from .semantic_workbench import SemanticWorkbench
+        return envelope(SemanticWorkbench(self).prepare(**arguments))
+
+    def ontology_preview(self, **arguments):
+        from .semantic_workbench import SemanticWorkbench
+        return envelope(SemanticWorkbench(self).finalize(**arguments))
+
+    def ontology_propose(self, **arguments):
+        from .semantic_workbench import SemanticWorkbench
+        return SemanticWorkbench(self).propose(**arguments)
+
+    def vocabulary_propose(self, **arguments):
+        from .semantic_workbench import SemanticWorkbench
+        return SemanticWorkbench(self).vocabulary_propose(**arguments)
+
+    def semantic_history(self):
+        rows = self.db.execute("SELECT * FROM durable.semantic_revision ORDER BY recorded_at DESC,id DESC LIMIT 50")
+        return envelope([{**r, "definition": json.loads(r["definition_json"])} for r in rows])
 
     def _record_model_revisions(self):
         with self.db.transaction():
             for model in self.registry.models.values():
                 definition = {key: value for key, value in model.items() if not key.startswith("_")}
                 identifier = digest(definition)
-                path = str(Path(model["_path"]).relative_to(self.config.root))
+                path = Path(model["_path"]).relative_to(self.config.root).as_posix()
                 inserted = self.db.write("INSERT OR IGNORE INTO durable.model_revision(id,model_id,version,definition_json,recorded_at,source_path) VALUES(?,?,?,?,?,?)",
                                          (identifier, model["id"], model["version"], json_text(definition), utcnow(), path))
                 if inserted:
@@ -420,7 +485,7 @@ class Service:
         return envelope(data)
 
     def propose(self, *, actor, target_source, patch, reason, risk="normal", title=None, operations=None,
-                base_revision=None, idempotency_key=None, extraction=None):
+                base_revision=None, idempotency_key=None, extraction=None, proposal_metadata=None):
         if risk not in ("low", "normal", "high"):
             raise ValidationError("risk must be low, normal, or high")
         if not str(actor).strip() or not str(reason).strip():
@@ -430,7 +495,7 @@ class Service:
             risk = "high"
         operations = operations or []
         if any((operation.get("targetKind") or operation.get("target_kind")) in ("schema", "model", "unit", "currency", "business_constraint", "business_rule") for operation in operations) or any(
-            path.strip().startswith(("control/schemas/", "control/models/", "control/units/", "control/currencies/", "control/constraints/business/", "control/rules/business/")) for path in target_source.split(",")
+            path.strip().startswith(("control/schemas/", "control/models/", "control/units/", "control/currencies/", "control/constraints/business/", "control/rules/business/", "control/vocabularies/", "control/semantics/")) for path in target_source.split(",")
         ):
             risk = "high"
         plan = ChangePlan(self)
@@ -441,7 +506,8 @@ class Service:
             if existing:
                 if any((existing["patch_json"] != json_text(patch), existing["operations_json"] != json_text(operations),
                         existing["target_source"] != target_source, existing["risk"] != risk, existing["reason"] != reason,
-                        existing["extraction_json"] != (json_text(extraction) if extraction else None))):
+                        existing["extraction_json"] != (json_text(extraction) if extraction else None),
+                        existing["proposal_metadata_json"] != (json_text(proposal_metadata) if proposal_metadata else None))):
                     raise ConflictError("idempotency key was already used with different content")
                 return envelope({"id": existing["id"], "status": existing["status"], "target_source": target_source,
                                  "base_revision": existing["base_revision"]})
@@ -451,14 +517,14 @@ class Service:
             expected = plan.expectation(target_source, patch, operations)
             if plan.revision(target_source) != revision:
                 raise ConflictError("source changed while preparing proposal")
-            self.db.write("""INSERT INTO changeset(id,actor,title,target_source,risk,status,patch_json,operations_json,reason,created_at,base_revision,expected_json,request_key,extraction_json)
-              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            self.db.write("""INSERT INTO changeset(id,actor,title,target_source,risk,status,patch_json,operations_json,reason,created_at,base_revision,expected_json,request_key,extraction_json,proposal_metadata_json)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
               (identifier, actor, title, target_source, risk, status, json_text(patch), json_text(operations), reason, now,
-               revision, json_text(expected), idempotency_key, json_text(extraction) if extraction else None))
+               revision, json_text(expected), idempotency_key, json_text(extraction) if extraction else None, json_text(proposal_metadata) if proposal_metadata else None))
             self.audit.stage(event_type="agent_proposal", actor=actor, target_id=identifier, source_ref=target_source,
                              before_hash=revision, reason=reason,
                              payload={"actor": actor, "risk": risk, "patch": patch, "operations": operations,
-                                      "expected": expected, "title": title, "base_revision": revision})
+                                      "expected": expected, "title": title, "base_revision": revision, "proposal_metadata": proposal_metadata})
         self.audit.flush()
         return envelope({"id": identifier, "status": status, "target_source": target_source, "base_revision": revision})
 
@@ -485,6 +551,61 @@ class Service:
         self.audit.flush()
         return envelope({"id": id, "status": decision,
                          "note": "Approval records governance only; apply the patch to the real source of truth, then compile."})
+
+    def review_batch_preview(self, *, ids, reviewer, decision):
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 50 or any(not isinstance(i, str) for i in ids) or len(ids) != len(set(ids)):
+            raise ValidationError("select 1–50 unique ChangeSets")
+        if decision not in ("approved", "rejected", "changes_requested"):
+            raise ValidationError("invalid review decision")
+        items = []
+        for identifier in ids:
+            row = self.db.first("SELECT * FROM changeset WHERE id=?", (identifier,))
+            if not row:
+                raise NotFoundError(f"changeset not found: {identifier}")
+            # Template review has separate permissions; batching is deliberately
+            # scoped to ordinary ontology/knowledge changes in this first phase.
+            if any(p.strip().startswith(("knowledge/templates/", "knowledge/operations/", "knowledge/decisions/")) for p in row["target_source"].split(",")):
+                raise ValidationError("expert template changes require their separate review workflow")
+            blockers = []
+            if row["status"] not in ("proposed", "review_required"):
+                blockers.append("变更已处理，请刷新列表")
+            if decision == "approved":
+                if not row["expected_json"]:
+                    blockers.append("缺少可验证的变更内容")
+                if row["risk"] == "high" and reviewer == row["actor"]:
+                    blockers.append("需由另一位审核人批准")
+                if ChangePlan(self).revision(row["target_source"]) != row["base_revision"]:
+                    blockers.append("来源已变化，需要重新提交")
+            items.append({"id": identifier, "title": row["title"] or row["reason"], "target_source": row["target_source"],
+                          "actor": row["actor"], "risk": row["risk"], "status": row["status"], "lock_version": row["lock_version"],
+                          "base_revision": row["base_revision"], "expected_hash": digest(row["expected_json"]), "blockers": blockers})
+        groups = {}
+        for item in items:
+            key = item["target_source"] + ":" + item["risk"]
+            groups.setdefault(key, []).append(item["id"])
+        payload = {"items": items, "decision": decision, "reviewer": reviewer, "registry_fingerprint": self.registry.fingerprint}
+        return envelope({**payload, "groups": [{"key": key, "ids": value} for key, value in groups.items()],
+                         "can_review": all(not i["blockers"] for i in items), "preview_hash": digest(payload),
+                         "automatic_approval": False, "write_performed": False})
+
+    def review_batch(self, *, ids, reviewer, decision, preview_hash, note):
+        if not isinstance(note, str) or not note.strip():
+            raise ValidationError("batch review requires a reason")
+        with self.db.transaction():
+            preview = self.review_batch_preview(ids=ids, reviewer=reviewer, decision=decision)["data"]
+            if preview["preview_hash"] != preview_hash:
+                raise ConflictError("batch review preview changed; preview again")
+            if not preview["can_review"]:
+                raise ValidationError("resolve batch review blockers before confirming")
+            for item in preview["items"]:
+                updated = self.db.write("UPDATE changeset SET status=?,reviewed_by=?,reviewed_at=?,review_note=?,lock_version=lock_version+1 WHERE id=? AND lock_version=?",
+                                        (decision, reviewer, utcnow(), note.strip(), item["id"], item["lock_version"]))
+                if updated != 1:
+                    raise ConflictError("ChangeSet changed concurrently")
+                self.audit.stage(event_type="changeset_" + decision, actor=reviewer, target_id=item["id"], source_ref=item["target_source"],
+                                 reason="explicit batch review decision", payload={"reviewer": reviewer, "note": note.strip(), "preview_hash": preview_hash})
+        self.audit.flush()
+        return envelope({"ids": ids, "status": decision, "automatic_approval": False})
 
     def publish_changeset(self, *, id, publisher, source_revision):
         plan = ChangePlan(self)
@@ -576,6 +697,10 @@ class Service:
         if current_revision != row["base_revision"]:
             raise ConflictError("source changed since ChangeSet approval; refresh and propose again")
         patch = json.loads(row["patch_json"])
+        if isinstance(patch, dict) and patch.get("op") in ("studio_batch", "semantic_control"):
+            impact = self.semantic_impact(target_source=row["target_source"], patch=patch, operations=json.loads(row["operations_json"]))["data"]
+            if not impact["compatible"]:
+                raise ValidationError(f"source application requires a compatible semantic preview: {impact['issues']}")
         if isinstance(patch, dict) and patch.get("op") == "template_package":
             apply = plan.apply_approved_template
         elif row["target_source"].startswith("knowledge/entities/"):
@@ -683,7 +808,8 @@ class Service:
             groups = [value for value in self.registry.policies.get(name, {}).values() if isinstance(value, list)]
             policy_sets[name] = {item["id"]: item for group in groups for item in group}
         policy_sets["maintenance"] = self.registry.policies.get("maintenance", {})
-        return envelope({"contract_version": __contract_version__, "ontology": self.registry.ontology,
+        return envelope({"contract_version": __contract_version__, "application_version": __version__, "ontology": self.registry.ontology,
+                         "semantics": self.semantics()["data"],
                          "predicates": self.registry._public(self.registry.predicates), "policies": policy_sets,
                          "models": self.registry._public(self.registry.models), "units": self.registry._public(self.registry.units),
                          "currencies": self.registry._public(self.registry.currencies),
@@ -795,17 +921,20 @@ class Service:
                     definition["bindings"] = [{"predicate_id": binding["predicate"], "required": binding.get("required", False),
                                                "cardinality": binding.get("cardinality", "inherit"), "group": binding.get("group", "other")}
                                               for binding in item.get("properties", [])]
+                    definition["binding_usage"] = self.binding_usage(item["id"])
                 else:
                     definition["relation_mode"] = item.get("mode", "simple")
                     definition["endpoints"] = [{"source_concept_id": endpoint["source_type"], "target_concept_id": endpoint["target_type"],
                                                 "source_cardinality": endpoint.get("source_cardinality", "many"), "target_cardinality": endpoint.get("target_cardinality", "many")}
                                                for endpoint in item.get("connections", [])]
+                    definition["endpoint_usage"] = self.endpoint_usage(item["id"])
                     if item.get("reification"):
                         definition["reification"] = item["reification"]
                 definitions.append(definition)
         for item in self.registry.predicates.values():
-            path = str(Path(item["_path"]).relative_to(self.config.root))
+            path = Path(item["_path"]).relative_to(self.config.root).as_posix()
             config = {"value_type": item.get("value", {}).get("type"), "cardinality": item.get("value", {}).get("cardinality"),
+                      "allowed": item.get("value", {}).get("allowed"),
                       "dimension": item.get("value", {}).get("dimension"), "units": item.get("value", {}).get("units"),
                       "default_unit": item.get("value", {}).get("default_unit"),
                       "minimum": item.get("value", {}).get("minimum"), "maximum": item.get("value", {}).get("maximum"),
@@ -827,7 +956,7 @@ class Service:
                                 "config": item, "read_only": True})
         for kind, values in (("model", self.registry.models), ("domain", self.registry.domains)):
             for item in values.values():
-                path = str(Path(item["_path"]).relative_to(self.config.root))
+                path = Path(item["_path"]).relative_to(self.config.root).as_posix()
                 config = {k: v for k, v in item.items() if k != "_path"}
                 if kind == "model":
                     identifier, description = "model:" + item["id"], item.get("description") or ""
@@ -842,13 +971,13 @@ class Service:
                     definition["concept_scopes"] = item.get("concept_scopes", [])
                 definitions.append(definition)
         for item in self.registry.units.values():
-            path = str(Path(item["_path"]).relative_to(self.config.root))
+            path = Path(item["_path"]).relative_to(self.config.root).as_posix()
             definitions.append({"id": "unit:" + item["id"], "kind": "unit", "label": item.get("label", item["id"]),
                                 "description": f"{item['dimension']} physical unit", "lifecycle": item.get("status", {}).get("lifecycle", "active"),
                                 "source_path": path, "refs": 1, "files": [path],
                                 "config": {k: v for k, v in item.items() if not k.startswith("_")}, "read_only": False})
         for item in self.registry.currencies.values():
-            path = str(Path(item["_path"]).relative_to(self.config.root))
+            path = Path(item["_path"]).relative_to(self.config.root).as_posix()
             definitions.append({"id": "currency:" + item["id"], "kind": "currency", "label": item.get("label", item["id"]),
                                 "description": "Registered monetary currency and minor-unit precision.",
                                 "lifecycle": item.get("status", {}).get("lifecycle", "active"),
@@ -860,7 +989,7 @@ class Service:
                 if item.get("format") != KINDS[kind]:
                     continue
                 validate_business(item, kind, self.registry.predicates, self.registry.ontology, self.registry.units)
-                path = str(Path(item["_path"]).relative_to(self.config.root))
+                path = Path(item["_path"]).relative_to(self.config.root).as_posix()
                 directory = "constraints" if kind == "business_constraint" else "rules"
                 if path != f"control/{directory}/business/{item['id']}.yaml":
                     raise ValidationError("business definition must be stored in its dedicated control directory")
@@ -887,8 +1016,8 @@ class Service:
             name = path.name.removesuffix(".mapping.yaml")
             definitions.append({"id": "connector:" + name.replace("-", "_"), "kind": "connector", "label": name,
                                 "description": f"Deterministic mapping from {mapping.get('source_system')} {mapping.get('source_object')} into the canonical contract.",
-                                "lifecycle": "active", "source_path": str(path.relative_to(self.config.root)), "refs": 1,
-                                "files": [str(path.relative_to(self.config.root))], "config": mapping, "read_only": True})
+                                "lifecycle": "active", "source_path": path.relative_to(self.config.root).as_posix(), "refs": 1,
+                                "files": [path.relative_to(self.config.root).as_posix()], "config": mapping, "read_only": True})
         coverage = {}
         for item in definitions:
             coverage[item["kind"]] = coverage.get(item["kind"], 0) + 1
@@ -901,6 +1030,50 @@ class Service:
         import jsonschema
         jsonschema.validate(result, self.registry.schemas["studio-snapshot"])
         return result
+
+    def binding_usage(self, concept_id):
+        """Return existing instance IDs for every predicate used by a concept."""
+        usage = {}
+        for row in self.db.execute("SELECT id,attrs_json FROM node WHERE type=?", (concept_id,)):
+            for predicate_id in json.loads(row["attrs_json"]):
+                usage.setdefault(predicate_id, set()).add(row["id"])
+        for row in self.db.execute("SELECT a.node_id,a.predicate FROM assertion a JOIN node n ON n.id=a.node_id WHERE n.type=?", (concept_id,)):
+            usage.setdefault(row["predicate"], set()).add(row["node_id"])
+        compiler = Compiler(self.config, self.registry, self.db, self.ledger)
+        for path in self.config.knowledge.rglob("*.md"):
+            data, _ = frontmatter(path)
+            node = data.get("base", {}).get("node", {})
+            if node.get("type") != concept_id:
+                continue
+            node_id = node["id"]
+            for predicate_id in data.get("knowledge", {}).get("attrs") or {}:
+                usage.setdefault(predicate_id, set()).add(node_id)
+            for assertion in compiler._assertions(path, data):
+                usage.setdefault(assertion["predicate"], set()).add(node_id)
+        return {predicate_id: sorted(node_ids) for predicate_id, node_ids in usage.items()}
+
+    def endpoint_usage(self, relation_id):
+        """Return existing instance edges grouped by source and target concept types."""
+        usage = {}
+        node_types = {row["id"]: row["type"] for row in self.db.execute("SELECT id,type FROM node")}
+        authored = []
+        for path in self.config.knowledge.rglob("*.md"):
+            data, _ = frontmatter(path)
+            node = data.get("base", {}).get("node", {})
+            if node.get("id") and node.get("type"):
+                node_types[node["id"]] = node["type"]
+                authored.append((node, data.get("knowledge", {}).get("relations") or []))
+        def add(source_id, target_id):
+            source_type, target_type = node_types.get(source_id), node_types.get(target_id)
+            if source_type and target_type:
+                usage.setdefault(f"{source_type}->{target_type}", set()).add(f"{source_id} → {target_id}")
+        for row in self.db.execute("SELECT src,dst FROM edge WHERE predicate=?", (relation_id,)):
+            add(row["src"], row["dst"])
+        for node, relations in authored:
+            for relation in relations:
+                if relation.get("predicate") == relation_id:
+                    add(node["id"], relation.get("target"))
+        return {key: sorted(edges) for key, edges in usage.items()}
 
     def preview_business(self, definition, kind, facts):
         from .business_logic import evaluate_business

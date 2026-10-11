@@ -37,7 +37,8 @@ class AgentService:
                        "units": self.registry._public(self.registry.units),
                        "currencies": self.registry._public(self.registry.currencies),
                        "domains": self.registry._public(self.registry.domains),
-                       "skills": list(self.registry.skills.values())})
+                       "skills": list(self.registry.skills.values()),
+                       "semantic_profile": self.registry.semantic_profile, "vocabularies": self.registry._public(self.registry.vocabularies)})
 
     def _tools(self, operations):
         result = []
@@ -121,6 +122,8 @@ class AgentService:
                                  "source_refs": [edge["source_path"]] if edge.get("source_path") else [], "ordinal": index})
         evidence = list({item["ref"]: item for item in evidence}.values())
         request = {"protocol_version": PROTOCOL_VERSION, "registry_fingerprint": self.fingerprint(),
+                   "semantic_contract": {"profile": self.registry.semantic_profile, "vocabularies": self.registry._public(self.registry.vocabularies),
+                                         "validation": "native-plus-generated-shacl"},
                    "question": question, "domain": domain, "skill": selected, "target": target, "as_of": as_of,
                    "reasoning_plan": {"framework": "C-R-L-T-P", "domain_workflow": pack.get("workflow", []),
                                       "skill_id": selected["id"], "skill_instructions": selected.get("agent", {}).get("instructions"),
@@ -189,11 +192,19 @@ class AgentService:
         for key in ("knowledge_gaps", "recommended_actions"):
             if key in output and not isinstance(output[key], list):
                 raise ValidationError(f"model output {key} must be an array")
+        criteria = self.registry.skill(request["skill"]["id"]).get("success_criteria", {})
+        checks = {"requires_claims": bool(claims), "requires_citations": bool(used),
+                  "requires_model_trace": any(ref.startswith("derived:") for ref in used)}
+        failed = [key for key, required in criteria.items() if required and not checks[key]]
+        if failed:
+            raise ValidationError("skill success criteria failed: " + ", ".join(failed))
         return {"protocol_version": PROTOCOL_VERSION, "request_id": request["request_id"], "domain": request["domain"],
                 "skill_id": request["skill"]["id"], "answer": output["answer"].strip(), "claims": claims,
                 "knowledge_gaps": output.get("knowledge_gaps", []), "recommended_actions": output.get("recommended_actions", []),
                 "grounding": {"valid": True, "claim_count": len(claims), "cited_evidence_refs": list(dict.fromkeys(used)),
-                              "available_evidence_count": len(evidence_index)}, "write_performed": False}
+                              "available_evidence_count": len(evidence_index)},
+                "acceptance": {"passed": True, "checks": {k: checks[k] for k, required in criteria.items() if required},
+                               "scope": "contract compliance; evidence citation is not an entailment proof"}, "write_performed": False}
 
     def invoke(self, *, domain, operation, arguments=None):
         pack = self.registry.domain(domain)

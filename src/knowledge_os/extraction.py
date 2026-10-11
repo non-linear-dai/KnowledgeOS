@@ -27,7 +27,8 @@ class Extraction:
     def fingerprint(self):
         return digest({"ontology": self.registry.ontology, "predicates": self.registry._public(self.registry.predicates),
                        "schemas": self.registry.schemas, "policies": self.registry.policies,
-                       "profile": {k: v for k, v in self.profile.items() if not k.startswith("_")}})
+                       "profile": {k: v for k, v in self.profile.items() if not k.startswith("_")},
+                       "semantic_profile": self.registry.semantic_profile, "vocabularies": self.registry._public(self.registry.vocabularies)})
 
     def _connector_only(self, predicate_id):
         policy = self.registry.predicates[predicate_id].get("policy", {})
@@ -71,6 +72,8 @@ class Extraction:
                         "segments": segments}
         self._validate_source(envelope)
         concepts = []
+        from .semantic_contract import SemanticContract
+        semantics = SemanticContract(self.registry)
         for concept in self.registry.ontology.get("concept_types", []):
             bindings = []
             for binding in concept.get("properties", []):
@@ -86,7 +89,8 @@ class Extraction:
                     relations.append({"id": relation["id"], "mode": relation.get("mode", "simple"),
                                       "target_types": list(dict.fromkeys(e["target_type"] for e in endpoints))})
             concepts.append({"id": concept["id"], "label": concept.get("label"), "description": concept.get("description"),
-                             "properties": bindings, "relations": relations})
+                             "properties": bindings, "relations": relations, "terminology": semantics.terminology(concept["id"]),
+                             "iri": str(semantics.iri("concept", concept["id"])), "shape_iri": str(semantics.iri("shape", concept["id"]))})
         existing = EntityResolver(self.service.db).hints(envelope, int(self.profile.get("existing_entity_limit", 500)))
         fingerprint = self.fingerprint()
         return {"protocol_version": self.profile.get("protocol_version", "knowledgeos.extraction.v1"),
@@ -96,6 +100,8 @@ class Extraction:
                                  "Cite segment ids and exact evidence quotes for every entity.",
                                  "Do not mark assertions confirmed; candidates are proposals only."],
                 "canonical_schema": self.registry.schemas.get("canonical-node"), "ontology": {"concepts": concepts},
+                "semantic_contract": {"format": "knowledgeos.semantic-ir.v1", "profile": self.registry.semantic_profile,
+                                      "validation": "native-plus-generated-shacl", "unknown_properties": "report_unmapped_facts"},
                 "existing_entities": existing, "source": envelope, "output_schema": self._output_schema(fingerprint)}
 
     @staticmethod

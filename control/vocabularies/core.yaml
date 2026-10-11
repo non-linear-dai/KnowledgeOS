@@ -1,0 +1,22 @@
+format: knowledgeos.vocabulary.v1
+id: core
+version: 1.0.0
+label: 业务术语
+terms:
+  - id: organization
+    pref_labels: {zh: 企业, en: Organization}
+    alt_labels: {zh: [组织]}
+    definition: 企业、供应商或合作伙伴的身份概念。
+    concept_ref: organization
+  - id: product
+    pref_labels: {zh: 产品, en: Product}
+    definition: 可被分析、供应或使用的产品概念。
+    concept_ref: product
+  - id: project
+    pref_labels: {zh: 项目, en: Project}
+    definition: 受治理的项目工作单元。
+    concept_ref: project
+  - id: task
+    pref_labels: {zh: 任务, en: Task}
+    definition: 可跟踪的任务或里程碑。
+    concept_ref: task

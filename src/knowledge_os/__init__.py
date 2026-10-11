@@ -1,4 +1,4 @@
 """KnowledgeOS Python backend."""
 
-__version__ = "0.3.0"
-__contract_version__ = "3.6"
+__version__ = "4.0.0"
+__contract_version__ = "4.0"

@@ -2,11 +2,23 @@
 
 标准工艺路线实例由独立的 [专家工艺模板工作台](../../docs/expert-template-workbench.md)维护，入口为 /templates。其作者、审核和发布权限在 Python API 分开校验；结构白板仍只维护本体与控制定义。
 
-KnowledgeOS Studio 0.2.0 是面向 Contract 3.6 的非实例结构与治理控制面。界面从后端 `GET /v1/studio` 加载完整定义目录；结构白板显示 Schema、概念、关系、判断类型、模型、业务约束和业务规则卡片，均可查看和编辑草稿，再通过 ChangeSet API 提交、审核和登记发布。物理单位与货币仍由 Git 控制文件维护，不显示在白板。单文件模型、物理单位、货币、业务约束及业务规则经独立审核后，可由具备发布权限的用户在界面应用到 Git 真源，再验证发布；这一步不自动创建 Git commit。
+KnowledgeOS Studio 4.0.0 是面向 Contract 4.0 的非实例结构与治理控制面。界面从后端 `GET /v1/studio` 加载完整定义目录；结构白板显示 Schema、概念、关系、判断类型、模型、业务约束和业务规则卡片，均可查看和编辑草稿，再通过 ChangeSet API 提交、审核和登记发布。物理单位与货币仍由 Git 控制文件维护，不显示在白板。单文件模型、物理单位、货币、业务约束及业务规则经独立审核后，可由具备发布权限的用户在界面应用到 Git 真源，再验证发布；这一步不自动创建 Git commit。
 
 Studio 不提供知识抽取页，也不承担文件、图像、音频或视频的内容抽取。外部 Agent 与适配 Skill 负责把来源材料转换为带来源引用的结构化候选；KnowledgeOS 负责验证其数据结构、治理结构化真源并提供 ChangeSet 交互。后端现有抽取协议仅作为兼容接口保留，不通过 Studio 代理暴露。
 
 业务约束校验单个概念实例的事实，启用后也在知识编译及连接器记录接收时执行；业务规则对主体与候选实体的已确认事实作确定性比较。主体条件失败返回“未命中规则”，主体条件通过而候选条件失败返回“适用后条件失败”，通过全部条件返回“符合条件”，缺少判断所需事实时返回“信息不足”，并附事实来源。规则可以选填已注册的关系类型，结果中给出推导边，但不自动写入实体关系。白板提供适用概念、输入判断类型、比较条件、版本、样例事实试算和现有实体影响评估；试算与影响评估不写入真源。未发布的草稿可删除；已发布的定义通过递增版本修改或弃用。`control/constraints/business/` 和 `control/rules/business/` 只容纳业务定义，既有技术约束与维护规则不作为业务卡片。
+
+4.0 的「建模助手」提供业务语言表单、Agent 草稿验证、术语维护和标准导出；审核中心提供显式批量预览与人工确认。详见 [4.0 交付与升级指南](../../docs/knowledgeos-4.0.md)。
+
+## 界面设计与可用性
+
+全部页面共享 `app/globals.css` 的蓝墨色工作台主题：浅蓝灰画布、白色内容面板、深墨色正文与蓝色主操作。分类色用于识别本体类型，风险与审核状态同时保留文字标记。中文优先使用 PingFang SC / Noto Sans SC / Microsoft YaHei，拉丁文字使用 Avenir Next 或系统字体，不依赖远程字体服务。正文和表单保持 14–16px，辅助信息不小于 12px。
+
+总览以结构目录、注册数量和治理路径为核心；白板筛选集中到搜索附近，卡片与目录均提供就近操作；审核页面将队列、内容与审核动作分层呈现。工艺模板的目录、工序、决策、成本、案例和治理面板沿用同一套颜色、间距与表单规范。小屏侧栏覆盖画布但可随时收起；主导航占据独立底部区域，不遮挡内容。低频操作收进更多菜单，专家模式在窄屏也可从菜单切换。
+
+聚焦布局：总览不重复主导航，类别统计可直接打开对应维护目录，架构说明默认折叠。白板与工艺模板默认收起侧栏；选择卡片显示详情，点击或平移工作区可自动收起，自动行为可关闭。隐藏面板不取消选择、不销毁已打开的属性编辑器，也不提交草稿。`Shift F` 进入/退出专注工作区，暂时隐藏两侧面板及工具轨道；`[` / `]` 就近切换目录和属性，`Esc` 退出专注或取消选择。审核队列按需唤出，选择记录后自动收起，校验与发布要求按需展开。窄屏浮层从画布工具栏下方展开，不遮挡布局控制。
+
+组件保留可见键盘焦点、中文图标按钮标签、跳到工作区入口与减少动画偏好。新增 `tests/design-system.test.mjs` 验证语义配色及分类标记的正常文字对比度（至少 4.5:1），并防止字体简写覆盖组件字号。此次设计更新不改变个人凭证、权限、ChangeSet、真源或后端契约。
 
 ## KnowledgeOS API connection
 
@@ -14,7 +26,7 @@ Copy `.env.example` to `.env.local` for local development and set `KNOWLEDGEOS_A
 
 Use Studio's login button with a personal bearer token from `KNOWLEDGEOS_AUTH_TOKENS`. The proxy forwards that token to the Python API; it does not use a shared service token. Credentials stay in page memory, and `/v1/session` supplies the user's identity and permissions. Hosting-platform sign-in described below is separate and does not grant KnowledgeOS permissions.
 
-For local development, start the backend with `bin/knowledgeos dev-serve --port 8787`, then enter `local-admin-token` in Studio's login dialog. The fixed key is accepted only by that explicit loopback-only command; normal `serve` continues to require `KNOWLEDGEOS_AUTH_TOKENS`.
+For local development, start the backend with `knowledgeos dev-serve --port 8787`, then enter `local-admin-token` in Studio's login dialog. The fixed key is accepted only by that explicit loopback-only command; normal `serve` continues to require `KNOWLEDGEOS_AUTH_TOKENS`.
 To test high-risk ChangeSet approval locally, submit as `local-admin-token`, switch Studio login to `local-reviewer-token`, approve, apply, and publish. The second development key has a distinct principal so the independent-review check remains active. Both keys work only with `dev-serve` on loopback.
 
 Missing configuration, authentication failure, insufficient permissions, and connection loss have distinct UI states. Existing snapshots and drafts are preserved on connection failure. Demo mode is entered only through the explicit demo button. Drafts are rebased on refresh; conflicting changes remain visible and cannot be submitted until resolved. Local demo decisions cannot affect a live ChangeSet.
@@ -24,6 +36,7 @@ The built Worker preview reads `KNOWLEDGEOS_API_BASE_URL` as a Worker binding. F
 ## Prerequisites
 
 - Node.js `>=22.13.0`
+- pnpm `11.25.0` (install with `npm install -g pnpm@11.25.0`)
 - Portable: Windows, macOS, or Linux; no Bash required
 - Managed Linux: managed Linux runtime with Bash, `flock`, `curl`, `sha256sum`, and GNU `timeout`
 - Git is required only for publishing
@@ -36,12 +49,12 @@ Run `node <plugin-root>/scripts/configure-execution-profile.mjs` only when the p
 
 This starter does not use `wrangler.jsonc`.
 
-`install:ci` runs `npm ci` once against the shared lockfile, disables parent-workspace discovery, and includes required dev/optional dependencies despite production/omit settings. Sharp defaults to prebuilt binaries unless explicitly configured otherwise. Do not overlap installers.
+`install:ci` runs `pnpm install --frozen-lockfile` against the checked-in `pnpm-lock.yaml`. Do not overlap installers.
 
-- **Portable:** Preserve host HOME, npm cache, registry, proxy, temporary paths, retry/concurrency settings, and lifecycle-script policy. Use `--prefer-offline --no-audit --no-fund`.
-- **Managed Linux:** Use the existing project-local HOME/cache/tmp setup and Linux install lock, tarball preflight, and timeout. Restore the image-seeded npm cache only when its lockfile hash matches; retain network fallback. Builds keep their existing timeout. These helpers are not invoked by the portable profile.
+- **Portable:** Preserve host HOME, pnpm store, registry, proxy, and temporary paths. Use `--prefer-offline`.
+- **Managed Linux:** Use the existing project-local HOME/cache/tmp setup and Linux install lock, tarball preflight, and timeout. Restore the image-seeded pnpm store only when its lockfile hash matches; retain network fallback. Builds keep their existing timeout. These helpers are not invoked by the portable profile.
 
-`scripts/sites-env.mjs` preserves the caller's HOME, npm cache, proxy, XDG, and temporary-directory configuration while defaulting Wrangler and Miniflare state to the checkout. If npm reports an unwritable cache, select a writable path with `npm_config_cache` for that install. The `dev` and `start` scripts also keep Wrangler logs inside the checkout. Generated `.sites-runtime/` and `.wrangler/` directories are disposable and ignored by Git.
+`scripts/sites-env.mjs` preserves the caller's HOME, package cache, proxy, XDG, and temporary-directory configuration while defaulting Wrangler and Miniflare state to the checkout. The `dev` and `start` scripts also keep Wrangler logs inside the checkout. Generated `.sites-runtime/` and `.wrangler/` directories are disposable and ignored by Git.
 
 On portable, `npm run dev` uses `vinext dev` with HMR, starting at port 5173. Vinext records the running server in ignored `.vinext/` state, rejects an ordinary duplicate launch, and recovers stale state after a stopped process; exactly simultaneous starts can race. Pass `--port <port>` or `--hostname <host>` after `npm run dev --` when needed; keep portable previews on loopback.
 

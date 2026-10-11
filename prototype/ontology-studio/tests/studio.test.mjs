@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import Module, { createRequire } from 'node:module';
 
@@ -16,7 +16,7 @@ function load(relative, overrides = {}) {
   mod.require = (name) => {
     if (name in overrides) return overrides[name];
     if (name.startsWith('.') && !name.endsWith('.json')) {
-      return load(new URL(`file://${resolve(dirname(file), name)}.ts`).href, overrides);
+      return load(pathToFileURL(`${resolve(dirname(file), name)}.ts`).href, overrides);
     }
     return defaultRequire(name);
   };
@@ -26,12 +26,76 @@ function load(relative, overrides = {}) {
 }
 
 const { rebaseDraft } = load('../app/draft-state.ts');
-const { reconcileCanvasNodes, selectionAfterChanges, uniqueEdgesById } = load('../app/canvas-state.ts');
+const { initialWorkspaceLayout, visibleWorkspacePanels, workspaceLayoutReducer } = load('../app/workspace-layout.ts');
+const { focusedDefinitionEdges, focusedDefinitionIds, layoutFocusedNodes, reconcileCanvasNodes, selectionAfterChanges, uniqueEdgesById } = load('../app/canvas-state.ts');
 const { wireSnapshot, connectionFailure } = load('../app/studio-contract.ts');
 const { authorityOptions, initialDefinitions } = load('../app/studio-data.ts');
 const { whiteboardDefinitions, whiteboardKinds } = load('../app/whiteboard-scope.ts');
 const { dimensionOptions, physicalUnitOptions, currencyOptions, modelUnitOptions, conceptOptions, outputPredicateOptions } = load('../app/registered-options.ts');
 const base = { id: 'org', kind: 'concept', label: 'Original', description: 'Before', lifecycle: 'active', sourcePath: 'control/ontology/extension.yaml', config: {}, refs: 0, files: [] };
+
+test('workspaces start with only their primary content and automatic panel hiding enabled', () => {
+  assert.deepEqual(visibleWorkspacePanels(initialWorkspaceLayout), { left: false, right: false });
+  assert.equal(initialWorkspaceLayout.autoHide, true);
+});
+
+test('selection reveals the inspector and dismisses an automatically managed catalog', () => {
+  const next = workspaceLayoutReducer({ ...initialWorkspaceLayout, leftOpen: true }, { type: 'select' });
+  assert.deepEqual(visibleWorkspacePanels(next), { left: false, right: true });
+});
+
+test('focused workspace restores previous panels without altering selection or draft data', () => {
+  const before = { ...initialWorkspaceLayout, leftOpen: true, rightOpen: true };
+  const focused = workspaceLayoutReducer(before, { type: 'toggle-focus' });
+  assert.deepEqual(visibleWorkspacePanels(focused), { left: false, right: false });
+  assert.deepEqual(workspaceLayoutReducer(focused, { type: 'toggle-focus' }), before);
+});
+
+test('selecting a card does not interrupt explicit focused mode', () => {
+  const next = workspaceLayoutReducer({ ...initialWorkspaceLayout, focused: true }, { type: 'select' });
+  assert.equal(next.focused, true);
+  assert.deepEqual(visibleWorkspacePanels(next), { left: false, right: false });
+});
+
+test('manual inspector toggle is reversible and can recall a panel from focused mode', () => {
+  const open = workspaceLayoutReducer(initialWorkspaceLayout, { type: 'open', side: 'right' });
+  const closed = workspaceLayoutReducer(open, { type: 'toggle', side: 'right' });
+  assert.equal(closed.rightOpen, false);
+  assert.deepEqual(workspaceLayoutReducer(closed, { type: 'toggle', side: 'right' }), open);
+  const recalled = workspaceLayoutReducer({ ...open, focused: true }, { type: 'toggle', side: 'right' });
+  assert.equal(recalled.focused, false);
+  assert.equal(recalled.rightOpen, true);
+});
+
+test('canvas focus hides both panels but can be disabled independently of manual focus', () => {
+  const open = { ...initialWorkspaceLayout, leftOpen: true, rightOpen: true };
+  const hidden = workspaceLayoutReducer(open, { type: 'canvas-focus' });
+  assert.deepEqual(visibleWorkspacePanels(hidden), { left: false, right: false });
+  const pinned = workspaceLayoutReducer(open, { type: 'toggle-auto-hide' });
+  assert.equal(workspaceLayoutReducer(pinned, { type: 'canvas-focus' }), pinned);
+  assert.equal(workspaceLayoutReducer(pinned, { type: 'select' }).leftOpen, true);
+  assert.equal(workspaceLayoutReducer(pinned, { type: 'close', side: 'right' }).rightOpen, false);
+});
+
+test('panel reducer preserves unrelated caller state and never mutates its input', () => {
+  const state = { ...initialWorkspaceLayout, selectedId: 'org', draft: { label: 'Unsaved' } };
+  const next = workspaceLayoutReducer(state, { type: 'open', side: 'left' });
+  assert.equal(state.leftOpen, false);
+  assert.equal(next.selectedId, 'org');
+  assert.equal(next.draft, state.draft);
+});
+
+test('overview navigation is not duplicated in its hero and hidden inspectors remain mounted', () => {
+  const overview = readFileSync(new URL('../app/control-center.tsx', import.meta.url), 'utf8');
+  const studio = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
+  const template = readFileSync(new URL('../app/templates/page.tsx', import.meta.url), 'utf8');
+  assert(!overview.includes('onOpenStudio'));
+  assert(!overview.includes('onOpenReview'));
+  assert(!overview.includes('进入结构白板'));
+  assert(studio.includes('hidden={!panels.right}'));
+  assert(template.includes('hidden={!showInspector}'));
+  assert(!studio.includes('onCollapse={clearSelection}'));
+});
 
 test('Studio accepts the governed FX market authority', () => {
   assert(authorityOptions.includes('fx_market'));
@@ -74,6 +138,53 @@ test('canvas keeps measured nodes and dragged positions while definitions update
   assert.deepEqual(reconcileCanvasNodes(current, projected)[0].measured, { width: 248, height: 148 });
   assert.equal(reconcileCanvasNodes(current, projected)[0].data.label, 'New');
   assert.deepEqual(reconcileCanvasNodes(current, projected, true)[0].position, { x: 80, y: 60 });
+});
+
+test('focus layout fits types into compact vertical columns without changing global positions', () => {
+  const global = [
+    { id: 'concept:a', position: { x: 900, y: 200 }, data: { kind: 'concept' } },
+    { id: 'predicate:p', position: { x: 2400, y: 900 }, data: { kind: 'predicate' } },
+    { id: 'concept:b', position: { x: 900, y: 2400 }, data: { kind: 'concept' } },
+    { id: 'relation:r', position: { x: 1800, y: 500 }, data: { kind: 'relation' } },
+  ];
+  const focused = layoutFocusedNodes(global, (node) => node.data.kind, whiteboardKinds, 'concept:b');
+  const byId = Object.fromEntries(focused.map((node) => [node.id, node.position]));
+  assert.equal(byId['concept:a'].x, byId['concept:b'].x);
+  assert(byId['concept:b'].y < byId['concept:a'].y);
+  assert(byId['concept:a'].x < byId['relation:r'].x);
+  assert(byId['relation:r'].x < byId['predicate:p'].x);
+  assert(Math.max(...focused.map((node) => node.position.x)) - Math.min(...focused.map((node) => node.position.x)) < 700);
+  assert.deepEqual(global[2].position, { x: 900, y: 2400 });
+  assert.deepEqual(layoutFocusedNodes(global, (node) => node.data.kind, whiteboardKinds, 'concept:b', { 'concept:a': { x: 42, y: 43 } })[0].position, { x: 42, y: 43 });
+});
+
+test('concept focus includes the opposite concept of each connected relation only', () => {
+  const definitions = [
+    { ...base, id: 'organization', kind: 'concept' },
+    { ...base, id: 'market', kind: 'concept' },
+    { ...base, id: 'product', kind: 'concept' },
+    { ...base, id: 'task', kind: 'concept' },
+    { ...base, id: 'participates_in', kind: 'relation', endpoints: [
+      { sourceConceptId: 'organization', targetConceptId: 'market' },
+      { sourceConceptId: 'product', targetConceptId: 'market' },
+    ] },
+    { ...base, id: 'finding', kind: 'predicate' },
+  ];
+  const edges = [
+    { id: 'relation-source-participates_in-0', source: 'organization', target: 'participates_in' },
+    { id: 'relation-target-participates_in-0', source: 'participates_in', target: 'market' },
+    { id: 'relation-source-participates_in-1', source: 'product', target: 'participates_in' },
+    { id: 'relation-target-participates_in-1', source: 'participates_in', target: 'market' },
+    { id: 'd', source: 'organization', target: 'finding' },
+  ];
+  const focused = focusedDefinitionIds('organization', definitions, edges);
+  assert.deepEqual([...focused].sort(), ['finding', 'market', 'organization', 'participates_in']);
+  assert(!focused.has('product'));
+  assert(!focused.has('task'));
+  assert.deepEqual(focusedDefinitionEdges('organization', definitions, edges).map((edge) => edge.id).sort(), [
+    'd', 'relation-source-participates_in-0', 'relation-target-participates_in-0',
+  ]);
+  assert.deepEqual([...focusedDefinitionIds('participates_in', definitions, edges)].sort(), ['market', 'organization', 'participates_in', 'product']);
 });
 
 test('marquee and modifier selections track all selected ontology cards', () => {
@@ -167,12 +278,20 @@ test('live metadata takes priority over demo content and personal credentials st
   globalThis.fetch = async (_url, init) => {
     headers.push(init.headers.Authorization);
     return Response.json({ data: { contract_version: '3.4', registry_fingerprint: 'current',
-      definitions: [{ ...base, id: 'organization', source_path: base.sourcePath, label: 'Live backend label' }],
+      definitions: [
+        { ...base, id: 'organization', source_path: base.sourcePath, label: 'Live backend label', binding_usage: { finding: ['org:acme'] } },
+        { ...base, id: 'supplies', kind: 'relation', source_path: base.sourcePath, endpoint_usage: { 'organization->product': ['org:acme → product:servo-module'] },
+          reification: { node_type: 'relation', identity: 'required', properties: [{ predicate: 'lead_time_days', required: false, cardinality: 'inherit', group: 'measurement' }] } },
+      ],
       changesets: [], coverage: {}, extensions: {}, capabilities: {} } });
   };
   try {
     api.setSessionToken('personal');
-    assert.equal((await api.loadStudioSnapshot()).definitions[0].label, 'Live backend label');
+    const definitions = (await api.loadStudioSnapshot()).definitions;
+    assert.equal(definitions[0].label, 'Live backend label');
+    assert.deepEqual(definitions[0].bindingUsage.finding, ['org:acme']);
+    assert.deepEqual(definitions[1].endpointUsage['organization->product'], ['org:acme → product:servo-module']);
+    assert.equal(definitions[1].reification.properties[0].predicateId, 'lead_time_days');
     assert.equal(headers[0], 'Bearer personal');
     api.setSessionToken('');
     await api.loadStudioSnapshot();

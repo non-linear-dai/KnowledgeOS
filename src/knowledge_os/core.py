@@ -200,7 +200,7 @@ class Registry:
             if identifier != path.parent.name or metadata.get("name") != identifier:
                 raise ValidationError(f"{path}: skill identifiers must match")
             contract.update({"description": metadata.get("description", ""),
-                             "package": {"format": "portable-skill-directory", "path": str(path.parent.relative_to(self.config.root)), "entrypoint": "SKILL.md", "contract": "contract.yaml"},
+                             "package": {"format": "portable-skill-directory", "path": path.parent.relative_to(self.config.root).as_posix(), "entrypoint": "SKILL.md", "contract": "contract.yaml"},
                              "agent": {"name": metadata["name"], "metadata": metadata.get("metadata", {}), "instructions": instructions.strip()}})
             self.skills[identifier] = contract
         ontology = {}
@@ -208,13 +208,27 @@ class Registry:
             for key, value in load_yaml(path).items():
                 if isinstance(value, list):
                     if key in ("concept_types", "relation_types"):
-                        value = [{**item, "_source_path": str(path.relative_to(self.config.root))} if isinstance(item, dict) else item for item in value]
+                        value = [{**item, "_source_path": path.relative_to(self.config.root).as_posix()} if isinstance(item, dict) else item for item in value]
                     ontology.setdefault(key, []).extend(value)
                 elif isinstance(value, dict):
                     ontology.setdefault(key, {}).update(value)
                 else:
                     ontology[key] = value
         self.ontology = ontology
+        from .semantic_contract import DEFAULT_PROFILE, validate_profile, validate_vocabularies, validate_skill_success, validate_ontology
+        self.semantic_profile = load_yaml(self.config.control / "semantics/profile.yaml") if (self.config.control / "semantics/profile.yaml").exists() else dict(DEFAULT_PROFILE)
+        self.vocabularies = self._keyed("vocabularies/*.yaml")
+        validate_profile(self.semantic_profile)
+        validate_ontology(self.ontology, self.predicates)
+        policy_refs = {field: {item["id"] for group in self.policies.get(name, {}).values() if isinstance(group, list) for item in group}
+                       for field, name in (("authority", "authority"), ("freshness", "freshness"), ("provenance_tier", "provenance"))}
+        for predicate in self.predicates.values():
+            for field, allowed in policy_refs.items():
+                if predicate.get("policy", {}).get(field) is not None and predicate["policy"][field] not in allowed:
+                    raise ValidationError(f"{predicate['id']}: unregistered {field} policy")
+        validate_vocabularies(self.vocabularies, self.ontology)
+        for skill in self.skills.values():
+            validate_skill_success(skill.get("success_criteria", {}))
         from .model_contract import validate_model
         from .units import validate_currencies, validate_units
         validate_units(self.units)
@@ -248,7 +262,7 @@ class Registry:
     def source_fingerprint(self):
         paths = sorted([path for path in self.config.control.rglob("*") if path.is_file() and all(not part.startswith(".") for part in path.relative_to(self.config.control).parts)] +
                        [path for suffix in ("yaml", "yml") for path in (self.config.root / "connectors").rglob(f"*.mapping.{suffix}") if path.is_file()])
-        return digest([[str(path.relative_to(self.config.root)), hashlib.sha256(path.read_bytes()).hexdigest()] for path in paths])
+        return digest([[path.relative_to(self.config.root).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest()] for path in paths])
 
     @staticmethod
     def _public(values: dict) -> dict:

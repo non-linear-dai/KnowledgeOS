@@ -12,3 +12,6 @@ output:
   sections: [answer, key_findings, evidence_limits, knowledge_gaps, recommended_actions]
   citations_required: true
 
+success_criteria:
+  requires_claims: true
+  requires_citations: true

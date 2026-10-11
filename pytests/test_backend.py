@@ -1,6 +1,7 @@
 import hashlib
 import http.client
 import json
+import shlex
 import threading
 import sqlite3
 import subprocess
@@ -11,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from knowledge_os.api import AccessControl, KnowledgeServer
-from knowledge_os.cli import local_dev_access_control, parser
+from knowledge_os.cli import _command, local_dev_access_control, parser
 from knowledge_os.connector import Connector
 from knowledge_os.core import AuthenticationError, ConflictError, IntegrityError, ValidationError
 from knowledge_os.core import digest
@@ -241,6 +242,52 @@ def test_studio_patch_binds_existing_definition(service):
                         patch={"op": "studio_batch", "operation_count": 1}, operations=[bad], reason="bad binding")
 
 
+def test_studio_unbind_checks_existing_instances_and_applies_safe_control_edit(service, workspace):
+    definitions = {item["id"]: item for item in service.studio()["data"]["definitions"]}
+    organization = definitions["organization"]
+    assert organization["binding_usage"]["finding"] == ["org:acme"]
+    assert organization["binding_usage"]["country"] == ["org:acme"]
+    for predicate_id in ("finding", "country"):
+        after = {**organization, "bindings": [item for item in organization["bindings"] if item["predicate_id"] != predicate_id]}
+        operation = {"type": "update", "targetKind": "concept", "targetId": "organization", "before": organization, "after": after}
+        with pytest.raises(ValidationError, match=f"cannot unbind {predicate_id}.*org:acme"):
+            service.propose(actor="studio:editor", target_source=organization["source_path"],
+                            patch={"op": "studio_batch"}, operations=[operation], reason="remove binding")
+    decision = definitions["decision"]
+    assert not decision["binding_usage"].get("finding")
+    after = {**decision, "bindings": [item for item in decision["bindings"] if item["predicate_id"] != "finding"]}
+    operation = {"type": "update", "targetKind": "concept", "targetId": "decision", "before": decision, "after": after}
+    proposal = service.propose(actor="studio:editor", target_source=decision["source_path"],
+                               patch={"op": "studio_batch"}, operations=[operation], reason="retire unused binding")["data"]
+    service.review_changeset(id=proposal["id"], reviewer="studio:reviewer", decision="approved")
+    revision = service.apply_changeset(id=proposal["id"], publisher="studio:publisher")["data"]["source_revision"]
+    assert revision == ChangePlan(service).revision(decision["source_path"])
+    published = service.publish_changeset(id=proposal["id"], publisher="studio:publisher", source_revision=revision)["data"]
+    assert published["status"] == "published"
+    assert "finding" not in {item["predicate_id"] for item in next(item for item in service.studio()["data"]["definitions"] if item["id"] == "decision")["bindings"]}
+
+
+def test_studio_relation_unlink_checks_instance_edges_and_persists_reification_properties(service):
+    definitions = {item["id"]: item for item in service.studio()["data"]["definitions"]}
+    participates = definitions["participates_in"]
+    assert "org:acme → market:industrial-automation" in participates["endpoint_usage"]["organization->market"]
+    after = {**participates, "endpoints": [item for item in participates["endpoints"] if item["source_concept_id"] != "organization"]}
+    operation = {"type": "update", "targetKind": "relation", "targetId": "participates_in", "before": participates, "after": after}
+    with pytest.raises(ValidationError, match="cannot remove organization->market"):
+        service.propose(actor="studio:editor", target_source=participates["source_path"],
+                        patch={"op": "studio_batch"}, operations=[operation], reason="remove used direction")
+    supplies = definitions["supplies"]
+    after = {**supplies, "reification": {**supplies["reification"], "properties": [item for item in supplies["reification"]["properties"] if item["predicate"] != "risk_level"]}}
+    operation = {"type": "update", "targetKind": "relation", "targetId": "supplies", "before": supplies, "after": after}
+    proposal = service.propose(actor="studio:editor", target_source=supplies["source_path"],
+                               patch={"op": "studio_batch"}, operations=[operation], reason="remove unused reification property")["data"]
+    service.review_changeset(id=proposal["id"], reviewer="studio:reviewer", decision="approved")
+    revision = service.apply_changeset(id=proposal["id"], publisher="studio:publisher")["data"]["source_revision"]
+    service.publish_changeset(id=proposal["id"], publisher="studio:publisher", source_revision=revision)
+    updated = next(item for item in service.studio()["data"]["definitions"] if item["id"] == "supplies")
+    assert "risk_level" not in {item["predicate"] for item in updated["reification"]["properties"]}
+
+
 def test_http_auth_permissions_and_agent_routes(service):
     auth = AccessControl.from_env({"KNOWLEDGEOS_AUTH_TOKENS": json.dumps({"reader-token": {"principal": "user:reader", "roles": ["reader"]},
                                                                                 "agent-token": {"principal": "user:agent", "roles": ["agent"]},
@@ -356,6 +403,26 @@ def test_paired_backup_requires_stopped_service(workspace, tmp_path):
         restore(service.config, destination)
 
 
+def test_source_paths_and_fingerprint_are_portable(service, workspace):
+    from knowledge_os.recovery import authored_fingerprint
+    assert service.db.first("SELECT source_path FROM node WHERE id='org:acme'")["source_path"] == "knowledge/entities/org-acme.md"
+    assert service.registry.ontology["concept_types"][0]["_source_path"].startswith("control/ontology/")
+    assert all("\\" not in item["source_path"] for item in service.studio()["data"]["definitions"])
+    assert len(authored_fingerprint(service.config)) == 64
+    with pytest.raises(ValidationError, match="forward slashes"):
+        ChangePlan(service).paths("control\\models\\cost_rollup.yaml")
+
+
+def test_adapter_command_accepts_json_argv_and_native_command_line():
+    script = 'import json,sys; print(json.dumps({"value": json.load(sys.stdin)["value"]}))'
+    argv = [sys.executable, "-c", script]
+    assert _command(json.dumps(argv), {"value": "中文"}, 5) == {"value": "中文"}
+    command = subprocess.list2cmdline(argv) if sys.platform == "win32" else shlex.join(argv)
+    assert _command(command, {"value": 7}, 5) == {"value": 7}
+    with pytest.raises(ValidationError, match="could not start"):
+        _command(json.dumps(["missing-knowledgeos-adapter-command"]), {}, 5)
+
+
 def test_legacy_index_migrates_governance_state(workspace):
     from knowledge_os.core import Config
     from knowledge_os.service import Service
@@ -417,7 +484,7 @@ def test_recorded_time_keeps_earlier_snapshot(service, workspace):
 
 def test_control_studio_and_portable_agent_skill(service, workspace):
     control = service.control_plane()["data"]
-    assert control["contract_version"] == "3.6"
+    assert control["contract_version"] == "4.0"
     assert len(control["ontology"]["concept_types"]) == 14
     assert len(control["ontology"]["relation_types"]) == 10
     assert len(control["predicates"]) == 34
@@ -534,10 +601,10 @@ def test_python_cli_command_surface(workspace):
         return json.loads(completed.stdout)
     version = subprocess.run([sys.executable, str(entry), "--version"], cwd=repository,
                              capture_output=True, text=True, timeout=20)
-    assert version.returncode == 0 and version.stdout.strip() == "0.3.0"
+    assert version.returncode == 0 and version.stdout.strip() == "4.0.0"
     assert run("doctor")["healthy"]
     assert run("rebuild")["files"] == 5
-    assert run("control")["data"]["contract_version"] == "3.6"
+    assert run("control")["data"]["contract_version"] == "4.0"
     assert run("get", "org:acme")["data"]["id"] == "org:acme"
     assert run("agent-request", "What does Acme make?", "--domain", "industry", "--target", "org:acme")["data"]["evidence"]
     assert run("calculate", "cost_rollup", "--inputs", '{"material_cost":100,"labor_hours":1.5,"labor_rate":20,"overhead":8}')["data"]["output"]["value"] == "138.0"

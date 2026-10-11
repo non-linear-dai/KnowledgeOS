@@ -23,6 +23,8 @@ class ChangePlan:
         values = [value.strip() for value in str(target_source).split(",") if value.strip()]
         result = {}
         for value in values:
+            if "\\" in value:
+                raise ValidationError("target_source must use forward slashes")
             relative = Path(value)
             if relative.is_absolute() or ".." in relative.parts or not relative.parts or relative.parts[0] not in ("knowledge", "control", "connectors"):
                 raise ValidationError("target_source must be under knowledge/, control/, or connectors/")
@@ -88,6 +90,20 @@ class ChangePlan:
             if any(document is not None for document in documents.values()):
                 raise ConflictError("template package versions are immutable")
             documents = rendered
+        elif isinstance(patch, dict) and patch.get("op") == "semantic_control":
+            from .semantic_contract import validate_vocabularies
+            vocabulary = patch.get("vocabulary")
+            if operations or not isinstance(vocabulary, dict):
+                raise ValidationError("semantic control requires one vocabulary and no Studio operations")
+            identifier = vocabulary.get("id", "")
+            validate_vocabularies({identifier: vocabulary}, self.service.registry.ontology)
+            name = f"control/vocabularies/{identifier}.yaml"
+            if set(documents) != {name}:
+                raise ValidationError("vocabulary path must match its stable id")
+            previous = documents[name]
+            if previous and tuple(map(int, vocabulary["version"].split("."))) <= tuple(map(int, previous["data"]["version"].split("."))):
+                raise ValidationError("vocabulary updates require a higher semantic version")
+            documents[name] = {"data": copy.deepcopy(vocabulary), "body": ""}
         elif isinstance(patch, dict) and patch.get("op") == "studio_batch":
             if not operations:
                 raise ValidationError("studio batch requires operations")
@@ -165,17 +181,19 @@ class ChangePlan:
         return self.revision(target_source)
 
     def apply_approved_control(self, target_source, patch, operations, expected):
-        """Materialize reviewed, standalone control definitions into the Git checkout."""
-        if not isinstance(patch, dict) or patch.get("op") != "studio_batch" or not operations:
+        """Materialize reviewed Studio control definitions into the Git checkout."""
+        semantic = isinstance(patch, dict) and patch.get("op") == "semantic_control"
+        if not semantic and (not isinstance(patch, dict) or patch.get("op") != "studio_batch" or not operations):
             raise ValidationError("direct source application requires a Studio ChangeSet")
-        allowed = {"model": "models", "unit": "units", "currency": "currencies",
+        allowed = {"concept": "ontology", "relation": "ontology", "predicate": "predicates",
+                   "model": "models", "unit": "units", "currency": "currencies",
                    "business_constraint": "constraints/business", "business_rule": "rules/business"}
         for operation in operations:
             kind = operation.get("targetKind") or operation.get("target_kind")
             definition = operation.get("after") or operation.get("before") or {}
             path = definition.get("sourcePath") or definition.get("source_path")
             if kind not in allowed or operation.get("type") == "delete" or not path or not path.startswith(f"control/{allowed[kind]}/") or not path.endswith(".yaml"):
-                raise ValidationError("direct source application supports standalone control YAML only")
+                raise ValidationError("direct source application supports reviewed control YAML only")
         documents = self.staged_documents(target_source, patch, operations)
         actual_expected = {name: digest(document) if document is not None else None for name, document in documents.items()}
         if actual_expected != expected:
@@ -189,6 +207,8 @@ class ChangePlan:
         try:
             for name, document in documents.items():
                 target = paths[name] or self.root / name
+                if semantic:
+                    target.parent.mkdir(parents=True, exist_ok=True)
                 if not target.parent.is_dir():
                     raise ValidationError(f"control directory does not exist: {target.parent}")
                 originals[target] = target.read_bytes() if target.exists() else None
@@ -370,6 +390,12 @@ class ChangePlan:
                     value["properties"] = [{"predicate": b.get("predicateId") or b.get("predicate_id"), "required": b.get("required", False),
                                             "cardinality": b.get("cardinality", "inherit"), "group": b.get("group", "other")}
                                            for b in after.get("bindings", [])]
+                    remaining = {binding["predicate"] for binding in value["properties"]}
+                    if remaining:
+                        for removed in set(binding["predicate"] for binding in original.get("properties", [])) - remaining:
+                            used_by = self.service.binding_usage(identifier).get(removed, [])
+                            if used_by:
+                                raise ValidationError(f"{identifier}: cannot unbind {removed}; existing instances use it: {', '.join(used_by[:5])}")
                 else:
                     value["mode"] = after.get("relationMode") or after.get("relation_mode")
                     value["connections"] = [{"source_type": e.get("sourceConceptId") or e.get("source_concept_id"),
@@ -377,6 +403,22 @@ class ChangePlan:
                                              "source_cardinality": e.get("sourceCardinality") or e.get("source_cardinality"),
                                              "target_cardinality": e.get("targetCardinality") or e.get("target_cardinality")}
                                             for e in after.get("endpoints", [])]
+                    remaining = {(edge["source_type"], edge["target_type"]) for edge in value["connections"]}
+                    for source_type, target_type in {(edge["source_type"], edge["target_type"]) for edge in original.get("connections", [])} - remaining:
+                        used_by = self.service.endpoint_usage(identifier).get(f"{source_type}->{target_type}", [])
+                        if used_by:
+                            raise ValidationError(f"{identifier}: cannot remove {source_type}->{target_type}; existing instance edges use it: {', '.join(used_by[:5])}")
+                    reification = after.get("reification")
+                    if reification:
+                        value["reification"] = {"node_type": reification.get("nodeType") or reification.get("node_type"),
+                                                "identity": reification.get("identity", "optional"),
+                                                "properties": [{"predicate": b.get("predicateId") or b.get("predicate_id") or b.get("predicate"),
+                                                                "required": b.get("required", False),
+                                                                "cardinality": b.get("cardinality", "inherit"),
+                                                                "group": b.get("group", "other")}
+                                                               for b in reification.get("properties", [])]}
+                    else:
+                        value.pop("reification", None)
                 entries.insert(index, value)
         elif kind == "predicate":
             if operation["type"] == "delete":
@@ -384,10 +426,12 @@ class ChangePlan:
             else:
                 original = documents[path]["data"] if documents[path] else {}
                 config = after["config"]
-                value_keys = ("dimension", "units", "default_unit", "minimum", "maximum")
+                value_keys = ("dimension", "units", "default_unit", "minimum", "maximum", "allowed")
                 policy = {k: v for k, v in config.items() if k not in ("value_type", "cardinality", "storage_mode", "equivalent_to", *value_keys)}
                 value = {**original.get("value", {}), "type": config.get("value_type"), "cardinality": config.get("cardinality")}
                 for key in value_keys:
+                    if key == "allowed" and key not in config and value["type"] == original.get("value", {}).get("type"):
+                        continue  # Older Studio clients omit the enum editor.
                     if config.get(key) is not None:
                         value[key] = config[key]
                     else:

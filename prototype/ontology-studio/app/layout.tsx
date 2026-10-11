@@ -2,11 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "KnowledgeOS Ontology Studio",
-  description: "KnowledgeOS 本体可视化、影响分析与 ChangeSet 治理交互原型。",
-  other: {
-    "codex-preview": "development",
-  },
+  title: "KnowledgeOS 4.0 · 结构化知识工作台",
+  description: "统一维护知识结构、本体与工艺模板，追踪影响并通过 ChangeSet 治理变更。",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

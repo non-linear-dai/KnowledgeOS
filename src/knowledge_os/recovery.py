@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .core import Config, ConflictError, IntegrityError, NotFoundError, ValidationError, json_text, utcnow
 from .storage import RuntimeLease
+from . import __version__, __contract_version__
 
 
 FILES = ("knowledge.state.db", "knowledge.ledger.db")
@@ -19,7 +20,7 @@ def authored_fingerprint(config: Config):
     for directory in ("control", "knowledge", "connectors"):
         for path in sorted((config.root / directory).rglob("*")):
             if path.is_file() and not any(part.startswith(".") for part in path.relative_to(config.root).parts):
-                entries.append([str(path.relative_to(config.root)), hashlib.sha256(path.read_bytes()).hexdigest()])
+                entries.append([path.relative_to(config.root).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest()])
     return hashlib.sha256(json_text(entries).encode()).hexdigest()
 
 
@@ -38,9 +39,13 @@ def backup(config: Config, destination):
             with sqlite3.connect(str(config.runtime / name)) as source, sqlite3.connect(str(destination / name)) as target:
                 source.backup(target)
             hashes[name] = hashlib.sha256((destination / name).read_bytes()).hexdigest()
+        with sqlite3.connect(str(destination / FILES[0])) as state:
+            exists = state.execute("SELECT 1 FROM sqlite_master WHERE name='schema_migration'").fetchone()
+            schema_version = state.execute("SELECT coalesce(max(version),1) FROM schema_migration").fetchone()[0] if exists else 1
     finally:
         lease.close()
     manifest = {"format": "knowledgeos.backup.v1", "files": hashes,
+                "application_version": __version__, "contract_version": __contract_version__, "durable_schema_version": schema_version,
                 "authored_fingerprint": authored_fingerprint(config), "created_at": utcnow()}
     (destination / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
     return manifest
@@ -51,6 +56,8 @@ def restore(config: Config, source):
     manifest = json.loads((source / "manifest.json").read_text())
     if manifest.get("format") != "knowledgeos.backup.v1":
         raise ValidationError("unsupported backup format")
+    if manifest.get("durable_schema_version", 1) > 4:
+        raise ValidationError("backup requires a newer KnowledgeOS release")
     if manifest.get("authored_fingerprint") != authored_fingerprint(config):
         raise ConflictError("restore requires the same authored knowledge/control checkout")
     for name in FILES:

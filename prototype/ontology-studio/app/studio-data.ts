@@ -50,7 +50,9 @@ export interface OntologyDefinition {
   files: string[];
   config: Record<string, ConfigValue>;
   bindings?: ConceptBinding[];
+  bindingUsage?: Record<string, string[]>;
   endpoints?: RelationEndpoint[];
+  endpointUsage?: Record<string, string[]>;
   relationMode?: RelationMode;
   reification?: RelationReification;
   conceptScopes?: string[];
@@ -85,6 +87,7 @@ export type ChangeSetStatus =
   | "published";
 
 export interface ChangeSet {
+  semanticPatch?: Record<string, unknown>;
   id: string;
   title: string;
   reason: string;
@@ -526,12 +529,12 @@ export const initialEdges: DependencyEdge[] = [...governedEdges, ...domainRefs, 
 
 export const kindMeta: Record<DefinitionKind, { label: string; short: string; color: string }> = {
   concept: { label: "概念类型", short: "C", color: "#2563eb" },
-  relation: { label: "关系类型", short: "R", color: "#d97706" },
+  relation: { label: "关系类型", short: "R", color: "#a86212" },
   predicate: { label: "判断类型", short: "P", color: "#7c3aed" },
-  policy: { label: "治理策略", short: "G", color: "#0891b2" },
+  policy: { label: "治理策略", short: "G", color: "#0e7490" },
   model: { label: "确定性模型", short: "L", color: "#dc2626" },
   business_constraint: { label: "业务约束", short: "BC", color: "#b91c1c" },
-  business_rule: { label: "业务规则", short: "BR", color: "#0d9488" },
+  business_rule: { label: "业务规则", short: "BR", color: "#0f766e" },
   unit: { label: "物理单位", short: "U", color: "#b45309" },
   currency: { label: "货币", short: "¥", color: "#0f766e" },
   domain: { label: "工作领域", short: "D", color: "#475569" },

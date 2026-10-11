@@ -124,7 +124,12 @@ class Compiler:
                     raise ValidationError(f"{path}: assertion {item['id']} requires source_refs")
                 if policy.get("evidence_or_snapshot_required") and not provenance.get("evidence_refs"):
                     raise ValidationError(f"{path}: assertion {item['id']} requires evidence_refs")
-                if policy.get("locator_required") and not any(re.match(r"^[a-z][a-z0-9+.-]*:", str(ref), re.I) for ref in provenance.get("source_refs") or []):
+                def has_locator(reference):
+                    if re.match(r"^[a-z][a-z0-9+.-]*:", str(reference), re.I):
+                        return True
+                    source = self.db.first("SELECT locator FROM source_ref WHERE id=?", (reference,))
+                    return bool(source and re.match(r"^[a-z][a-z0-9+.-]*:", str(source["locator"]), re.I))
+                if policy.get("locator_required") and not any(has_locator(ref) for ref in provenance.get("source_refs") or []):
                     raise ValidationError(f"{path}: assertion {item['id']} requires a source locator")
             temporal = item.get("temporal") or {}
             if predicate.get("policy", {}).get("temporal") == "required" and not any(temporal.get(key) for key in ("observed_at", "valid_from", "valid_to")):
@@ -144,7 +149,8 @@ class Compiler:
             if cardinality == "inherit":
                 cardinality = self.registry.predicates[identifier].get("value", {}).get("cardinality")
             if cardinality == "one":
-                count = (len(attrs[identifier]) if isinstance(attrs.get(identifier), list) else 1 if identifier in attrs else 0)
+                json_scalar = self.registry.predicates[identifier].get("value", {}).get("type") == "json" and self.registry.predicates[identifier]["value"].get("cardinality") != "many"
+                count = (len(attrs[identifier]) if isinstance(attrs.get(identifier), list) and not json_scalar else 1 if identifier in attrs else 0)
                 count += sum(item["predicate"] == identifier for item in assertions)
                 if count > 1:
                     raise ValidationError(f"{path}: {identifier} allows at most one value")
@@ -215,6 +221,20 @@ class Compiler:
         for model in knowledge.get("logic_refs") or []:
             if model not in self.registry.models:
                 raise ValidationError(f"{path}: unknown logic model {model}")
+        if self.registry.semantic_profile["validation"] == "enforce":
+            from .semantic_contract import SemanticContract
+            report = SemanticContract(self.registry).validate_document(data, assertions)
+            if not report["conforms"]:
+                raise ValidationError(f"{path}: semantic validation: {report['issues']}")
+
+    def validate_projection(self, identifier):
+        """Validate the effective connector view without mixing historical rows."""
+        row = self.db.first("SELECT * FROM node WHERE id=?", (identifier,))
+        assertions = [decode_assertion(a) for a in self.db.execute("SELECT * FROM assertion WHERE node_id=? AND status IN ('confirmed','proposed')", (identifier,))]
+        document = {"base": {"schema": {"ckm": "3.0"}, "node": {"id": row["id"], "kind": row["kind"], "type": row["type"], "key": row["natural_key"] or row["id"], "label": row["label"]},
+                              "lifecycle": {"state": row["lifecycle"]}, "version": {"entity_revision": row["revision"]}},
+                    "knowledge": {"attrs": json.loads(row["attrs_json"]), "assertions": assertions, "relations": [], "logic_refs": []}}
+        self.validate(Path(row["source_path"] or identifier), document, assertions)
 
     def compile(self, rebuild=False) -> dict:
         self.registry.reload()
@@ -222,7 +242,7 @@ class Compiler:
         previous = self.db.first("SELECT value FROM metadata WHERE key='control_fingerprint'")
         control_changed = not previous or previous["value"] != self.registry.fingerprint
         changed, skipped = [], []
-        present = {str(path.relative_to(self.config.root)) for path in paths}
+        present = {path.relative_to(self.config.root).as_posix() for path in paths}
         impacted = set()
         with self.db.transaction():
             if rebuild:
@@ -237,7 +257,7 @@ class Compiler:
                 data, narrative = frontmatter(path)
                 assertions = self._assertions(path, data)
                 source_hash = hashlib.sha256((json_text(data, sorted_keys=True) + narrative + json_text(assertions, sorted_keys=True)).encode()).hexdigest()
-                rel = str(path.relative_to(self.config.root))
+                rel = path.relative_to(self.config.root).as_posix()
                 prior = self.db.first("SELECT value FROM metadata WHERE key=?", ("source:" + rel,))
                 if not rebuild and not control_changed and prior and prior["value"] == source_hash:
                     skipped.append(rel)
@@ -257,10 +277,24 @@ class Compiler:
                 shell = _Service()
                 shell.config, shell.registry, shell.db, shell.ledger, shell.audit = self.config, self.registry, self.db, self.ledger, self.audit
                 Connector(shell).replay()
+            elif changed or control_changed:
+                # Re-projecting authored nodes must not overwrite the effective
+                # connector attributes already governed by source priority.
+                from .connector import Connector
+                class _Service:
+                    pass
+                shell = _Service()
+                shell.config, shell.registry, shell.db, shell.ledger, shell.audit = self.config, self.registry, self.db, self.ledger, self.audit
+                connector = Connector(shell)
+                for candidate in self.db.execute("SELECT DISTINCT node_id,predicate FROM attribute_candidate"):
+                    connector._effective_attr(candidate["node_id"], candidate["predicate"])
+                    impacted.add(candidate["node_id"])
             self._validate_edges()
             self._validate_templates()
             if rebuild or control_changed:
                 self._validate_connector_business_constraints()
+                for row in self.db.execute("SELECT id FROM node WHERE lifecycle NOT IN ('retired','merged')"):
+                    self.validate_projection(row["id"])
             impacted.update(self._reclassify())
             if rebuild or control_changed:
                 self._refresh_cards()

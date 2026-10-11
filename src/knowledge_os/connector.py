@@ -163,6 +163,7 @@ class Connector:
                     if verdict != "valid":
                         raise ValidationError(f"connector record {record_id}: business constraint {constraint['id']} is {verdict}")
                 event_type = "connector_ingest"
+                Compiler(self.service.config, self.registry, self.db, self.service.ledger).validate_projection(node_id)
             if not replay:
                 self.audit.stage(event_type=event_type, actor="connector", target_id=node_id, source_ref=source_ref_id,
                                  after_hash=source_hash, reason="enterprise source delta", payload={"version": version, "record_id": record_id},

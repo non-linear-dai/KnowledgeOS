@@ -1,0 +1,12 @@
+format: knowledgeos.semantic-profile.v1
+version: 1.0.0
+base_iri: 'urn:knowledgeos:'
+validation: enforce
+max_document_values: 10000
+standards:
+  rdf: '1.1'
+  rdfs: '1.1'
+  json_ld: '1.1'
+  shacl: '2017'
+  skos: '2009'
+  prov_o: '2013'

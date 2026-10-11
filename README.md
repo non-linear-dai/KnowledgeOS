@@ -1,6 +1,6 @@
 # KnowledgeOS
 
-KnowledgeOS is an executable foundation for the V3.6 enterprise knowledge and AI-agent architecture. It keeps one domain-independent knowledge language while separating authored truth, enterprise operational truth, immutable audit history, and rebuildable runtime indexes.
+KnowledgeOS is an executable foundation for the V4.0 enterprise knowledge and AI-agent architecture. It keeps one domain-independent knowledge language while separating authored truth, enterprise operational truth, immutable audit history, and rebuildable runtime indexes.
 
 The core contract is:
 
@@ -34,32 +34,35 @@ Cost analysis, industry research, project management, and future domains all use
 
 KnowledgeOS includes a deterministic local hash-vector index for provider-free hybrid retrieval. Higher-quality embedding providers and real ERP/QMS/PLM/PM adapters remain extension points; no fake external integration is bundled.
 
+4.0 adds a generated RDF/JSON-LD and SHACL projection, SKOS terminology, PROV-O provenance export, portable ontology assistance, competency checks and explicit batch review. Git-authored truth and connector authority remain the source of record.
+
 ## Quick start
 
-Python 3.10+ is required for the backend. Install its YAML, JSON Schema, and test dependencies with:
+Python 3.10+ is required for the backend. The commands below work in macOS/Linux shells and Windows PowerShell after Python is on `PATH`:
+On macOS installations that expose Python as `python3`, use `python3` in place of `python`.
 
 ```bash
-python3 -m pip install -e '.[test]'
+python -m pip install -e '.[test]'
 ```
 
 ```bash
-bin/knowledgeos doctor
-bin/knowledgeos rebuild
-bin/knowledgeos search "KnowledgeOS"
-bin/knowledgeos get org:acme
-bin/knowledgeos context org:acme --domain industry
-bin/knowledgeos agent-capabilities --domain industry
-bin/knowledgeos agent-skill industry-evidence-brief
-bin/knowledgeos agent-request "What is Acme's market position?" --domain industry --target org:acme
-bin/knowledgeos control
-bin/knowledgeos verify-ledger
-python3 -m pytest -q
+knowledgeos doctor
+knowledgeos rebuild
+knowledgeos search "KnowledgeOS"
+knowledgeos get org:acme
+knowledgeos context org:acme --domain industry
+knowledgeos agent-capabilities --domain industry
+knowledgeos agent-skill industry-evidence-brief
+knowledgeos agent-request "What is Acme's market position?" --domain industry --target org:acme
+knowledgeos control
+knowledgeos verify-ledger
+python -m pytest -q
 ```
 
 Start the local API:
 
 ```bash
-bin/knowledgeos dev-serve --port 8787
+knowledgeos dev-serve --port 8787
 ```
 
 `dev-serve` always binds `127.0.0.1` and accepts the development-only admin token `local-admin-token`. It also accepts `local-reviewer-token` as a distinct reviewer identity for testing high-risk ChangeSets. These keys remain available after restarting the local API. For a separately configured server, use:
@@ -67,7 +70,7 @@ bin/knowledgeos dev-serve --port 8787
 ```bash
 export KNOWLEDGEOS_AUTH_MODE=required
 export KNOWLEDGEOS_AUTH_TOKENS='{"replace-with-a-long-random-token":{"principal":"local:admin","roles":["admin"]}}'
-bin/knowledgeos serve --bind 127.0.0.1 --port 8787
+knowledgeos serve --bind 127.0.0.1 --port 8787
 curl -H 'Authorization: Bearer replace-with-a-long-random-token' \
   'http://127.0.0.1:8787/v1/get?id=org:acme'
 ```
@@ -77,14 +80,16 @@ Supported roles are `reader`, `agent`, `reviewer`, `publisher`, `template_author
 Runtime databases are created in `runtime/` and intentionally ignored by Git. The query index is disposable; both `knowledge.state.db` and `knowledge.ledger.db` must be backed up together. Rebuild replays durable connector records and preserves governance state:
 
 ```bash
-bin/knowledgeos rebuild
+knowledgeos rebuild
 ```
 
 Studio users sign in using their own backend bearer token. The proxy forwards that identity; there is no shared privileged Studio token. Tokens are held in page memory only. Demo mode requires an explicit user action and is separate from connection failure.
 
-For an offline, checksummed backup, stop API/CLI writers and run `bin/knowledgeos backup /absolute/new-backup-directory`. Restore the matching Git-authored checkout into a separate workspace with an empty runtime, then run `bin/knowledgeos restore /absolute/backup-directory`, `bin/knowledgeos rebuild`, and `bin/knowledgeos verify-ledger`. Restore refuses to overwrite existing databases.
+For an offline, checksummed backup, stop API/CLI writers and run `knowledgeos backup <new-backup-directory>`. Restore the matching Git-authored checkout into a separate workspace with an empty runtime, then run `knowledgeos restore <backup-directory>`, `knowledgeos rebuild`, and `knowledgeos verify-ledger`. Restore refuses to overwrite existing databases. On Windows, quote paths containing spaces.
 
-The current control/API contract is V3.6. [docs/iteration-3.5.md](docs/iteration-3.5.md) remains the preceding accepted review baseline; CI validates the Python backend and TypeScript Studio separately.
+In PowerShell, set server credentials with `$env:KNOWLEDGEOS_AUTH_MODE = 'required'` and `$env:KNOWLEDGEOS_AUTH_TOKENS = '{"replace-with-a-long-random-token":{"principal":"local:admin","roles":["admin"]}}'` before running `knowledgeos serve`. The repository-local `bin/knowledgeos` file remains available on Unix; Windows uses the installed `knowledgeos` entry point.
+
+The current control/API contract is **4.0**, with backend and Studio releases **4.0.0**. See [the 4.0 delivery and rollback guide](docs/knowledgeos-4.0.md) for the semantic application profile, assisted modeling, terminology and upgrade procedure. [docs/iteration-3.5.md](docs/iteration-3.5.md) remains the preceding accepted review baseline; CI validates the Python backend and TypeScript Studio separately.
 
 ## Repository map
 

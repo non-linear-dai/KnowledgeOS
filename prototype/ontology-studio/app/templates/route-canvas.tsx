@@ -23,32 +23,32 @@ export type RoutePositions = Record<string, { x: number; y: number; parent: stri
 function Stage({ id, data, selected }: NodeProps<StageNode>) {
   return <div data-testid={`route-card-${id}`} className={`relative h-full w-full rounded-2xl border-2 transition-colors [&:hover>.stage-tools]:opacity-100 ${data.inactive?'opacity-45':''} ${data.isGroup
     ? selected ? "border-amber-500 bg-amber-50/70" : "border-amber-200 bg-amber-50/60"
-    : selected ? "border-indigo-500 bg-white shadow-[0_4px_24px_rgba(79,70,229,.15)]" : "border-slate-200 bg-white shadow-sm"}`}>
+    : selected ? "border-primary/40 bg-white shadow-[0_4px_24px_rgba(79,70,229,.15)]" : "border-border bg-white shadow-sm"}`}>
     <Handle type="target" position={Position.Left} className="!size-3 !border-2 !border-white !bg-slate-400" isConnectable={data.editable} />
-    <Handle type="source" position={Position.Right} className="!size-3 !border-2 !border-white !bg-indigo-500" isConnectable={data.editable} />
+    <Handle type="source" position={Position.Right} className="!size-3 !border-2 !border-white !bg-blue-500" isConnectable={data.editable} />
     <div className={`flex items-center gap-2.5 px-4 pt-3.5 ${data.isGroup ? "pb-3" : ""}`}>
-      <span className={`grid size-7 shrink-0 place-items-center rounded-lg ${data.isGroup ? "bg-amber-100 text-amber-700" : "bg-indigo-50 text-indigo-600"}`}>
+      <span className={`grid size-7 shrink-0 place-items-center rounded-lg ${data.isGroup ? "bg-amber-100 text-amber-700" : "bg-accent text-primary"}`}>
         {data.isGroup ? <Layers3 className="size-4" /> : <GitBranch className="size-4" />}
       </span>
-      <input aria-label={`工序名称 ${id}`} title={data.label} className={`nodrag min-w-0 flex-1 border-0 bg-transparent text-sm font-semibold outline-none ${data.editable ? "hover:bg-slate-50 focus:bg-slate-50" : ""}`}
+      <input aria-label={`工序名称 ${id}`} title={data.label} className={`nodrag min-w-0 flex-1 border-0 bg-transparent text-sm font-semibold outline-none ${data.editable ? "hover:bg-muted focus:bg-muted" : ""}`}
         value={data.label} readOnly={!data.editable} onFocus={() => data.onInspect(id)} onChange={(event) => data.onRename(id, event.target.value)} />
       {data.isGroup && <button className="nodrag grid size-6 shrink-0 place-items-center rounded text-amber-700 hover:bg-amber-100" aria-label={`${data.collapsed ? "展开" : "折叠"}阶段 ${id}`} onClick={event => { event.stopPropagation(); data.onToggleGroup(id); }}>{data.collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}</button>}
-      {data.conditional && <span title="按条件或决策输出启用" className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] text-violet-700">{data.decision?'决策':'条件'}</span>}
+      {data.conditional && <span title="按条件或决策输出启用" className="rounded bg-violet-100 px-1.5 py-0.5 text-xs text-violet-700">{data.decision?'决策':'条件'}</span>}
     </div>
     {data.isGroup ? <>
-      <p className="px-4 text-[11px] text-amber-700">{data.detail}</p>
+      <p className="px-4 text-xs text-amber-700">{data.detail}</p>
       {data.collapsed && <p className="mt-2 px-4 text-xs font-medium text-amber-700">{data.childCount} 道工序 · 点击箭头展开</p>}
-      <span className="absolute bottom-3 left-4 text-[10px] text-amber-700/80">全部完成后汇合</span>
+      <span className="absolute bottom-3 left-4 text-xs text-amber-700/80">全部完成后汇合</span>
       {data.editable && <button aria-label={`添加组内工序 ${id}`} title="添加组内工序" onClick={event => { event.stopPropagation(); data.onInside(id); }}
-        className="nodrag absolute bottom-2 right-3 flex items-center gap-1 rounded-lg bg-amber-100 px-2 py-1 text-[11px] text-amber-800 hover:bg-amber-200"><Plus className="size-3.5" /> 组内工序</button>}
+        className="nodrag absolute bottom-2 right-3 flex items-center gap-1 rounded-lg bg-amber-100 px-2 py-1 text-xs text-amber-800 hover:bg-amber-200"><Plus className="size-3.5" /> 组内工序</button>}
     </> : <>
-      <p className="truncate px-4 pt-2 text-xs text-slate-500" title={data.detail}>{data.detail}</p>
-      <div className="flex items-center justify-between px-4 pt-2"><span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{data.basis}</span>{data.count !== undefined ? <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">{data.count===0?'跳过':`× ${data.count}`}</span> : <span className="text-[10px] text-slate-300">{id.replace("step_", "#")}</span>}</div>
+      <p className="truncate px-4 pt-2 text-xs text-muted-foreground" title={data.detail}>{data.detail}</p>
+      <div className="flex items-center justify-between px-4 pt-2"><span className="rounded-md bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">{data.basis}</span>{data.count !== undefined ? <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">{data.count===0?'跳过':`× ${data.count}`}</span> : <span className="text-xs text-slate-300">{id.replace("step_", "#")}</span>}</div>
     </>}
-    {data.editable && <div onClick={event => event.stopPropagation()} className={`stage-tools nodrag absolute -right-10 top-1/2 z-10 flex -translate-y-1/2 flex-col gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm ${selected ? "opacity-100" : "opacity-0 focus-within:opacity-100"}`}>
-      <button aria-label={`追加下一工序 ${id}`} title="追加下一工序 · N" className="grid size-7 place-items-center rounded-lg text-indigo-600 hover:bg-indigo-50" onClick={() => data.onAppend(id)}><Plus className="size-4" /></button>
-      <button aria-label={`复制工序 ${id}`} title="复制 · ⌘D" className="grid size-7 place-items-center rounded-lg text-slate-500 hover:bg-slate-100" onClick={() => data.onDuplicate(id)}><Copy className="size-3.5" /></button>
-      <button aria-label={`工序属性 ${id}`} title="查看工序属性" className="grid size-7 place-items-center rounded-lg text-slate-500 hover:bg-slate-100" onClick={() => data.onInspect(id)}><SlidersHorizontal className="size-3.5" /></button>
+    {data.editable && <div onClick={event => event.stopPropagation()} className={`stage-tools nodrag absolute -right-10 top-1/2 z-10 flex -translate-y-1/2 flex-col gap-1 rounded-xl border border-border bg-white p-1 shadow-sm ${selected ? "opacity-100" : "opacity-0 focus-within:opacity-100"}`}>
+      <button aria-label={`追加下一工序 ${id}`} title="追加下一工序 · N" className="grid size-7 place-items-center rounded-lg text-primary hover:bg-accent" onClick={() => data.onAppend(id)}><Plus className="size-4" /></button>
+      <button aria-label={`复制工序 ${id}`} title="复制 · ⌘D" className="grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-secondary" onClick={() => data.onDuplicate(id)}><Copy className="size-3.5" /></button>
+      <button aria-label={`工序属性 ${id}`} title="查看工序属性" className="grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-secondary" onClick={() => data.onInspect(id)}><SlidersHorizontal className="size-3.5" /></button>
     </div>}
   </div>;
 }
@@ -89,7 +89,7 @@ export function RouteCanvas(props: Parameters<typeof RouteCanvasContent>[0]) {
 }
 
 function RouteCanvasContent({ template, operations, editable, selectedIds, selectedEdges, layoutRevision, restoredPositions, counts, resolvedOperations, collapsedGroups, onToggleGroup, onInspect, onSelect, onRename, onAppend,
-  onInside, onDuplicate, onConnect, onDeleteEdge, onMove, onDragStart, onDragEnd, onDropOperation, onFlow }: {
+  onInside, onDuplicate, onConnect, onDeleteEdge, onMove, onDragStart, onDragEnd, onDropOperation, onFlow, onWorkspaceFocus }: {
   template: ExpertTemplate; operations: OperationSummary[]; editable: boolean; selectedIds: string[]; selectedEdges: string[]; layoutRevision: number;
   collapsedGroups: string[]; onToggleGroup: (id: string) => void;
   counts?: Record<string, number>;
@@ -98,6 +98,7 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
   onSelect: (ids: string[], edges: string[]) => void; onRename: (id: string, label: string) => void;
   onAppend: (id: string) => void; onInside: (id: string) => void; onDuplicate: (id: string) => void;
   onInspect: (id: string) => void;
+  onWorkspaceFocus: () => void;
   onConnect: (connection: Connection) => void; onDeleteEdge: (from: string, to: string) => void;
   onMove: (id: string, parent: string | null) => void;
   onDragStart: () => void; onDragEnd: () => void;
@@ -108,6 +109,7 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
   const revision = useRef(layoutRevision);
   const selection = useRef(selectedIds);
   const edgeSelection = useRef(selectedEdges);
+  const paneFocusInProgress = useRef(false);
   const flowRef = useRef<RouteFlow | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dropPositions = useRef(new Map<string, { x: number; y: number }>());
@@ -174,12 +176,13 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
 
   const edges: Edge[] = useMemo(() => template.edges.map((edge) => ({ id: `${edge.from}>>${edge.to}`, source: edge.from, target: edge.to,
     hidden: [edge.from, edge.to].some(id => collapsedGroups.includes(template.steps.find(step => step.id === id)?.parent ?? "")),
-    type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed, color: "#6366f1", width: 18, height: 18 },
-    style: { stroke: "#818cf8", strokeWidth: 2 }, interactionWidth: 20, focusable: true,
+    type: "default", markerEnd: { type: MarkerType.ArrowClosed, color: "#537dbd", width: 16, height: 16 },
+    style: { stroke: "#7597c8", strokeWidth: 1.8 }, interactionWidth: 20, focusable: true,
     selected: selectedEdges.includes(`${edge.from}>>${edge.to}`) })), [template.edges, template.steps, selectedEdges, collapsedGroups]);
 
   return <div ref={containerRef} className="h-full w-full"><ReactFlow<StageNode> nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
     minZoom={0.15} maxZoom={1.8} onInit={(instance) => { flowRef.current = instance; onFlow(instance); }} onNodesChange={(changes) => {
+      if (paneFocusInProgress.current) changes = changes.filter((change) => change.type !== "select");
       // Dimension notifications run inside ResizeObserver. Commit them in the
       // next frame so measuring nodes cannot trigger another layout in its callback.
       const dimensions = changes.filter((change) => change.type === "dimensions");
@@ -194,6 +197,7 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
       }
     }}
     onEdgesChange={(changes) => {
+      if (paneFocusInProgress.current) changes = changes.filter((change) => change.type !== "select");
       const selected = changes.filter((change) => change.type === "select");
       if (selected.length) {
         const ids = new Set(edgeSelection.current);
@@ -202,7 +206,8 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
       }
     }}
     onConnect={onConnect} onEdgeDoubleClick={(_, edge) => editable && onDeleteEdge(edge.source, edge.target)}
-    onPaneClick={() => { selection.current = []; edgeSelection.current = []; onSelect([], []); }}
+    onPaneClick={() => { paneFocusInProgress.current = true; queueMicrotask(() => { paneFocusInProgress.current = false; }); onWorkspaceFocus(); }}
+    onMoveStart={(event) => { if (event) onWorkspaceFocus(); }}
     onNodeClick={(event, node) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey) requestAnimationFrame(() => onInspect(node.id)); }}
     onNodeDoubleClick={(_, node) => onInspect(node.id)}
     onNodeDragStart={() => editable && onDragStart()}
@@ -229,7 +234,7 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
     }}
     selectionOnDrag panOnDrag={[1, 2]} panOnScroll selectionKeyCode="Shift" multiSelectionKeyCode={["Meta", "Control", "Shift"]}
     nodesConnectable={editable} deleteKeyCode={null}
-    className="bg-[#f7f8fb]" aria-label="工艺编排白板">
+    className="bg-background" aria-label="工艺编排白板">
     <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#d6dce8" />
     <Controls showInteractive={false} position="bottom-right" />
   </ReactFlow></div>;

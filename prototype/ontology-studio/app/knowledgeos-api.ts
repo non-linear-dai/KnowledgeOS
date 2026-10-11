@@ -102,7 +102,7 @@ function mapDefinition(value: unknown): OntologyDefinition | null {
     properties: array(rawReification.properties).map((entry) => {
       const binding = record(entry);
       return {
-        predicateId: string(binding.predicate_id ?? binding.predicateId),
+        predicateId: string(binding.predicate ?? binding.predicate_id ?? binding.predicateId),
         required: Boolean(binding.required),
         cardinality: string(binding.cardinality, "inherit") as "inherit" | "one" | "many" | "temporal_many",
         group: string(binding.group, "other") as "identity" | "profile" | "measurement" | "governance" | "other",
@@ -121,7 +121,9 @@ function mapDefinition(value: unknown): OntologyDefinition | null {
     files: array(item.files).filter((entry): entry is string => typeof entry === "string"),
     config: config(item.config),
     bindings: kind === "concept" ? bindings : undefined,
+    bindingUsage: kind === "concept" ? Object.fromEntries(Object.entries(record(item.binding_usage ?? item.bindingUsage)).map(([predicateId, value]) => [predicateId, array(value).filter((entry): entry is string => typeof entry === "string")])) : undefined,
     endpoints: kind === "relation" ? endpoints : undefined,
+    endpointUsage: kind === "relation" ? Object.fromEntries(Object.entries(record(item.endpoint_usage ?? item.endpointUsage)).map(([endpoint, value]) => [endpoint, array(value).filter((entry): entry is string => typeof entry === "string")])) : undefined,
     relationMode: kind === "relation" ? string(item.relation_mode ?? item.relationMode, "simple") as "simple" | "reifiable" | "reified" : undefined,
     reification: kind === "relation" ? reification : undefined,
     conceptScopes: kind === "domain" ? array(item.concept_scopes).filter((entry): entry is string => typeof entry === "string") : undefined,
@@ -156,6 +158,7 @@ function mapChangeSet(value: unknown, definitions: OntologyDefinition[]): Change
   return {
     id,
     title: string(item.title, `控制面变更 ${id.slice(0, 8)}`),
+    semanticPatch: record(item.patch).op === "semantic_control" ? record(item.patch) : undefined,
     reason: string(item.reason),
     actor: string(item.actor, "unknown"),
     targetSource: string(item.target_source ?? item.targetSource),

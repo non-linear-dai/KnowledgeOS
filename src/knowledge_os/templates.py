@@ -590,7 +590,7 @@ class TemplateWorkbench:
             result.append({"id": node["id"], "key": node["key"], "label": node["label"],
                            "version": attrs["template_version"], "family": attrs["template_family"],
                            "output_basis": attrs["output_basis"], "author": attrs["template_author"],
-                           "source_path": str(path.relative_to(self.root))})
+                           "source_path": path.relative_to(self.root).as_posix()})
         return result
 
     def list_operations(self):

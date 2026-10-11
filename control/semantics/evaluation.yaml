@@ -1,0 +1,17 @@
+format: knowledgeos.competency.v1
+cases:
+  - id: organization-identity
+    question: 企业身份是否仍要求法定名称？
+    check: concept_binding
+    parameters: {concept: organization, predicate: legal_name, required: true}
+    expected: true
+  - id: project-task
+    question: 项目是否可以包含任务？
+    check: relation_endpoint
+    parameters: {relation: contains, source: project, target: task}
+    expected: true
+  - id: entity-identifier
+    question: 实体标识能否无损映射和还原？
+    check: iri_roundtrip
+    parameters: {kind: entity, id: 'org:示例/1'}
+    expected: true

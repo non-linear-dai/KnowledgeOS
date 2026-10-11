@@ -75,6 +75,9 @@ class AccessControl:
 
 
 PERMISSIONS = {
+    "/v1/ontology/request": "propose", "/v1/ontology/preview": "propose", "/v1/ontology/propose": "propose",
+    "/v1/semantics/impact": "propose", "/v1/semantics/vocabulary/propose": "propose",
+    "/v1/changesets/review-batch/preview": "review", "/v1/changesets/review-batch": "review",
     "/v1/agent/request": "agent", "/v1/agent/respond": "agent", "/v1/agent/invoke": "agent",
     "/v1/extraction/request": "extract", "/v1/extraction/candidates": "extract",
     "/v1/extraction/propose": "propose",
@@ -83,6 +86,8 @@ PERMISSIONS = {
     "/v1/templates/propose": "template_edit", "/v1/review": "review",
 }
 POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/extraction/request",
+             "/v1/ontology/request", "/v1/ontology/preview", "/v1/ontology/propose", "/v1/semantics/validate", "/v1/semantics/impact", "/v1/semantics/vocabulary/propose",
+             "/v1/changesets/review-batch/preview", "/v1/changesets/review-batch",
              "/v1/extraction/candidates", "/v1/extraction/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/query",
              "/v1/calculate", "/v1/calculate/entity", "/v1/fx/convert", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/propose",
              "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose"}
@@ -124,7 +129,8 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
         principal = None
         try:
             if path == "/health":
-                self._send(200, {"status": "ok", "nodes": service.db.first("SELECT count(*) AS count FROM node")["count"]})
+                from . import __version__, __contract_version__
+                self._send(200, {"status": "ok", "version": __version__, "contract_version": __contract_version__, "nodes": service.db.first("SELECT count(*) AS count FROM node")["count"]})
                 return
             principal = self.server.auth.authenticate(self.headers.get("Authorization"))
             self.server.auth.authorize(principal, PERMISSIONS.get(path, "read"))
@@ -222,6 +228,30 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return s.resolve(self._required(p, "query"), p.get("scope"))
         if path == "/v1/control":
             return s.control_plane()
+        if path == "/v1/semantics":
+            return s.semantics()
+        if path == "/v1/semantics/export":
+            return s.semantic_export(p.get("format", "turtle"), p.get("scope", "control"), p.get("id"))
+        if path == "/v1/semantics/evaluate":
+            return s.semantic_evaluate()
+        if path == "/v1/semantics/history":
+            return s.semantic_history()
+        if path == "/v1/semantics/validate":
+            return s.semantic_validate(document=body["document"])
+        if path == "/v1/semantics/impact":
+            return s.semantic_impact(target_source=body["target_source"], patch=body["patch"], operations=body.get("operations", []))
+        if path == "/v1/ontology/request":
+            return s.ontology_request(goal=body["goal"], material=body["material"])
+        if path == "/v1/ontology/preview":
+            return s.ontology_preview(request=body["request"], model_output=body["model_output"])
+        if path == "/v1/ontology/propose":
+            return s.ontology_propose(request=body["request"], model_output=body["model_output"], actor=principal["id"], reason=body["reason"], idempotency_key=body.get("idempotency_key"))
+        if path == "/v1/semantics/vocabulary/propose":
+            return s.vocabulary_propose(vocabulary=body["vocabulary"], actor=principal["id"], reason=body["reason"], base_revision=body["base_revision"], idempotency_key=body.get("idempotency_key"))
+        if path == "/v1/changesets/review-batch/preview":
+            return s.review_batch_preview(ids=body["ids"], reviewer=principal["id"], decision=body["decision"])
+        if path == "/v1/changesets/review-batch":
+            return s.review_batch(ids=body["ids"], reviewer=principal["id"], decision=body["decision"], note=body["note"], preview_hash=body["preview_hash"])
         if path == "/v1/studio":
             return s.studio()
         if path == "/v1/templates":

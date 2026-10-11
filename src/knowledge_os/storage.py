@@ -6,11 +6,33 @@ import json
 import sqlite3
 import threading
 import uuid
-import fcntl
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
 from .core import Config, ConflictError, IntegrityError, json_text, utcnow
+
+if sys.platform == "win32":
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    class _Overlapped(ctypes.Structure):
+        _fields_ = [("Internal", ctypes.c_void_p), ("InternalHigh", ctypes.c_void_p),
+                    ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD),
+                    ("hEvent", wintypes.HANDLE)]
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _lock_file_ex = _kernel32.LockFileEx
+    _lock_file_ex.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                              wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(_Overlapped)]
+    _lock_file_ex.restype = wintypes.BOOL
+    _unlock_file_ex = _kernel32.UnlockFileEx
+    _unlock_file_ex.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                                wintypes.DWORD, ctypes.POINTER(_Overlapped)]
+    _unlock_file_ex.restype = wintypes.BOOL
+else:
+    import fcntl
 
 
 class RuntimeLease:
@@ -18,14 +40,32 @@ class RuntimeLease:
         config.ensure_runtime()
         self.file = (config.runtime / ".state.lock").open("a+")
         try:
-            fcntl.flock(self.file.fileno(), (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
+            if sys.platform == "win32":
+                self._overlapped = _Overlapped()
+                self._handle = msvcrt.get_osfhandle(self.file.fileno())
+                # LockFileEx supports shared reader leases and an exclusive backup lease.
+                flags = 0x1 | (0x2 if exclusive else 0)  # FAIL_IMMEDIATELY | EXCLUSIVE_LOCK
+                if not _lock_file_ex(self._handle, flags, 0, 1, 0, ctypes.byref(self._overlapped)):
+                    raise ctypes.WinError(ctypes.get_last_error())
+            else:
+                fcntl.flock(self.file.fileno(), (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+        except OSError as exc:
             self.file.close()
-            raise ConflictError("runtime is in use; stop services before backup or restore") from exc
+            if isinstance(exc, BlockingIOError) or (sys.platform == "win32" and getattr(exc, "winerror", None) in (32, 33)):
+                raise ConflictError("runtime is in use; stop services before backup or restore") from exc
+            raise
 
     def close(self):
-        fcntl.flock(self.file.fileno(), fcntl.LOCK_UN)
-        self.file.close()
+        if self.file.closed:
+            return
+        try:
+            if sys.platform == "win32":
+                if not _unlock_file_ex(self._handle, 0, 1, 0, ctypes.byref(self._overlapped)):
+                    raise ctypes.WinError(ctypes.get_last_error())
+            else:
+                fcntl.flock(self.file.fileno(), fcntl.LOCK_UN)
+        finally:
+            self.file.close()
 
 
 PROJECTION_DDL = """
@@ -67,6 +107,8 @@ CREATE TABLE IF NOT EXISTS durable.derived_result(id TEXT PRIMARY KEY,model_id T
 CREATE TABLE IF NOT EXISTS durable.model_revision(id TEXT PRIMARY KEY,model_id TEXT NOT NULL,version TEXT NOT NULL,
  definition_json TEXT NOT NULL,recorded_at TEXT NOT NULL,source_path TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS durable.idx_model_revision_model ON model_revision(model_id,recorded_at);
+CREATE TABLE IF NOT EXISTS durable.semantic_revision(id TEXT PRIMARY KEY,registry_fingerprint TEXT NOT NULL,
+ contract_version TEXT NOT NULL,definition_json TEXT NOT NULL,recorded_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS durable.review_item(id TEXT PRIMARY KEY,kind TEXT NOT NULL,target_id TEXT,severity INTEGER NOT NULL,
  priority TEXT NOT NULL,reason TEXT NOT NULL,details_json TEXT NOT NULL DEFAULT '{}',status TEXT NOT NULL DEFAULT 'open',
  created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
@@ -74,7 +116,7 @@ CREATE TABLE IF NOT EXISTS durable.changeset(id TEXT PRIMARY KEY,actor TEXT NOT 
  risk TEXT NOT NULL,status TEXT NOT NULL,patch_json TEXT NOT NULL,operations_json TEXT NOT NULL DEFAULT '[]',
  reason TEXT NOT NULL,created_at TEXT NOT NULL,reviewed_by TEXT,reviewed_at TEXT,review_note TEXT,published_by TEXT,
  published_at TEXT,source_revision TEXT,base_revision TEXT,publication_json TEXT,expected_json TEXT,
- lock_version INTEGER NOT NULL DEFAULT 0,request_key TEXT,extraction_json TEXT);
+ lock_version INTEGER NOT NULL DEFAULT 0,request_key TEXT,extraction_json TEXT,proposal_metadata_json TEXT);
 CREATE TABLE IF NOT EXISTS durable.audit_outbox(event_id TEXT PRIMARY KEY,event_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',
  created_at TEXT NOT NULL,delivered_at TEXT,last_error TEXT);
 CREATE INDEX IF NOT EXISTS durable.idx_outbox_pending ON audit_outbox(status,created_at);
@@ -89,6 +131,7 @@ CREATE TABLE IF NOT EXISTS durable.source_entity_binding(source_id TEXT NOT NULL
 CREATE INDEX IF NOT EXISTS durable.idx_source_entity_binding_node ON source_entity_binding(node_id);
 CREATE TABLE IF NOT EXISTS durable.schema_migration(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);
 INSERT OR IGNORE INTO durable.schema_migration VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO durable.schema_migration VALUES(4,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 """
 
 LEDGER_DDL = """
@@ -133,7 +176,7 @@ class Database:
         for name, definition in {"title": "TEXT", "operations_json": "TEXT NOT NULL DEFAULT '[]'", "review_note": "TEXT",
                                  "published_by": "TEXT", "published_at": "TEXT", "source_revision": "TEXT", "base_revision": "TEXT",
                                  "publication_json": "TEXT", "expected_json": "TEXT", "lock_version": "INTEGER NOT NULL DEFAULT 0",
-                                 "request_key": "TEXT", "extraction_json": "TEXT"}.items():
+                                 "request_key": "TEXT", "extraction_json": "TEXT", "proposal_metadata_json": "TEXT"}.items():
             if name not in columns:
                 self.connection.execute(f"ALTER TABLE durable.changeset ADD COLUMN {name} {definition}")
         self.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS durable.idx_changeset_request ON changeset(actor,request_key) WHERE request_key IS NOT NULL")

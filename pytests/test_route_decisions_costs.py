@@ -176,6 +176,7 @@ def test_source_backed_rate_retains_provenance_and_enforces_as_of_freshness(serv
     mapping = workspace / "connectors/examples/test-price.mapping.yaml"
     mapping.write_text("""source_system: erp_operational
 source_object: resource_price
+locator_prefix: "erp://resource-price/"
 record_id_field: resource_id
 version_field: version
 timestamp_field: observed_at

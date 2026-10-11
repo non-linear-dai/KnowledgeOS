@@ -1,21 +1,7 @@
 "use client";
 
-import {
-  ArrowRight,
-  Braces,
-  CheckCircle2,
-  CircleDot,
-  DatabaseZap,
-  FileJson2,
-  GitPullRequestArrow,
-  Network,
-  Route,
-  Scale,
-  ShieldCheck,
-  Workflow,
-  XCircle,
-} from "lucide-react";
-
+import Link from "next/link";
+import { ArrowRight, CheckCircle2, ChevronDown, DatabaseZap, FileJson2, GitPullRequestArrow, Layers3, Route, ShieldCheck, Workflow, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,107 +11,96 @@ import { kindMeta, type DefinitionKind, type OntologyDefinition } from "./studio
 import type { ApiConnectionState, StudioMetadata } from "./knowledgeos-api";
 
 const dimensions = [
-  { key: "C", label: "概念", detail: "类型、稳定属性与节点形状", kinds: ["concept", "predicate"] as DefinitionKind[], color: "#2563eb" },
-  { key: "R", label: "关系", detail: "有向端点、基数与实体化", kinds: ["relation"] as DefinitionKind[], color: "#d97706" },
-  { key: "L", label: "逻辑", detail: "版本化模型、业务规则与约束", kinds: ["model", "business_rule", "business_constraint"] as DefinitionKind[], color: "#dc2626" },
-  { key: "T", label: "时态", detail: "生命周期、新鲜度、历史与分层", kinds: ["policy"] as DefinitionKind[], color: "#0891b2" },
-  { key: "P", label: "溯源", detail: "来源、证据、权威与审计", kinds: ["policy", "connector"] as DefinitionKind[], color: "#0f766e" },
+  { key: "C", label: "概念", detail: "类型与稳定属性", kinds: ["concept", "predicate"] as DefinitionKind[], color: "var(--chart-1)" },
+  { key: "R", label: "关系", detail: "有向端点与实体化", kinds: ["relation"] as DefinitionKind[], color: "var(--chart-3)" },
+  { key: "L", label: "逻辑", detail: "模型、规则与约束", kinds: ["model", "business_rule", "business_constraint"] as DefinitionKind[], color: "var(--chart-5)" },
+  { key: "T", label: "时态", detail: "生命周期与新鲜度", kinds: ["policy"] as DefinitionKind[], color: "var(--chart-1)" },
+  { key: "P", label: "溯源", detail: "来源、证据与审计", kinds: ["policy", "connector"] as DefinitionKind[], color: "var(--chart-2)" },
 ];
-
 const loopSteps = [
   { label: "Git 真源", detail: "control/ · connectors/", icon: FileJson2 },
-  { label: "注册与校验", detail: "引用、形状、端点、模型", icon: ShieldCheck },
+  { label: "注册与校验", detail: "引用、形状、端点与模型", icon: ShieldCheck },
   { label: "编译与投影", detail: "SQLite 索引与实体卡", icon: DatabaseZap },
   { label: "统一 API", detail: "/v1/control · Knowledge API", icon: Route },
-  { label: "治理变更", detail: "ChangeSet → 审核 → 真源验证发布", icon: GitPullRequestArrow },
+  { label: "治理发布", detail: "审核 → 应用真源 → 验证发布", icon: GitPullRequestArrow },
 ];
 
 function DefinitionList({ title, subtitle, items, onOpen }: { title: string; subtitle: string; items: OntologyDefinition[]; onOpen: (id: string) => void }) {
-  return <section className="overflow-hidden rounded-2xl border border-[#d9dde5] bg-white shadow-sm">
-    <div className="flex items-start justify-between gap-4 border-b border-[#e7e9ee] px-5 py-4">
-      <div><h3 className="text-sm font-semibold text-slate-950">{title}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{subtitle}</p></div>
-      <Badge variant="outline" className="bg-slate-50">{items.length}</Badge>
+  return <section className="panel-surface overflow-hidden">
+    <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+      <div><h3 className="text-base font-semibold">{title}</h3><p className="mt-1 text-sm text-muted-foreground">{subtitle}</p></div>
+      <Badge variant="secondary">{items.length}</Badge>
     </div>
-    <div className="divide-y divide-[#eceef2]">
-      {items.map((item) => <button key={item.id} disabled={!whiteboardKinds.includes(item.kind)} onClick={() => onOpen(item.id)} className="group flex w-full items-center gap-3 px-5 py-3 text-left enabled:hover:bg-slate-50 disabled:cursor-default">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold text-white" style={{ background: kindMeta[item.kind].color }}>{kindMeta[item.kind].short}</span>
-        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-slate-900">{item.label}</span><span className="mt-0.5 block truncate font-mono text-[11px] text-slate-400">{item.id}</span></span>
-        <span className="text-xs text-slate-400 group-enabled:group-hover:text-slate-700">{whiteboardKinds.includes(item.kind) ? `${item.refs} 引用` : "控制定义"}</span>{whiteboardKinds.includes(item.kind) && <ArrowRight className="size-4 text-slate-300 group-hover:text-slate-700" />}
+    <div className="divide-y divide-border">
+      {items.map((item) => <button key={item.id} disabled={!whiteboardKinds.includes(item.kind)} onClick={() => onOpen(item.id)} className="group flex w-full items-center gap-3 px-5 py-3.5 text-left enabled:hover:bg-accent/50 disabled:cursor-default">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-white" style={{ background: kindMeta[item.kind].color }}>{kindMeta[item.kind].short}</span>
+        <span className="min-w-0 flex-1"><span className="block text-sm font-medium">{item.label}</span><span className="mt-0.5 block truncate font-mono text-xs text-muted-foreground" title={item.id}>{item.id}</span></span>
+        <span className="shrink-0 text-xs text-muted-foreground">{whiteboardKinds.includes(item.kind) ? `${item.refs} 引用` : "控制定义"}</span>{whiteboardKinds.includes(item.kind) && <ArrowRight aria-hidden="true" className="size-4 text-muted-foreground group-hover:text-primary" />}
       </button>)}
+      {!items.length && <p className="px-5 py-6 text-sm text-muted-foreground">暂无已加载的定义</p>}
     </div>
   </section>;
 }
 
-export function ControlCenter({ definitions, errors, metadata, connection, onOpenDefinition, onOpenStudio, onOpenReview }: {
+export function ControlCenter({ definitions, errors, metadata, connection, onOpenDefinition, onOpenKind }: {
   definitions: OntologyDefinition[];
   errors: string[];
   metadata: StudioMetadata | null;
   connection: ApiConnectionState;
   onOpenDefinition: (id: string) => void;
-  onOpenStudio: () => void;
-  onOpenReview: () => void;
+  onOpenKind: (kind: DefinitionKind) => void;
 }) {
   const byKind = (kind: DefinitionKind) => definitions.filter((item) => item.kind === kind);
   const expected = (kind: DefinitionKind, fallback: number) => metadata?.coverage[kind] ?? fallback;
   const coverage = [
-    ["核心契约", byKind("schema").length, expected("schema", 1)],
-    ["概念类型", byKind("concept").length, expected("concept", 9)],
-    ["关系类型", byKind("relation").length, expected("relation", 6)],
-    ["判断类型", byKind("predicate").length, expected("predicate", 16)],
-    ["治理策略", byKind("policy").length, expected("policy", 4)],
-    ["确定性模型", byKind("model").length, expected("model", 5)],
-    ["业务约束", byKind("business_constraint").length, expected("business_constraint", 0)],
-    ["业务规则", byKind("business_rule").length, expected("business_rule", 0)],
-    ["物理单位", byKind("unit").length, expected("unit", 8)],
-    ["货币", byKind("currency").length, expected("currency", 4)],
-    ["工作领域", byKind("domain").length, expected("domain", 3)],
-    ["连接器映射", byKind("connector").length, expected("connector", 1)],
+    ["schema", 1], ["concept", 9], ["relation", 6], ["predicate", 16], ["policy", 4], ["model", 5],
+    ["business_constraint", 0], ["business_rule", 0], ["unit", 8], ["currency", 4], ["domain", 3], ["connector", 1],
   ] as const;
-  const complete = coverage.every(([, actual, expected]) => actual === expected) && errors.length === 0;
+  const complete = coverage.every(([kind, fallback]) => byKind(kind).length === expected(kind, fallback)) && errors.length === 0;
+  const unavailable = !["connected", "demo"].includes(connection);
 
-  return <div className="h-full min-h-0 bg-[#eef1f6]">
-    <ScrollArea className="h-full"><div className="mx-auto max-w-[1500px] space-y-6 p-5 pb-16 lg:p-8">
-      <section className="overflow-hidden rounded-3xl border border-[#cad1dc] bg-[#111827] text-white shadow-xl">
-        <div className="grid gap-8 p-6 lg:grid-cols-[1.2fr_.8fr] lg:p-8">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-cyan-300"><CircleDot className="size-3.5" />Control Plane · Contract {metadata?.contractVersion ?? "—"}</div>
-            <h1 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight sm:text-3xl">KnowledgeOS 结构化真源与治理控制面</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">以 Git 真源为起点统一管理本体、业务约束、业务规则、确定性模型、领域行为、连接器映射和 ChangeSet。知识抽取由外部 Agent 与 Skill 完成，本界面只接收和治理结构化结果。</p>
-            <div className="mt-6 flex flex-wrap gap-3"><Button onClick={onOpenStudio} className="bg-cyan-300 text-slate-950 hover:bg-cyan-200"><Network />进入结构白板</Button><Button onClick={onOpenReview} variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><GitPullRequestArrow />治理审核</Button></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-slate-400">注册定义</p><p className="mt-2 text-3xl font-semibold">{definitions.length}</p><p className="mt-1 text-xs text-slate-400">{connection === "connected" ? "API 实时映射 · 12 类对象" : connection === "demo" ? "演示快照 · 12 类对象" : "等待连接 · 保留已有快照"}</p></div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-slate-400">结构校验</p><p className={cn("mt-2 text-3xl font-semibold", complete ? "text-emerald-300" : "text-rose-300")}>{complete ? "闭环" : errors.length}</p><p className="mt-1 text-xs text-slate-400">{complete ? "全部引用可解析" : "项错误待处理"}</p></div>
-            <div className="col-span-2 rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center justify-between"><p className="text-xs text-slate-400">持久变更策略</p><Badge className="bg-amber-300 text-slate-950 hover:bg-amber-300">ChangeSet only</Badge></div><p className="mt-3 text-sm leading-6 text-slate-200">批准只记录治理决策；真实源更新、重新编译并登记 source revision 后才完成发布。</p></div>
-          </div>
-        </div>
+  return <div className="h-full min-h-0 bg-background">
+    <ScrollArea className="h-full"><div className="mx-auto max-w-[1440px] space-y-6 p-5 pb-8 lg:p-8">
+      <section>
+        <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-primary" />结构化知识 · 治理控制面</div><h1 className="page-title">控制总览</h1><p className="page-description mt-2">查看注册覆盖与结构状态。选择具体类别进入维护，页面切换统一使用主导航。</p>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{coverage.map(([label, actual, expected]) => {
-        const ok = actual === expected;
-        return <div key={label} className="rounded-2xl border border-[#d9dde5] bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-700">{label}</p>{ok ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-rose-600" />}</div><p className="mt-3 text-2xl font-semibold text-slate-950">{actual}<span className="text-sm font-normal text-slate-400"> / {expected}</span></p></div>;
-      })}</section>
+      <section aria-label="控制面状态" className="panel-surface grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <div className="px-6 py-5"><p className="text-sm text-muted-foreground">已注册定义</p><p className="data-number mt-2 text-3xl font-semibold">{definitions.length}<span className="ml-2 text-sm font-normal text-muted-foreground">项 / 12 类对象</span></p><p className="mt-2 text-xs text-muted-foreground">{connection === "connected" ? "API 实时同步" : connection === "demo" ? "当前为演示快照" : "等待连接 · 保留已有快照"}</p></div>
+        <div className="px-6 py-5"><p className="text-sm text-muted-foreground">结构校验</p><div className={cn("mt-2 flex items-center gap-2 text-xl font-semibold", complete ? "text-emerald-700" : "text-amber-800")}>{complete ? <CheckCircle2 className="size-5" /> : <XCircle className="size-5" />}{complete ? "引用完整" : errors.length ? `${errors.length} 项待处理` : "等待完整数据"}</div><p className="mt-3 text-xs text-muted-foreground">契约版本 {metadata?.contractVersion ?? "—"} · 注册表覆盖与引用校验</p></div>
+        <div className="border-l-4 border-l-primary px-6 py-5 sm:border-l-0"><p className="text-sm text-muted-foreground">持久变更</p><p className="mt-2 text-xl font-semibold">ChangeSet 治理</p><p className="mt-3 text-xs leading-5 text-muted-foreground">批准后应用真源，重新编译并登记修订，才完成发布。</p></div>
+      </section>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-        <div className="rounded-3xl border border-[#d9dde5] bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-slate-950 text-white"><Braces className="size-5" /></span><div><h2 className="font-semibold text-slate-950">C-R-L-T-P 语义覆盖</h2><p className="mt-1 text-xs text-slate-500">每个维度都落到可注册、可校验的控制面对象。</p></div></div>
-          <div className="mt-6 grid gap-3 md:grid-cols-5">{dimensions.map((item) => {
-            const count = item.kinds.reduce((sum, kind) => sum + byKind(kind).length, 0);
-            return <div key={item.key} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"><span className="flex size-9 items-center justify-center rounded-xl text-sm font-bold text-white" style={{ background: item.color }}>{item.key}</span><p className="mt-4 text-sm font-semibold text-slate-900">{item.label}</p><p className="mt-1 min-h-10 text-xs leading-5 text-slate-500">{item.detail}</p><p className="mt-3 text-xs font-medium" style={{ color: item.color }}>{count} 项定义</p></div>;
+      {errors.length > 0 && <section aria-label="待处理问题" className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4"><h2 className="text-sm font-semibold text-amber-900">{errors.length} 项结构问题需要处理</h2><ul className="mt-2 list-inside list-disc space-y-1 text-sm text-amber-900">{errors.map((error) => <li key={error}>{error}</li>)}</ul></section>}
+        <section className="panel-surface overflow-hidden">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4"><div><h2 className="text-base font-semibold">结构目录</h2><p className="mt-1 text-sm text-muted-foreground">覆盖状态与实际注册数量</p></div><Badge variant="outline">{complete ? "完整覆盖" : unavailable ? "等待同步" : "检查中"}</Badge></div>
+          <div className="grid sm:grid-cols-2 xl:grid-cols-3">{coverage.map(([kind, fallback]) => {
+            const actual = byKind(kind).length, count = expected(kind, fallback), ok = actual === count;
+            return <button key={kind} disabled={!whiteboardKinds.includes(kind)} onClick={() => onOpenKind(kind)} title={whiteboardKinds.includes(kind) ? `维护${kindMeta[kind].label}` : "只读注册信息"} className="flex items-center gap-3 border-b border-border px-5 py-4 text-left enabled:hover:bg-accent/50 disabled:cursor-default">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-white" style={{ background: kindMeta[kind].color }}>{kindMeta[kind].short}</span>
+              <span className="min-w-0 flex-1 text-sm font-medium">{kindMeta[kind].label}</span><span className="data-number text-base font-semibold">{actual}<span className="ml-1 text-xs font-normal text-muted-foreground">/ {count}</span></span>
+              {ok ? <CheckCircle2 aria-label="覆盖完整" className="size-4 text-emerald-700" /> : <XCircle aria-label="覆盖不完整" className="size-4 text-amber-700" />}
+            </button>;
           })}</div>
-        </div>
-        <div className="rounded-3xl border border-[#d9dde5] bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-cyan-700 text-white"><Workflow className="size-5" /></span><div><h2 className="font-semibold text-slate-950">结构闭环</h2><p className="mt-1 text-xs text-slate-500">从真源到治理发布的唯一通路。</p></div></div>
-          <div className="mt-5 space-y-1">{loopSteps.map((step, index) => <div key={step.label} className="relative flex gap-3 pb-4 last:pb-0">{index < loopSteps.length - 1 && <span className="absolute left-[17px] top-9 h-[calc(100%-20px)] w-px bg-slate-200" />}<span className="z-10 flex size-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700"><step.icon className="size-4" /></span><div><p className="text-sm font-semibold text-slate-900">{step.label}</p><p className="mt-0.5 text-xs text-slate-500">{step.detail}</p></div></div>)}</div>
-        </div>
-      </section>
+        </section>
+      <details className="overview-details panel-surface group">
+        <summary className="flex items-center justify-between gap-3 p-5"><div><h2 className="text-sm font-semibold">架构与注册详情</h2><p className="mt-1 text-xs text-muted-foreground">治理路径、语义覆盖及只读注册信息 · 按需展开</p></div><ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" /></summary>
+        <div className="space-y-6 border-t border-border p-5">
+        <section>
+          <h2 className="flex items-center gap-2 text-base font-semibold"><Workflow className="size-4 text-primary" />真源到发布</h2><p className="mt-1 text-sm text-muted-foreground">可追踪的知识治理路径</p>
+          <div className="mt-6 space-y-0">{loopSteps.map((step, index) => <div key={step.label} className="relative flex gap-3 pb-5 last:pb-0">{index < loopSteps.length - 1 && <span className="absolute left-4 top-8 h-[calc(100%-16px)] w-px bg-border" />}<span className="z-10 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-primary"><step.icon aria-hidden="true" className="size-4" /></span><div><p className="text-sm font-medium">{step.label}</p><p className="mt-1 text-xs text-muted-foreground">{step.detail}</p></div></div>)}</div>
+        </section>
+
+      <section className="panel-surface overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4"><h2 className="text-base font-semibold">语义覆盖</h2><p className="text-xs text-muted-foreground">C-R-L-T-P · 每个维度落到可注册、可校验的定义</p></div><div className="grid divide-y divide-border sm:grid-cols-5 sm:divide-x sm:divide-y-0">{dimensions.map((item) => <div key={item.key} className="p-5"><div className="flex items-center gap-2"><span className="text-lg font-semibold" style={{ color: item.color }}>{item.key}</span><h3 className="text-sm font-semibold">{item.label}</h3></div><p className="mt-2 text-xs text-muted-foreground">{item.detail}</p><p className="data-number mt-3 text-sm font-medium">{item.kinds.reduce((sum, kind) => sum + byKind(kind).length, 0)} 项定义</p></div>)}</div></section>
 
       <section className="grid gap-6 xl:grid-cols-2">
-        <DefinitionList title="治理策略" subtitle="权威、新鲜度、溯源与维护预算均已注册。" items={byKind("policy")} onOpen={onOpenDefinition} />
-        <DefinitionList title="逻辑与领域" subtitle="模型、业务约束、业务规则与领域配置可追踪。" items={[...byKind("model"), ...byKind("business_constraint"), ...byKind("business_rule"), ...byKind("domain")]} onOpen={onOpenDefinition} />
-        <DefinitionList title="契约与集成" subtitle="Canonical Schema 和连接器映射共享同一注册表。" items={[...byKind("schema"), ...byKind("connector")]} onOpen={onOpenDefinition} />
-        <section className="rounded-2xl border border-[#d9dde5] bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><Scale className="size-5 text-slate-700" /><div><h3 className="text-sm font-semibold text-slate-950">扩展点状态</h3><p className="mt-1 text-xs text-slate-500">含技术定义与业务定义；业务定义可从上方进入白板。</p></div></div><div className="mt-5 grid grid-cols-3 gap-3">{[["约束定义", metadata?.extensions.constraints ?? 0], ["规则定义", metadata?.extensions.rules ?? 0], ["技能", metadata?.extensions.skills ?? 0]].map(([label, count]) => <div key={String(label)} className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><p className="text-xl font-semibold text-slate-900">{count}</p><p className="mt-1 text-xs text-slate-500">{label}</p></div>)}</div></section>
+        <DefinitionList title="治理策略" subtitle="权威、新鲜度、溯源与维护预算" items={byKind("policy")} onOpen={onOpenDefinition} />
+        <DefinitionList title="逻辑与领域" subtitle="确定性模型、业务约束、业务规则与工作领域" items={[...byKind("model"), ...byKind("business_constraint"), ...byKind("business_rule"), ...byKind("domain")]} onOpen={onOpenDefinition} />
+        <DefinitionList title="契约与集成" subtitle="核心信封与连接器共享同一注册表" items={[...byKind("schema"), ...byKind("connector")]} onOpen={onOpenDefinition} />
+        <section className="panel-surface p-5"><div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary"><Layers3 className="size-5" /></span><div><h3 className="text-base font-semibold">专家模板工作台</h3><p className="mt-1 text-sm text-muted-foreground">工艺编排、决策配置与成本验证</p></div></div><div className="mt-5 flex gap-6 border-y border-border py-4">{[["约束", metadata?.extensions.constraints ?? 0], ["规则", metadata?.extensions.rules ?? 0], ["技能", metadata?.extensions.skills ?? 0]].map(([label, count]) => <div key={String(label)}><p className="data-number text-xl font-semibold">{count}</p><p className="mt-1 text-xs text-muted-foreground">{label}</p></div>)}</div><Button asChild variant="outline" className="mt-5"><Link href="/templates">打开工艺工作台</Link></Button></section>
       </section>
+        </div>
+      </details>
     </div></ScrollArea>
   </div>;
 }

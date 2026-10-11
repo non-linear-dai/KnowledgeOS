@@ -44,11 +44,8 @@ It returns normalized content:
 
 Generate an extraction request from the current control plane:
 
-```bash
-bin/knowledgeos extract-contract \
-  --source-type web \
-  --locator 'https://example.test/page' \
-  --content-file /tmp/page.txt
+```text
+knowledgeos extract-contract --source-type web --locator https://example.test/page --content-file page.txt
 ```
 
 The request contains:
@@ -76,14 +73,13 @@ The HTTP request endpoint requires already materialized `content` or a complete 
 
 A model wrapper may also read the extraction request as JSON from stdin and write only model-output JSON to stdout:
 
-```bash
-bin/knowledgeos extract \
-  --source-type meeting_minutes \
-  --source review-notes.md \
-  --model-command '/opt/company/bin/knowledge-extractor'
+```text
+knowledgeos extract --source-type meeting_minutes --source review-notes.md --model-command knowledge-extractor
 ```
 
 Switching providers means replacing or reconfiguring that wrapper. The ontology contract and candidate validation remain unchanged.
+For paths with spaces on Windows, pass a JSON argument array to `--model-command` or `--materializer-command`, for example
+`--model-command '["C:\\Program Files\\Company\\extractor.exe", "--json"]'` in PowerShell. Command strings use the host operating system's native quoting rules; neither form invokes a shell.
 
 ## Candidate behavior
 
