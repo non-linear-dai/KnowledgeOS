@@ -54,8 +54,8 @@ class ChangePlan:
         if path.suffix in (".yaml", ".yml"):
             return {"data": load_yaml(path), "body": ""}
         if path.suffix == ".json":
-            return {"data": json.loads(path.read_text()), "body": ""}
-        return {"data": path.read_text(), "body": ""}
+            return {"data": json.loads(path.read_text(encoding="utf-8-sig")), "body": ""}
+        return {"data": path.read_text(encoding="utf-8-sig"), "body": ""}
 
     def revision(self, target_source):
         if not self.is_git_source(target_source):
@@ -80,6 +80,8 @@ class ChangePlan:
     def staged_documents(self, target_source, patch, operations):
         documents = {name: self._read(path) for name, path in self.paths(target_source).items()}
         originals = copy.deepcopy(documents)
+        if any(name.startswith("control/decision-models/") for name in documents) and (not isinstance(patch, dict) or patch.get("op") != "logic_asset"):
+            raise ValidationError("decision models require the immutable logic asset workflow")
         if isinstance(patch, dict) and patch.get("op") == "template_package":
             if operations:
                 raise ValidationError("template package cannot include Studio operations")
@@ -89,6 +91,20 @@ class ChangePlan:
                 raise ValidationError("template package paths do not match the ChangeSet targets")
             if any(document is not None for document in documents.values()):
                 raise ConflictError("template package versions are immutable")
+            documents = rendered
+        elif isinstance(patch, dict) and patch.get("op") == "logic_asset":
+            from .logic_workbench import LogicWorkbench
+            if operations:
+                raise ValidationError("logic assets cannot include Studio operations")
+            workbench = LogicWorkbench(self.service)
+            definition = workbench.prepare(patch.get("kind"), patch.get("definition"))
+            if not workbench.tests(patch["kind"], definition)["passed"]:
+                raise ValidationError("logic assets require passing regression cases")
+            rendered = workbench.render_asset(patch["kind"], definition)
+            if set(rendered) != set(documents):
+                raise ValidationError("logic asset paths must match the definition id and version")
+            if any(document is not None for document in documents.values()):
+                raise ConflictError("published logic asset versions are immutable")
             documents = rendered
         elif isinstance(patch, dict) and patch.get("op") == "semantic_control":
             from .semantic_contract import validate_vocabularies
@@ -147,7 +163,7 @@ class ChangePlan:
 
     def apply_approved_template(self, target_source, patch, operations, expected):
         """Atomically materialize an approved, immutable expert template package."""
-        if not isinstance(patch, dict) or patch.get("op") != "template_package":
+        if not isinstance(patch, dict) or patch.get("op") not in ("template_package", "logic_asset"):
             raise ValidationError("direct template application requires a template package ChangeSet")
         from .templates import serialize_document
         documents = self.staged_documents(target_source, patch, operations)
@@ -157,13 +173,13 @@ class ChangePlan:
         staged, applied = [], []
         try:
             for name, document in documents.items():
-                if not name.startswith(("knowledge/templates/", "knowledge/operations/", "knowledge/decisions/")) or not name.endswith(".md"):
+                if not (name.startswith(("knowledge/templates/", "knowledge/operations/", "knowledge/decisions/")) and name.endswith(".md") or patch["op"] == "logic_asset" and name.startswith("control/decision-models/") and name.endswith(".yaml")):
                     raise ValidationError("template package path is outside its authored roots")
                 target = paths[name] or self.root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target.parent,
                                                  prefix=".knowledgeos-template-", suffix=".md", delete=False) as stream:
-                    stream.write(serialize_document(document))
+                    stream.write(serialize_document(document) if target.suffix == ".md" else yaml.safe_dump(document["data"], allow_unicode=True, sort_keys=False))
                     staged.append((Path(stream.name), target))
             if any(target.exists() for _, target in staged):
                 raise ConflictError("template source appeared while applying approved package")

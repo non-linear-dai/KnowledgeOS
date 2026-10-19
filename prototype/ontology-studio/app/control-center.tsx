@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { ArrowRight, CheckCircle2, ChevronDown, DatabaseZap, FileJson2, GitPullRequestArrow, Layers3, Route, ShieldCheck, Workflow, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,7 +43,8 @@ function DefinitionList({ title, subtitle, items, onOpen }: { title: string; sub
   </section>;
 }
 
-export function ControlCenter({ definitions, errors, metadata, connection, onOpenDefinition, onOpenKind }: {
+export function ControlCenter({ definitions, errors, metadata, connection, onOpenDefinition, onOpenKind, actions }: {
+  actions?: ReactNode;
   definitions: OntologyDefinition[];
   errors: string[];
   metadata: StudioMetadata | null;
@@ -62,7 +64,7 @@ export function ControlCenter({ definitions, errors, metadata, connection, onOpe
   return <div className="h-full min-h-0 bg-background">
     <ScrollArea className="h-full"><div className="mx-auto max-w-[1440px] space-y-6 p-5 pb-8 lg:p-8">
       <section>
-        <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-primary" />结构化知识 · 治理控制面</div><h1 className="page-title">控制总览</h1><p className="page-description mt-2">查看注册覆盖与结构状态。选择具体类别进入维护，页面切换统一使用主导航。</p>
+        <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-primary" />知识参考 · 注册目录与说明</div><div className="flex items-center gap-3"><h1 className="page-title">定义总览</h1><div className="ml-auto flex items-center gap-1">{actions}</div></div><p className="page-description mt-2">查阅概念、关系与逻辑定义，了解结构覆盖、语义约定和真源到发布的完整路径。</p>
       </section>
 
       <section aria-label="控制面状态" className="panel-surface grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">

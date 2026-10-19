@@ -49,9 +49,9 @@ class SemanticWorkbench:
                 if document is None:
                     target.unlink(missing_ok=True)
                 elif target.suffix == ".json":
-                    target.write_text(json.dumps(document["data"], ensure_ascii=False))
+                    target.write_text(json.dumps(document["data"], ensure_ascii=False), encoding="utf-8")
                 else:
-                    target.write_text(yaml.safe_dump(document["data"], allow_unicode=True, sort_keys=False))
+                    target.write_text(yaml.safe_dump(document["data"], allow_unicode=True, sort_keys=False), encoding="utf-8")
             candidate = None
             try:
                 candidate = Service(Config(root))

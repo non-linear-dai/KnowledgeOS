@@ -76,9 +76,9 @@ def test_generated_shape_and_shared_compiler_gate(service, workspace):
 
 
 def test_projection_connector_gate_is_atomic(service, workspace):
-    mapping = yaml.safe_load((workspace / 'connectors/examples/erp-suppliers.mapping.yaml').read_text())
+    mapping = yaml.safe_load((workspace / 'connectors/examples/erp-suppliers.mapping.yaml').read_text(encoding="utf-8"))
     mapping['node']['id_prefix'] = 'new-org'; mapping['attrs'].pop('legal_name')
-    record = json.loads((workspace / 'connectors/examples/erp-suppliers.ndjson').read_text().splitlines()[0])
+    record = json.loads((workspace / 'connectors/examples/erp-suppliers.ndjson').read_text(encoding="utf-8").splitlines()[0])
     with pytest.raises(ValidationError, match='requires predicate legal_name'):
         Connector(service).ingest_record(mapping, record, 'new', '1', digest(record), 'erp:supplier:new')
     assert service.db.first("SELECT count(*) AS n FROM connector_record")['n'] == 0
@@ -119,6 +119,21 @@ def test_ontology_assistance_end_to_end_and_independent_review(service, workspac
     assert service.db.first('SELECT count(*) AS n FROM semantic_revision')['n'] == before + 1
 
 
+def test_semantic_preview_writes_utf8_with_gbk_default(service, monkeypatch):
+    request, output = ontology_packet(service)
+    native_write_text = Path.write_text
+
+    def gbk_default(path, data, *args, **kwargs):
+        kwargs.setdefault('encoding', 'gbk')
+        return native_write_text(path, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'write_text', gbk_default)
+    result = service.ontology_preview(request=request, model_output=output)['data']
+    assert result['impact']['compatible']
+    assert result['impact']['candidate_counts']['concepts'] == len(service.registry.ontology['concept_types']) + 1
+    assert service.ledger.verify()['valid']
+
+
 def test_ontology_evidence_integrity_and_stale_request(service, workspace):
     request, output = ontology_packet(service)
     bad = copy.deepcopy(output); bad['operations'][0]['evidence'][0]['quote'] = '无依据的猜测'
@@ -127,7 +142,7 @@ def test_ontology_evidence_integrity_and_stale_request(service, workspace):
     tampered = {**request, 'goal': 'changed'}
     with pytest.raises(ValidationError, match='integrity'):
         service.ontology_preview(request=tampered, model_output=output)
-    path = workspace / 'control/ontology/core.yaml'; path.write_text(path.read_text() + '\n')
+    path = workspace / 'control/ontology/core.yaml'; path.write_text(path.read_text(encoding="utf-8") + '\n', encoding="utf-8")
     service.refresh_registry()
     with pytest.raises(ConflictError, match='stale'):
         service.ontology_preview(request=request, model_output=output)
@@ -195,8 +210,8 @@ def test_competency_regression_and_skill_acceptance(service, workspace):
 
 def test_backup_manifest_revision_retained_and_future_rejected(service, workspace, tmp_path):
     service.close(); folder = tmp_path / 'backup'; manifest = backup(Config(workspace), folder)
-    assert manifest['application_version'] == '4.0.0' and manifest['durable_schema_version'] == 4
-    manifest['durable_schema_version'] = 99; (folder / 'manifest.json').write_text(json.dumps(manifest))
+    assert manifest['application_version'] == '4.0.0' and manifest['durable_schema_version'] == 5
+    manifest['durable_schema_version'] = 99; (folder / 'manifest.json').write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValidationError, match='newer'):
         restore(Config(workspace), folder)
 
@@ -224,10 +239,10 @@ def test_semantic_api_permissions_identity_and_version(service):
 
 def test_single_json_array_is_one_semantic_value(service, workspace):
     definition = {'id': 'inspection_payload', 'label': 'Payload', 'value': {'type': 'json', 'cardinality': 'one'}, 'storage': {'mode': 'attr'}}
-    (workspace / 'control/predicates/inspection_payload.yaml').write_text(yaml.safe_dump(definition))
-    path = workspace / 'control/ontology/core.yaml'; ontology = yaml.safe_load(path.read_text())
+    (workspace / 'control/predicates/inspection_payload.yaml').write_text(yaml.safe_dump(definition), encoding="utf-8")
+    path = workspace / 'control/ontology/core.yaml'; ontology = yaml.safe_load(path.read_text(encoding="utf-8"))
     next(c for c in ontology['concept_types'] if c['id'] == 'organization')['properties'].append({'predicate': 'inspection_payload', 'required': False, 'cardinality': 'one'})
-    path.write_text(yaml.safe_dump(ontology)); service.compile()
+    path.write_text(yaml.safe_dump(ontology), encoding="utf-8"); service.compile()
     document, _ = frontmatter(workspace / 'knowledge/entities/org-acme.md')
     document['knowledge']['attrs']['inspection_payload'] = [{'passed': True}, {'passed': False}]
     assert service.semantic_validate(document=document)['data']['conforms']
@@ -260,7 +275,7 @@ def test_agent_can_register_predicate_and_bind_concept_in_same_changeset(service
 
 def test_unknown_policy_cannot_silently_weaken_provenance(service, workspace):
     path = workspace / 'control/predicates/unit_cost.yaml'
-    definition = yaml.safe_load(path.read_text()); definition['policy']['provenance_tier'] = 'unknown'; path.write_text(yaml.safe_dump(definition))
+    definition = yaml.safe_load(path.read_text(encoding="utf-8")); definition['policy']['provenance_tier'] = 'unknown'; path.write_text(yaml.safe_dump(definition), encoding="utf-8")
     fingerprint = service.registry.fingerprint
     with pytest.raises(ValidationError, match='unregistered provenance_tier'):
         service.refresh_registry()
@@ -270,10 +285,10 @@ def test_unknown_policy_cannot_silently_weaken_provenance(service, workspace):
 def test_incremental_control_change_preserves_connector_authority_and_checks_projection(service, workspace):
     Connector(service).ingest_ndjson(workspace / 'connectors/examples/erp-suppliers.ndjson', workspace / 'connectors/examples/erp-suppliers.mapping.yaml')
     predicate_path = workspace / 'control/predicates/country.yaml'
-    original = yaml.safe_load(predicate_path.read_text()); original['label'] = '国家或地区'; predicate_path.write_text(yaml.safe_dump(original))
+    original = yaml.safe_load(predicate_path.read_text(encoding="utf-8")); original['label'] = '国家或地区'; predicate_path.write_text(yaml.safe_dump(original), encoding="utf-8")
     service.compile()
     assert service.get('org:acme')['data']['attrs']['country'] == 'Singapore'
-    original['value']['type'] = 'boolean'; predicate_path.write_text(yaml.safe_dump(original))
+    original['value']['type'] = 'boolean'; predicate_path.write_text(yaml.safe_dump(original), encoding="utf-8")
     with pytest.raises(ValidationError, match='expects boolean'):
         service.compile()
     assert service.get('org:acme')['data']['attrs']['country'] == 'Singapore'

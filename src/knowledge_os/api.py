@@ -84,13 +84,15 @@ PERMISSIONS = {
     "/v1/calculate": "agent", "/v1/calculate/entity": "agent", "/v1/fx/convert": "agent",
     "/v1/models/preview": "propose", "/v1/business/preview": "propose", "/v1/business/impact": "propose",
     "/v1/templates/propose": "template_edit", "/v1/review": "review",
+    "/v1/logic/run": "agent",
 }
 POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/extraction/request",
              "/v1/ontology/request", "/v1/ontology/preview", "/v1/ontology/propose", "/v1/semantics/validate", "/v1/semantics/impact", "/v1/semantics/vocabulary/propose",
              "/v1/changesets/review-batch/preview", "/v1/changesets/review-batch",
              "/v1/extraction/candidates", "/v1/extraction/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/query",
              "/v1/calculate", "/v1/calculate/entity", "/v1/fx/convert", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/propose",
-             "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose"}
+             "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose",
+             "/v1/logic/preview", "/v1/logic/propose", "/v1/logic/run", "/v1/logic/replay"}
 
 
 class KnowledgeServer(ThreadingHTTPServer):
@@ -142,6 +144,14 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                 self._send(405, {"error": "POST required"}, principal)
                 return
             body = self._body() if self.command == "POST" else {}
+            if path in ("/v1/logic/preview", "/v1/logic/propose"):
+                is_table = body.get("kind") == "decision_table"
+                if path.endswith("propose"):
+                    self.server.auth.authorize(principal, "template_edit" if is_table else "propose")
+                elif is_table:
+                    permissions = {permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]}
+                    if not permissions.intersection({"template_edit", "template_review", "template_publish"}):
+                        raise AuthorizationError("decision table preview requires expert template permission")
             with service.db.lock:
                 service.refresh_registry()
                 self._authorize_governed_mutation(path, body, principal)
@@ -204,7 +214,7 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
         if path == "/v1/propose":
             source = str(body.get("target_source") or "")
             is_template = any(part.strip().startswith(("knowledge/templates/", "knowledge/operations/", "knowledge/decisions/")) for part in source.split(","))
-            if is_template and (not isinstance(body.get("patch"), dict) or body["patch"].get("op") != "template_package"):
+            if is_template and (not isinstance(body.get("patch"), dict) or not (body["patch"].get("op") == "template_package" or body["patch"].get("op") == "logic_asset" and body["patch"].get("kind") == "decision_table")):
                 raise ValidationError("expert templates require the governed template package workflow")
         else:
             row = self.server.service.db.first("SELECT target_source FROM changeset WHERE id=?", (body.get("id"),))
@@ -221,6 +231,26 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self, path, p, body, principal):
         s = self.server.service
+        if path.startswith("/v1/logic"):
+            from .logic_workbench import LogicWorkbench
+            from .service import envelope
+            workbench = LogicWorkbench(s)
+            if path == "/v1/logic":
+                return envelope(workbench.catalog())
+            if path == "/v1/logic/runs":
+                return envelope(workbench.runs(p.get("ref"), p.get("subject_id")))
+            if path == "/v1/logic/preview":
+                return envelope(workbench.preview(body["kind"], body["definition"], body.get("facts"), body.get("entity_bindings"), body.get("as_of")), quality={"preview_only": True, "durable_write": False})
+            if path == "/v1/logic/propose":
+                if not isinstance(body.get("base_revision"), str) or not body["base_revision"]:
+                    raise ValidationError("logic proposals require a catalog baseline")
+                return workbench.propose(actor=principal["id"], kind=body["kind"], definition=body["definition"],
+                                          reason=body["reason"], base_revision=body["base_revision"], idempotency_key=body.get("idempotency_key"))
+            if path == "/v1/logic/run":
+                return envelope(workbench.run(ref=body["ref"], actor=principal["id"], facts=body.get("facts"), entity_bindings=body.get("entity_bindings"),
+                                               as_of=body.get("as_of"), idempotency_key=body.get("idempotency_key")))
+            if path == "/v1/logic/replay":
+                return envelope(workbench.replay(body["id"]), quality={"durable_write": False})
         if path == "/v1/session":
             return {"principal": principal["id"], "roles": principal["roles"],
                     "permissions": list(dict.fromkeys(permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]))}
@@ -264,6 +294,12 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return s.changesets(p.get("status"), p.get("limit", 100))
         if path == "/v1/get":
             return s.get(self._required(p, "id"), p.get("history") == "true")
+        if path == "/v1/instances":
+            return s.instances(p.get("query", ""), kind=p.get("kind"), type=p.get("type"), lifecycle=p.get("lifecycle"),
+                               source_class=p.get("source_class"), domain=p.get("domain"), limit=p.get("limit", 25),
+                               offset=p.get("offset", 0), sort=p.get("sort", "label"))
+        if path == "/v1/instances/get":
+            return s.instance_get(self._required(p, "key"))
         if path == "/v1/search":
             return s.search(self._required(p, "query"), {"type": p["type"]} if p.get("type") else {}, p.get("mode", "hybrid"))
         if path == "/v1/neighbors":
@@ -297,10 +333,10 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return s.preview_business(body["definition"], body["kind"], body["facts"])
         if path == "/v1/business/impact":
             return s.impact_business(body["definition"], body["kind"], body.get("subject_id"),
-                                     body.get("candidate_ids"), body.get("as_of"))
+                                     body.get("candidate_ids"), body.get("as_of"), body.get("context_ids"))
         if path == "/v1/business/evaluate":
             return s.evaluate_business_definition(body["kind"], body["id"], body["subject_id"],
-                                                  body.get("candidate_ids"), body.get("as_of"))
+                                                  body.get("candidate_ids"), body.get("as_of"), body.get("context_ids"))
         if path == "/v1/propose":
             return s.propose(actor=principal["id"], target_source=body["target_source"], patch=body["patch"],
                              reason=body["reason"], risk=body.get("risk", "normal"), title=body.get("title"),

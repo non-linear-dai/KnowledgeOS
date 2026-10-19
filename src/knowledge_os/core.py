@@ -180,12 +180,19 @@ class Registry:
         self.currencies = self._keyed("currencies/**/*.yaml")
         self.domains = self._keyed("domains/*/pack.yaml")
         self.retrieval_profiles = {p.parent.name: load_yaml(p) for p in sorted(self.config.control.glob("domains/*/retrieval_profile.yaml"))}
-        self.schemas = {p.stem.replace(".schema", ""): json.loads(p.read_text()) for p in sorted(self.config.control.glob("schemas/*.json"))}
+        self.schemas = {p.stem.replace(".schema", ""): json.loads(p.read_text(encoding="utf-8-sig")) for p in sorted(self.config.control.glob("schemas/*.json"))}
         for schema in self.schemas.values():
             check_schema(schema)
         self.policies = {p.stem: load_yaml(p) for p in sorted(self.config.control.glob("policies/*.yaml"))}
         self.constraints = self._keyed("constraints/**/*.yaml")
         self.rules = self._keyed("rules/**/*.yaml")
+        self.decision_models = {}
+        for path in sorted(self.config.control.glob("decision-models/*/v*.yaml")):
+            definition = load_yaml(path)
+            identifier = f"{definition.get('id')}@{definition.get('version')}"
+            if identifier in self.decision_models or path.relative_to(self.config.control).as_posix() != f"decision-models/{definition.get('id')}/v{definition.get('version')}.yaml":
+                raise ValidationError("decision model path must match its unique id and version")
+            self.decision_models[identifier] = {**definition, "_path": str(path)}
         self.connectors = {}
         for path in sorted((self.config.root / "connectors").glob("**/*.mapping.yaml")):
             name = path.name.removesuffix(".mapping.yaml")
@@ -254,6 +261,9 @@ class Registry:
                     raise ValidationError(f"predicate {identifier} default unit is not allowed")
         for model in self.models.values():
             validate_model(model, self.predicates, self.ontology, self.units)
+        from .logic_workbench import validate_definition
+        for model in self.decision_models.values():
+            validate_definition("decision_model", model, self)
         after = self.source_fingerprint()
         if before != after:
             raise ConflictError("control sources changed while loading; retry")
@@ -284,7 +294,7 @@ class Registry:
         skill = self.skill(identifier)
         directory = self.config.root / skill["package"]["path"]
         return {"id": skill["id"], "package": skill["package"], "definition": skill,
-                "files": {name: (directory / name).read_text() for name in ("SKILL.md", "contract.yaml")}}
+                "files": {name: (directory / name).read_text(encoding="utf-8-sig") for name in ("SKILL.md", "contract.yaml")}}
 
     def freshness_days(self, predicate_id: str) -> int | None:
         predicate = self.predicates.get(predicate_id, {})

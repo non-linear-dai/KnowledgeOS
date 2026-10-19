@@ -27,10 +27,11 @@ function load(relative, overrides = {}) {
 
 const { rebaseDraft } = load('../app/draft-state.ts');
 const { initialWorkspaceLayout, visibleWorkspacePanels, workspaceLayoutReducer } = load('../app/workspace-layout.ts');
-const { focusedDefinitionEdges, focusedDefinitionIds, layoutFocusedNodes, reconcileCanvasNodes, selectionAfterChanges, uniqueEdgesById } = load('../app/canvas-state.ts');
+const { canvasViewportForNodes, focusedDefinitionEdges, focusedDefinitionIds, layoutFilteredNodes, layoutFocusedNodes, matchesDefinitionFilters, reconcileCanvasNodes, selectionAfterChanges, uniqueEdgesById } = load('../app/canvas-state.ts');
 const { wireSnapshot, connectionFailure } = load('../app/studio-contract.ts');
 const { authorityOptions, initialDefinitions } = load('../app/studio-data.ts');
 const { whiteboardDefinitions, whiteboardKinds } = load('../app/whiteboard-scope.ts');
+const { domainDefinitionIds, workDomainLabel, workDomains } = load('../app/work-domains.ts');
 const { dimensionOptions, physicalUnitOptions, currencyOptions, modelUnitOptions, conceptOptions, outputPredicateOptions } = load('../app/registered-options.ts');
 const base = { id: 'org', kind: 'concept', label: 'Original', description: 'Before', lifecycle: 'active', sourcePath: 'control/ontology/extension.yaml', config: {}, refs: 0, files: [] };
 
@@ -87,8 +88,8 @@ test('panel reducer preserves unrelated caller state and never mutates its input
 
 test('overview navigation is not duplicated in its hero and hidden inspectors remain mounted', () => {
   const overview = readFileSync(new URL('../app/control-center.tsx', import.meta.url), 'utf8');
-  const studio = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
-  const template = readFileSync(new URL('../app/templates/page.tsx', import.meta.url), 'utf8');
+  const studio = readFileSync(new URL('../app/ontology-workspace.tsx', import.meta.url), 'utf8');
+  const template = readFileSync(new URL('../app/templates/template-workspace.tsx', import.meta.url), 'utf8');
   assert(!overview.includes('onOpenStudio'));
   assert(!overview.includes('onOpenReview'));
   assert(!overview.includes('进入结构白板'));
@@ -108,6 +109,22 @@ test('whiteboard shows editable ontology and schema cards, excluding fixed regis
   assert(!whiteboardKinds.includes('unit'));
   assert(!whiteboardKinds.includes('currency'));
   assert(whiteboardDefinitions(initialDefinitions).every((item) => !item.readOnly));
+});
+
+test('work domain selection uses registered scopes without expanding through shared predicates', () => {
+  const definitions = [
+    { ...base, id: 'domain:cost', kind: 'domain', label: 'Cost analysis', config: { definition_scope: ['org', 'summary', 'model:cost'] } },
+    { ...base, id: 'org' }, { ...base, id: 'project' },
+    { ...base, id: 'summary', kind: 'predicate' }, { ...base, id: 'model:cost', kind: 'model' },
+  ];
+  assert.deepEqual([...domainDefinitionIds(definitions, 'cost')], ['org', 'summary', 'model:cost']);
+  assert(!domainDefinitionIds(definitions, 'cost').has('project'));
+  assert.deepEqual([...domainDefinitionIds(definitions, 'missing')], []);
+  assert.equal(workDomainLabel(workDomains(definitions)[0]), '成本分析');
+  assert.equal(workDomainLabel({ id: 'custom', label: '自定义领域' }), '自定义领域');
+  const demoIds = domainDefinitionIds(initialDefinitions, 'cost');
+  assert(demoIds.has('product') && demoIds.has('organization') && demoIds.has('model:cost_rollup'));
+  assert(!demoIds.has('project') && !demoIds.has('task') && !demoIds.has('model:project_risk_score'));
 });
 
 test('registered selectors restrict dimensions, currencies and model outputs to valid definitions', () => {
@@ -138,6 +155,52 @@ test('canvas keeps measured nodes and dragged positions while definitions update
   assert.deepEqual(reconcileCanvasNodes(current, projected)[0].measured, { width: 248, height: 148 });
   assert.equal(reconcileCanvasNodes(current, projected)[0].data.label, 'New');
   assert.deepEqual(reconcileCanvasNodes(current, projected, true)[0].position, { x: 80, y: 60 });
+});
+
+test('canvas filters intersect search, type, lifecycle and storage without keeping unmatched cards', () => {
+  const definitions = [
+    { ...base, id: 'equipment', label: 'Equipment', description: '设备', kind: 'concept' },
+    { ...base, id: 'rated_power', label: 'Rated power', description: 'Equipment power', kind: 'predicate', config: { storage_mode: 'assertion' } },
+    { ...base, id: 'equipment_name', label: 'Name', kind: 'predicate', lifecycle: 'draft', config: { storage_mode: 'attr' } },
+  ];
+  const all = { search: '', kind: 'all', lifecycle: 'all', storage: 'all' };
+  const ids = filters => definitions.filter(definition => matchesDefinitionFilters(definition, { ...all, ...filters })).map(definition => definition.id);
+  assert.deepEqual(ids({}), ['equipment', 'rated_power', 'equipment_name']);
+  assert.deepEqual(ids({ kind: 'concept' }), ['equipment']);
+  assert.deepEqual(ids({ search: '  EQUIPMENT ', kind: 'predicate', lifecycle: 'active', storage: 'assertion' }), ['rated_power']);
+  assert.deepEqual(ids({ search: '设备' }), ['equipment']);
+  assert.deepEqual(ids({ lifecycle: 'draft', storage: 'assertion' }), []);
+  assert.deepEqual(ids({ search: 'not found' }), []);
+});
+
+test('filtered cards use a compact grid and preserve both global and temporary dragged positions', () => {
+  const original = Array.from({ length: 34 }, (_, index) => ({ id: `p${index}`, position: { x: 2200, y: index * 212 }, data: {} }));
+  const before = structuredClone(original);
+  const result = layoutFilteredNodes(original, { width: 1100, height: 620 });
+  assert.equal(new Set(result.map(node => `${node.position.x},${node.position.y}`)).size, 34);
+  assert(new Set(result.map(node => node.position.x)).size > 1);
+  assert(Math.max(...result.map(node => node.position.y)) < 1500);
+  assert.deepEqual(original, before);
+  assert.deepEqual(layoutFilteredNodes(original, { width: 1100, height: 620 }, { p0: { x: 15, y: 23 } })[0].position, { x: 15, y: 23 });
+  assert.deepEqual(layoutFilteredNodes([], { width: 390, height: 740 }), []);
+});
+
+test('filtered viewport centers every result inside the free canvas on desktop, phone and overlay layouts', () => {
+  for (const area of [
+    { x: 76, y: 24, width: 1124, height: 624 },
+    { x: 392, y: 24, width: 432, height: 624 },
+    { x: 76, y: 24, width: 298, height: 748 },
+  ]) {
+    const nodes = layoutFilteredNodes(Array.from({ length: 34 }, (_, index) => ({ id: `p${index}`, position: { x: 2000, y: index * 1000 }, data: {} })), area);
+    const view = canvasViewportForNodes(nodes, area);
+    const bounds = nodes.map(node => ({ left: view.x + node.position.x * view.zoom, top: view.y + node.position.y * view.zoom, right: view.x + (node.position.x + 248) * view.zoom, bottom: view.y + (node.position.y + 160) * view.zoom }));
+    assert(bounds.every(box => box.left >= area.x && box.right <= area.x + area.width && box.top >= area.y && box.bottom <= area.y + area.height));
+    assert(Math.abs((Math.min(...bounds.map(box => box.left)) + Math.max(...bounds.map(box => box.right))) / 2 - (area.x + area.width / 2)) < .001);
+    assert(Math.abs((Math.min(...bounds.map(box => box.top)) + Math.max(...bounds.map(box => box.bottom))) / 2 - (area.y + area.height / 2)) < .001);
+  }
+  const single = canvasViewportForNodes([{ id: 'one', position: { x: 10000, y: 20000 }, data: {} }], { x: 76, y: 24, width: 1000, height: 624 });
+  assert.equal(single.zoom, .9);
+  assert.equal(canvasViewportForNodes([], { x: 0, y: 0, width: 1000, height: 720 }), null);
 });
 
 test('focus layout fits types into compact vertical columns without changing global positions', () => {
@@ -264,7 +327,7 @@ test('Studio proxy never substitutes a service token and rejects cross-site writ
 });
 
 test('Studio product surface excludes the knowledge extraction workspace', () => {
-  const page = readFileSync(fileURLToPath(new URL('../app/page.tsx', import.meta.url)), 'utf8');
+  const page = readFileSync(fileURLToPath(new URL('../app/ontology-workspace.tsx', import.meta.url)), 'utf8');
   const control = readFileSync(fileURLToPath(new URL('../app/control-center.tsx', import.meta.url)), 'utf8');
   assert(!page.includes('ExtractionCenter'));
   assert(!page.includes('知识抽取'));

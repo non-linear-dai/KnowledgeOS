@@ -143,10 +143,10 @@ def parser():
 def _source(args):
     content = None
     if args.content_file:
-        content = open(args.content_file, encoding="utf-8").read()
+        content = Path(args.content_file).read_text(encoding="utf-8-sig")
     elif args.source and args.source_type in ("file", "meeting_minutes") and Path(args.source).suffix.lower() in (
             ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".yaml", ".yml", ".html", ".htm", ".xml", ".vtt", ".srt"):
-        content = open(args.source, encoding="utf-8").read()
+        content = Path(args.source).read_text(encoding="utf-8-sig")
     source = {"kind": args.source_type, "locator": args.locator or args.source, "content": content, "metadata": {}}
     if not content and args.materializer_command:
         materialized = _command(args.materializer_command, {"protocol_version": "knowledgeos.materialization.v1", "source": source},
@@ -158,6 +158,10 @@ def _source(args):
     if not source["content"]:
         raise ValidationError(f"{args.source_type} source requires content or a materializer adapter")
     return source
+
+
+def _read_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
 
 def _command(command, payload, timeout):
@@ -175,7 +179,7 @@ def _command(command, payload, timeout):
     if not argv:
         raise ValidationError("adapter command is required")
     try:
-        completed = subprocess.run(argv, input=json.dumps(payload, ensure_ascii=False), text=True,
+        completed = subprocess.run(argv, input=json.dumps(payload, ensure_ascii=False), text=True, encoding="utf-8",
                                    capture_output=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
         raise ValidationError(f"adapter command timed out after {timeout}s") from exc
@@ -234,13 +238,13 @@ def run(argv=None):
                 print(service.semantic_export(args.format, args.scope, args.id)["data"]["content"])
                 return 0
             elif command == "semantic-validate":
-                result = service.semantic_validate(document=json.loads(Path(args.document).read_text(encoding="utf-8")))
+                result = service.semantic_validate(document=_read_json(args.document))
             elif command == "ontology-request":
-                result = service.ontology_request(goal=args.goal, material=Path(args.material_file).read_text(encoding="utf-8"))
+                result = service.ontology_request(goal=args.goal, material=Path(args.material_file).read_text(encoding="utf-8-sig"))
             elif command in ("ontology-preview", "ontology-propose"):
-                packet = json.loads(Path(args.request).read_text(encoding="utf-8"))
+                packet = _read_json(args.request)
                 packet = packet.get("data", packet)
-                output = json.loads(Path(args.model_response).read_text(encoding="utf-8"))
+                output = _read_json(args.model_response)
                 if command == "ontology-preview":
                     result = service.ontology_preview(request=packet, model_output=output)
                 else:
@@ -271,18 +275,18 @@ def run(argv=None):
                 result = service.agent_request(question=args.question, domain=args.domain, target=args.target, query=args.query,
                                                skill=args.skill, as_of=args.as_of, max_items=args.max_items)
             elif command == "agent-respond":
-                request = json.load(open(args.request))
+                request = _read_json(args.request)
                 if isinstance(request.get("data"), dict):
                     request = request["data"]
-                tool_results = json.load(open(args.tool_results)) if args.tool_results else []
-                result = service.agent_respond(request=request, model_output=json.load(open(args.model_response)), tool_results=tool_results)
+                tool_results = _read_json(args.tool_results) if args.tool_results else []
+                result = service.agent_respond(request=request, model_output=_read_json(args.model_response), tool_results=tool_results)
             elif command == "agent-invoke":
                 result = service.agent_invoke(domain=args.domain, operation=args.operation, arguments=json.loads(args.arguments))
             elif command == "extract-contract":
                 result = service.extraction_request(source=_source(args), profile=args.profile)
             elif command == "extract":
                 request = service.extraction_request(source=_source(args), profile=args.profile)["data"]
-                model_output = json.load(open(args.model_response)) if args.model_response else _command(args.model_command, request, args.timeout)
+                model_output = _read_json(args.model_response) if args.model_response else _command(args.model_command, request, args.timeout)
                 result = service.extraction_candidates(request=request, model_output=model_output, profile=args.profile)
             elif command == "ingest":
                 from .connector import Connector

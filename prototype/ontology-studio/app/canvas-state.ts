@@ -1,5 +1,37 @@
 import type { Node, NodeChange } from "@xyflow/react";
-import type { DependencyEdge, OntologyDefinition } from "./studio-data";
+import type { DefinitionKind, DependencyEdge, Lifecycle, OntologyDefinition } from "./studio-data";
+
+export type DefinitionFilters = { search: string; kind: "all" | DefinitionKind; lifecycle: "all" | Lifecycle; storage: string };
+
+export function matchesDefinitionFilters(definition: OntologyDefinition, filters: DefinitionFilters): boolean {
+  const query = filters.search.trim().toLowerCase();
+  return (!query || `${definition.id} ${definition.label} ${definition.description}`.toLowerCase().includes(query))
+    && (filters.kind === "all" || definition.kind === filters.kind)
+    && (filters.lifecycle === "all" || definition.lifecycle === filters.lifecycle)
+    && (filters.storage === "all" || definition.config.storage_mode === filters.storage);
+}
+
+/** A temporary, compact result layout; the authored board positions stay intact. */
+export function layoutFilteredNodes<T extends Node>(nodes: T[], area: { width: number; height: number }, positions: Record<string, { x: number; y: number }> = {}): T[] {
+  let columns = 1, bestScale = 0;
+  for (let count = 1; count <= nodes.length; count++) {
+    const rows = Math.ceil(nodes.length / count);
+    const scale = Math.min(area.width / (count * 280 - 32), area.height / (rows * 192 - 32));
+    if (scale > bestScale) { bestScale = scale; columns = count; }
+  }
+  return nodes.map((node, index) => ({ ...node, position: positions[node.id] ?? { x: (index % columns) * 280, y: Math.floor(index / columns) * 192 } }));
+}
+
+/** Fit the projected nodes into the unobscured canvas, without a clipping zoom floor. */
+export function canvasViewportForNodes(nodes: Node[], area: { x: number; y: number; width: number; height: number }, maxZoom = .9) {
+  if (!nodes.length || area.width <= 0 || area.height <= 0) return null;
+  const left = Math.min(...nodes.map(node => node.position.x));
+  const top = Math.min(...nodes.map(node => node.position.y));
+  const right = Math.max(...nodes.map(node => node.position.x + (node.measured?.width ?? node.width ?? node.initialWidth ?? 248)));
+  const bottom = Math.max(...nodes.map(node => node.position.y + (node.measured?.height ?? node.height ?? node.initialHeight ?? 160)));
+  const zoom = Math.min(maxZoom, area.width * .9 / Math.max(1, right - left), area.height * .9 / Math.max(1, bottom - top));
+  return { x: area.x + area.width / 2 - (left + right) / 2 * zoom, y: area.y + area.height / 2 - (top + bottom) / 2 * zoom, zoom };
+}
 
 export function focusedDefinitionEdges(selectedId: string | null, definitions: OntologyDefinition[], edges: DependencyEdge[]): DependencyEdge[] {
   if (!selectedId) return [];

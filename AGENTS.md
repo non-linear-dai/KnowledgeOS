@@ -7,3 +7,4 @@
 - Agent-originated durable changes must be represented as ChangeSets. Tier A assertions require complete provenance.
 - Use deterministic code for arithmetic, unit-sensitive values, schedules, and policy decisions.
 - Add or update tests for compiler, ledger, policy, and API behavior with every semantic change.
+- After each UI update, start or reuse a working local frontend and backend, verify access, and include clickable test URLs and any required local login instructions in the handoff. Keep those preview services running for the user's validation unless asked to stop them.

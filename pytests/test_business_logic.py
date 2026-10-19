@@ -85,7 +85,7 @@ def test_business_changeset_requires_version_review_and_publishes(service, works
     applied = service.apply_changeset(id=proposed["id"], publisher="ontology:publisher")["data"]
     assert applied["source_revision"].startswith("sha256:")
     service.publish_changeset(id=proposed["id"], publisher="ontology:publisher", source_revision=applied["source_revision"])
-    published = yaml.safe_load((workspace / path).read_text())
+    published = yaml.safe_load((workspace / path).read_text(encoding="utf-8"))
     assert published["version"] == "1.0.1" and published["status"]["lifecycle"] == "active"
     assert service.studio()["data"]["coverage"]["business_rule"] == 1
     with pytest.raises(ValidationError, match="deprecated, not deleted"):
@@ -101,7 +101,7 @@ def test_active_business_constraint_blocks_invalid_canonical_fact(service, works
         "scope": {"subject_concept": "organization"},
         "inputs": [{"id": "name", "role": "subject", "predicate": "legal_name"}],
         "checks": [{"left": "name", "operator": "eq", "right": {"value": "impossible-name"}}],
-    }))
+    }), encoding="utf-8")
     with pytest.raises(ValidationError, match="business constraint org_name_guard is invalid"):
         service.compile()
 
@@ -116,7 +116,7 @@ def test_published_business_rule_derives_candidate_subset_with_source_refs(servi
         "inputs": [{"id": "subject_name", "role": "subject", "predicate": "legal_name"},
                    {"id": "candidate_name", "role": "candidate", "predicate": "legal_name"}],
         "checks": [{"left": "candidate_name", "operator": "eq", "right": {"input": "subject_name"}}],
-    }))
+    }), encoding="utf-8")
     service.refresh_registry()
     result = service.evaluate_business_definition("business_rule", "organization_name_match", "org:acme")["data"]
     assert "org:acme" in result["eligible_candidate_ids"]
@@ -157,7 +157,7 @@ def test_active_business_constraint_rejects_invalid_connector_record_atomically(
         "scope": {"subject_concept": "organization"},
         "inputs": [{"id": "country", "role": "subject", "predicate": "country"}],
         "checks": [{"left": "country", "operator": "eq", "right": {"value": "China"}}],
-    }))
+    }), encoding="utf-8")
     service.refresh_registry()
     mapping = workspace / "connectors/examples/erp-suppliers.mapping.yaml"
     records = workspace / "connectors/examples/erp-suppliers.ndjson"
@@ -169,10 +169,10 @@ def test_active_business_constraint_rejects_invalid_connector_record_atomically(
 
 def test_new_active_constraint_checks_existing_connector_entities(service, workspace):
     mapping = workspace / "connectors/examples/erp-suppliers.mapping.yaml"
-    record = json.loads((workspace / "connectors/examples/erp-suppliers.ndjson").read_text().splitlines()[0])
+    record = json.loads((workspace / "connectors/examples/erp-suppliers.ndjson").read_text(encoding="utf-8").splitlines()[0])
     record.update({"supplier_id": "SUP-900", "canonical_id": "vendor900"})
     records = workspace / "connectors/examples/vendor900.ndjson"
-    records.write_text(json.dumps(record) + "\n")
+    records.write_text(json.dumps(record) + "\n", encoding="utf-8")
     assert Connector(service).ingest_ndjson(records, mapping)["ingested"] == 1
     assert service.db.first("SELECT source_class FROM node WHERE id='org:vendor900'")["source_class"] != "git_authored"
     constraint = {
@@ -183,6 +183,6 @@ def test_new_active_constraint_checks_existing_connector_entities(service, works
         "inputs": [{"id": "country", "role": "subject", "predicate": "country"}],
         "checks": [{"left": "country", "operator": "eq", "right": {"value": "China"}}],
     }
-    (workspace / "control/constraints/business/existing_country_guard.yaml").write_text(yaml.safe_dump(constraint))
+    (workspace / "control/constraints/business/existing_country_guard.yaml").write_text(yaml.safe_dump(constraint), encoding="utf-8")
     with pytest.raises(ValidationError, match="connector node org:vendor900: business constraint existing_country_guard is invalid"):
         service.compile()

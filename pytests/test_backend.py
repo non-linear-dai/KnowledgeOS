@@ -30,8 +30,8 @@ def test_compiler_incremental_and_atomic(service, workspace):
     assert service.get("org:acme")["data"]["label"] == "Acme Industrial Systems"
     assert service.neighbors("org:acme")["data"]["edges"]
     path = workspace / "knowledge/entities/org-acme.md"
-    original = path.read_text()
-    path.write_text(original.replace("predicate: finding", "predicate: nonexistent_predicate"))
+    original = path.read_text(encoding="utf-8")
+    path.write_text(original.replace("predicate: finding", "predicate: nonexistent_predicate"), encoding="utf-8")
     with pytest.raises(ValidationError, match="unregistered predicate"):
         service.compile()
     assert service.get("org:acme")["data"]["label"] == "Acme Industrial Systems"
@@ -139,17 +139,17 @@ def test_connector_replay_survives_rebuild(service, workspace):
 def test_connector_embedding_policy_and_deletion_replay(service, workspace):
     connector = Connector(service)
     mapping = workspace / "connectors/examples/erp-suppliers.mapping.yaml"
-    mapping.write_text(mapping.read_text() + "\ndeleted_field: deleted\n")
+    mapping.write_text(mapping.read_text(encoding="utf-8") + "\ndeleted_field: deleted\n", encoding="utf-8")
     records = workspace / "connectors/examples/erp-suppliers.ndjson"
-    original = json.loads(records.read_text())
+    original = json.loads(records.read_text(encoding="utf-8"))
     connector.ingest_ndjson(records, mapping)
     before = service.db.first("SELECT vector_json FROM node_embedding WHERE node_id='org:acme'")["vector_json"]
     changed = {**original, "lead_time_days": 987654, "version": "18", "updated_at": "2026-09-26T08:00:00Z"}
-    records.write_text(json.dumps(changed) + "\n")
+    records.write_text(json.dumps(changed) + "\n", encoding="utf-8")
     connector.ingest_ndjson(records, mapping)
     assert service.db.first("SELECT vector_json FROM node_embedding WHERE node_id='org:acme'")["vector_json"] == before
     deleted = {**changed, "deleted": True, "version": "19", "updated_at": "2026-09-27T08:00:00Z"}
-    records.write_text(json.dumps(deleted) + "\n")
+    records.write_text(json.dumps(deleted) + "\n", encoding="utf-8")
     connector.ingest_ndjson(records, mapping)
     assert service.get("org:acme")["data"]["attrs"]["country"] == "China"
     service.compile(rebuild=True)
@@ -162,7 +162,7 @@ def test_upstream_changeset_requires_matching_connector_result(service, workspac
     mapping = workspace / "connectors/examples/erp-suppliers.mapping.yaml"
     records = workspace / "connectors/examples/erp-suppliers.ndjson"
     connector.ingest_ndjson(records, mapping)
-    future = json.loads(records.read_text().strip())
+    future = json.loads(records.read_text(encoding="utf-8").strip())
     future["lead_time_days"] = 35
     future["version"] = "18"
     future["updated_at"] = "2026-09-26T08:00:00Z"
@@ -172,7 +172,7 @@ def test_upstream_changeset_requires_matching_connector_result(service, workspac
     with pytest.raises(ValidationError, match="source_revision"):
         service.publish_changeset(id=proposal["id"], publisher="publisher:test", source_revision="18")
     next_record = workspace / "connectors/examples/next.ndjson"
-    next_record.write_text(json.dumps(future) + "\n")
+    next_record.write_text(json.dumps(future) + "\n", encoding="utf-8")
     connector.ingest_ndjson(next_record, mapping)
     published = service.publish_changeset(id=proposal["id"], publisher="publisher:test", source_revision="18")["data"]
     assert published["verification"]["kind"] == "upstream_source_system"
@@ -221,7 +221,7 @@ def test_changeset_review_and_publication(service, workspace):
     service.review_changeset(id=proposal["id"], reviewer="reviewer:test", decision="approved")
     with pytest.raises(ValidationError, match="not changed"):
         service.publish_changeset(id=proposal["id"], publisher="publisher:test", source_revision=proposal["base_revision"])
-    path.write_text(path.read_text().replace("label: Acme Industrial Systems", "label: Acme Updated"))
+    path.write_text(path.read_text(encoding="utf-8").replace("label: Acme Industrial Systems", "label: Acme Updated"), encoding="utf-8")
     revision = ChangePlan(service).revision(target)
     published = service.publish_changeset(id=proposal["id"], publisher="publisher:test", source_revision=revision)["data"]
     assert published["status"] == "published"
@@ -414,7 +414,7 @@ def test_source_paths_and_fingerprint_are_portable(service, workspace):
 
 
 def test_adapter_command_accepts_json_argv_and_native_command_line():
-    script = 'import json,sys; print(json.dumps({"value": json.load(sys.stdin)["value"]}))'
+    script = 'import json,sys; print(json.dumps({"value": json.load(sys.stdin)["value"]}, ensure_ascii=False))'
     argv = [sys.executable, "-c", script]
     assert _command(json.dumps(argv), {"value": "中文"}, 5) == {"value": "中文"}
     command = subprocess.list2cmdline(argv) if sys.platform == "win32" else shlex.join(argv)
@@ -474,7 +474,7 @@ def test_durable_state_survives_disposable_index_recreation(workspace):
 def test_recorded_time_keeps_earlier_snapshot(service, workspace):
     first = service.db.first("SELECT recorded_at FROM entity_snapshot WHERE node_id='project:atlas' ORDER BY recorded_at DESC LIMIT 1")["recorded_at"]
     path = workspace / "knowledge/entities/project-atlas.md"
-    path.write_text(path.read_text().replace("label: Project Atlas", "label: Project Atlas Revised"))
+    path.write_text(path.read_text(encoding="utf-8").replace("label: Project Atlas", "label: Project Atlas Revised"), encoding="utf-8")
     service.compile()
     assert service.get("project:atlas")["data"]["label"] == "Project Atlas Revised"
     old = service.context("project:atlas", domain="pm", as_of=first, recorded_as_of=first)["data"]
@@ -506,7 +506,7 @@ def test_control_studio_and_portable_agent_skill(service, workspace):
     assert set(bundle["data"]["files"]) == {"SKILL.md", "contract.yaml"}
     assert bundle["quality_status"]["portable"] is True
     extension = workspace / "control/ontology/extension.yaml"
-    extension.write_text("concept_types:\n  - id: lab_sample\n    label: Laboratory sample\n    properties: []\n")
+    extension.write_text("concept_types:\n  - id: lab_sample\n    label: Laboratory sample\n    properties: []\n", encoding="utf-8")
     extended = service.studio()["data"]
     assert next(item for item in extended["definitions"] if item["id"] == "lab_sample")["source_path"] == "control/ontology/extension.yaml"
 
@@ -552,12 +552,12 @@ policy:
   authority: git_authored
   provenance_tier: C
 status: { lifecycle: active, equivalent_to: }
-""")
+""", encoding="utf-8")
     ontology = workspace / "control/ontology/core.yaml"
-    ontology.write_text(ontology.read_text().replace(
+    ontology.write_text(ontology.read_text(encoding="utf-8").replace(
         "      - { predicate: country, required: false, cardinality: inherit, group: profile }",
         "      - { predicate: country, required: false, cardinality: inherit, group: profile }\n"
-        "      - { predicate: website, required: false, cardinality: inherit, group: profile }"))
+        "      - { predicate: website, required: false, cardinality: inherit, group: profile }"), encoding="utf-8")
     stale_output = {"protocol_version": previous["protocol_version"], "registry_fingerprint": previous["registry_fingerprint"], "entities": []}
     with pytest.raises(ValidationError, match="stale"):
         service.extraction_candidates(request=previous, model_output=stale_output)
@@ -609,6 +609,6 @@ def test_python_cli_command_surface(workspace):
     assert run("agent-request", "What does Acme make?", "--domain", "industry", "--target", "org:acme")["data"]["evidence"]
     assert run("calculate", "cost_rollup", "--inputs", '{"material_cost":100,"labor_hours":1.5,"labor_rate":20,"overhead":8}')["data"]["output"]["value"] == "138.0"
     source = workspace / "source.txt"
-    source.write_text("Acme builds servo modules.")
+    source.write_text("Acme builds servo modules.", encoding="utf-8")
     assert run("extract-contract", "--source-type", "text", "--content-file", str(source))["data"]["output_schema"]
     assert run("verify-ledger")["valid"]

@@ -13,6 +13,12 @@ OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte"}
 ROLES = {"subject", "candidate"}
 
 
+def business_roles(definition):
+    scope = definition.get("scope", {})
+    return {"subject": scope.get("subject_concept"), "candidate": scope.get("candidate_concept"),
+            **scope.get("context_concepts", {})}
+
+
 def _version(value):
     if not re.fullmatch(r"\d+\.\d+\.\d+", str(value)):
         raise ValidationError("business definition requires a semantic version")
@@ -35,6 +41,20 @@ def validate_business(definition, kind, predicates, ontology, units):
         raise ValidationError("business scope requires a registered subject concept")
     if kind == "business_rule" and scope.get("candidate_concept") not in concepts:
         raise ValidationError("business rule requires a registered candidate concept")
+    contexts = scope.get("context_concepts", {})
+    if not isinstance(contexts, dict) or len(contexts) > 8 or any(
+        not re.fullmatch(r"[a-z][a-z0-9_]*", str(role)) or role in ROLES or concept not in concepts
+        for role, concept in contexts.items()
+    ):
+        raise ValidationError("business contexts require up to eight named registered concepts")
+    if kind == "business_constraint" and contexts:
+        raise ValidationError("compile-time business constraints accept subject facts only")
+    for field in ("subject_ids", "candidate_ids"):
+        identifiers = scope.get(field, [])
+        if not isinstance(identifiers, list) or len(identifiers) > 500 or any(not isinstance(value, str) or not value.strip() for value in identifiers) or len(identifiers) != len(set(identifiers)):
+            raise ValidationError("business instance scope requires up to 500 unique ids")
+        if kind == "business_constraint" and identifiers:
+            raise ValidationError("compile-time constraints cannot be restricted to particular instances")
     if kind == "business_rule" and scope.get("relation_type"):
         relation = next((item for item in ontology.get("relation_types", []) if item["id"] == scope["relation_type"]), None)
         if not relation or (scope["subject_concept"], scope["candidate_concept"]) not in {
@@ -56,9 +76,9 @@ def validate_business(definition, kind, predicates, ontology, units):
             raise ValidationError(f"unknown business input predicate {item.get('predicate')}")
         if predicates[item["predicate"]].get("value", {}).get("type") not in ("number", "decimal", "quantity", "string", "text", "enum", "boolean", "date", "datetime"):
             raise ValidationError("business input predicate has an unsupported value type")
-        if item.get("role") not in ROLES or (kind == "business_constraint" and item["role"] != "subject"):
+        if item.get("role") not in business_roles(definition) or (kind == "business_constraint" and item["role"] != "subject"):
             raise ValidationError("invalid business input role")
-        concept_id = scope[f"{item['role']}_concept"]
+        concept_id = business_roles(definition)[item["role"]]
         concept = next(value for value in ontology["concept_types"] if value["id"] == concept_id)
         if concept.get("properties") and item["predicate"] not in {binding["predicate"] for binding in concept["properties"]}:
             raise ValidationError(f"predicate {item['predicate']} is not bound to concept {concept_id}")
@@ -124,6 +144,10 @@ def evaluate_business(definition, kind, facts, predicates, ontology, units):
     validate_business(definition, kind, predicates, ontology, units)
     if not isinstance(facts, dict) or not isinstance(facts.get("subject"), dict):
         raise ValidationError("business facts require a subject object")
+    contexts = facts.get("contexts", {})
+    if not isinstance(contexts, dict) or any(key not in definition.get("scope", {}).get("context_concepts", {}) or not isinstance(value, dict)
+                                             for key, value in contexts.items()):
+        raise ValidationError("business context facts must match declared context roles")
     candidates = facts.get("candidates", []) if kind == "business_rule" else [None]
     if kind == "business_rule" and (not isinstance(candidates, list) or len(candidates) > 500 or any(not isinstance(item, dict) for item in candidates)):
         raise ValidationError("business rule requires up to 500 candidate objects")
@@ -132,13 +156,13 @@ def evaluate_business(definition, kind, facts, predicates, ontology, units):
     for index, candidate in enumerate(candidates):
         bound, traces = {}, []
         for item in definition["inputs"]:
-            source = facts["subject"] if item["role"] == "subject" else candidate
+            source = facts["subject"] if item["role"] == "subject" else candidate if item["role"] == "candidate" else contexts.get(item["role"])
             raw = source.get(item["predicate"]) if source else None
             bound[item["id"]] = None if raw is None else _comparable(raw, predicates[item["predicate"]], units)
         for check in definition["checks"]:
             right = check["right"]
-            subject_only = input_roles[check["left"]] == "subject" and (
-                "input" not in right or input_roles[right["input"]] == "subject"
+            subject_only = input_roles[check["left"]] != "candidate" and (
+                "input" not in right or input_roles[right["input"]] != "candidate"
             )
             lhs = bound[check["left"]]
             rhs = bound[right["input"]] if "input" in right else _comparable(right["value"], predicates[next(item["predicate"] for item in definition["inputs"] if item["id"] == check["left"])], units)
@@ -154,6 +178,14 @@ def evaluate_business(definition, kind, facts, predicates, ontology, units):
                            "passed": passed, "stage": "subject_match" if subject_only else "candidate_condition",
                            "message": check.get("message", ""),
                            "left_value": str(lhs) if lhs is not None else None, "right_value": str(rhs) if rhs is not None else None})
+        if kind == "business_rule":
+            for field, source, stage in (("subject_ids", facts["subject"], "subject_match"), ("candidate_ids", candidate, "candidate_condition")):
+                identifiers = definition["scope"].get(field, [])
+                if identifiers:
+                    identifier = (source or {}).get("id")
+                    traces.append({"left": "id", "operator": "in", "right": {"value": identifiers},
+                                   "passed": None if not identifier else identifier in identifiers, "stage": stage,
+                                   "message": "实例适用范围", "left_value": identifier, "right_value": ", ".join(identifiers)})
         if kind == "business_constraint":
             if any(trace["passed"] is False for trace in traces):
                 verdict = "invalid"

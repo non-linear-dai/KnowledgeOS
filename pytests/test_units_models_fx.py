@@ -77,7 +77,7 @@ knowledge:
   relations: []
   logic_refs: [equipment_hourly_depreciation]
 ---
-""")
+""", encoding="utf-8")
     service.compile()
     result = service.calculate_for_entity("equipment_hourly_depreciation", "equipment:test",
                                           as_of="2026-10-01T00:00:00Z")["data"]
@@ -109,11 +109,11 @@ assertions:
       base_currency: { field: base_currency }
       quote_currency: { field: quote_currency }
       rate_type: { field: rate_type }
-""")
+""", encoding="utf-8")
     records = workspace / "connectors/examples/test-fx.ndjson"
     records.write_text(json.dumps({"quote_id": "usd-cny-mid", "version": "1", "observed_at": "2026-09-29T00:00:00Z",
                                    "rate": "7.2", "rate_unit": "CNY_per_USD", "base_currency": "USD",
-                                   "quote_currency": "CNY", "rate_type": "mid"}) + "\n")
+                                   "quote_currency": "CNY", "rate_type": "mid"}) + "\n", encoding="utf-8")
     assert Connector(service).ingest_ndjson(records, mapping)["ingested"] == 1
     result = service.convert_currency({"literal": "100", "unit": "USD"}, "fx:usd-cny-mid",
                                       as_of="2026-09-29T12:00:00Z")["data"]
@@ -185,7 +185,7 @@ def test_unit_and_currency_changesets_validate_version(service, workspace):
     proposal_id, source_path = stale_application
     service.review_changeset(id=proposal_id, reviewer="reviewer:test", decision="approved")
     target = workspace / source_path
-    target.write_text(target.read_text() + "\n")
+    target.write_text(target.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     with pytest.raises(ConflictError, match="source changed"):
         service.apply_changeset(id=proposal_id, publisher="publisher:test")
 
@@ -194,7 +194,7 @@ def test_model_history_keeps_prior_definition_after_recompile(service, workspace
     original = service.model_history("equipment_hourly_depreciation")["data"]
     assert len(original) == 1 and original[0]["version"] == "1.0.0"
     path = workspace / "control/models/equipment_hourly_depreciation.yaml"
-    path.write_text(path.read_text().replace('version: "1.0.0"', 'version: "1.0.1"'))
+    path.write_text(path.read_text(encoding="utf-8").replace('version: "1.0.0"', 'version: "1.0.1"'), encoding="utf-8")
     service.compile()
     history = service.model_history("equipment_hourly_depreciation")["data"]
     assert {item["version"] for item in history} == {"1.0.0", "1.0.1"}

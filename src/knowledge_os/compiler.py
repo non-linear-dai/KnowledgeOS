@@ -54,7 +54,7 @@ class Compiler:
             if not target.is_relative_to(self.config.knowledge.resolve()) or not target.is_file():
                 raise ValidationError(f"{path}: assertions_ref escapes knowledge root or is missing")
             try:
-                assertions.extend(json.loads(line) for line in target.read_text().splitlines() if line.strip())
+                assertions.extend(json.loads(line) for line in target.read_text(encoding="utf-8-sig").splitlines() if line.strip())
             except json.JSONDecodeError as exc:
                 raise ValidationError(f"{target}: invalid NDJSON: {exc}") from exc
         return assertions

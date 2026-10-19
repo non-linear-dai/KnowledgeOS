@@ -1,0 +1,8 @@
+KnowledgeOS 建模助手使用指导书
+适用于 KnowledgeOS 4.0.0，2026-10-12。
+
+先阅读 PDF；Word 可用于后续编辑。两者均含14张截图，19页。
+examples/modeling-material.txt 是 Agent 示例依据。
+examples/agent-response-template.json 需要将 request_id 占位值替换为新导出请求中的值后才能导入。
+模型创建目标 ID 如果已存在，应更换新 ID 或使用 update；完整步骤见第11节。
+images/ 为指导书引用的原始界面截图。教学操作在隔离工作区完成。

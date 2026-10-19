@@ -1,0 +1,261 @@
+format: knowledgeos.decision-model.v1
+id: demo_size_duration_energy
+version: 1.0.0
+label: 教学案例二：尺寸选型后计算工时与能耗
+description: 虚构教学配置：select 引用案例一决策表，输出设备等级和工作量系数；duration 用基准工时乘该系数；energy 用场景有效功率乘工时。基准
+  1 hour、功率 3 kW 时，小件为 1 hour / 3 kWh，大件为 2 hour / 6 kWh。elapsed_time 取上游 output.value，两侧均为
+  hour。查看关联与使用可定位表的固定版本。
+status:
+  lifecycle: active
+nodes:
+- id: select
+  kind: decision_table
+  ref: decision:demo_size_equipment:1.0.0
+  bindings:
+    facts:
+      source: facts
+      path:
+      - facts
+  snapshot:
+    description: 虚构教学配置：同一种零件、同一工艺，尺寸演示值不大于 300 时选 small，工作量系数为 1；大于 300 时选 large，系数为
+      2。size 是统一口径的演示数值，不代表毫米；正式使用应注册物理单位。输出是设备等级和无量纲系数，实际设备指派由业务系统记录。
+    hit_policy: UNIQUE
+    id: demo_size_equipment
+    inputs:
+    - field: size
+      id: size
+      source: facts
+      type: number
+    label: 教学案例一：按尺寸选择设备等级
+    outputs:
+    - id: equipment_class
+      type: string
+    - id: workload_factor
+      type: number
+    rules:
+    - id: small
+      then:
+        equipment_class: small
+        workload_factor: '1'
+      when:
+        size:
+          op: lte
+          value: '300'
+    - id: large
+      then:
+        equipment_class: large
+        workload_factor: '2'
+      when:
+        size:
+          op: gt
+          value: '300'
+    test_cases:
+    - expected:
+        matched_rules:
+        - small
+        result:
+          equipment_class: small
+          workload_factor: '1.0'
+      id: small_part
+      input:
+        facts:
+          size: '100'
+    - expected:
+        matched_rules:
+        - small
+        result:
+          equipment_class: small
+          workload_factor: '1.0'
+      id: boundary_part
+      input:
+        facts:
+          size: '300'
+    - expected:
+        matched_rules:
+        - large
+        result:
+          equipment_class: large
+          workload_factor: '2.0'
+      id: large_part
+      input:
+        facts:
+          size: '600'
+    version: 1.0.0
+- id: duration
+  kind: model
+  ref: model:operation_cycle_time@1.0.0
+  bindings:
+    baseline_time:
+      source: facts
+      path:
+      - baseline_time
+    workload_factor:
+      source: node
+      node: select
+      path:
+      - result
+      - workload_factor
+  snapshot:
+    description: One operation cycle duration from a baseline time and workload factor.
+    formula:
+      args:
+      - id: baseline_time
+        op: input
+      - id: workload_factor
+        op: input
+      op: multiply
+    id: operation_cycle_time
+    inputs:
+    - id: baseline_time
+      unit: hour
+    - id: workload_factor
+      unit: one
+    output_unit: hour
+    precision: 8
+    rounding: half_up
+    status:
+      lifecycle: active
+    version: 1.0.0
+- id: energy
+  kind: model
+  ref: model:operation_energy@1.0.0
+  bindings:
+    effective_power:
+      source: facts
+      path:
+      - power
+    elapsed_time:
+      source: node
+      node: duration
+      path:
+      - output
+      - value
+  snapshot:
+    description: Energy demand from effective power and process duration.
+    formula:
+      args:
+      - id: effective_power
+        op: input
+      - id: elapsed_time
+        op: input
+      op: multiply
+    id: operation_energy
+    inputs:
+    - id: effective_power
+      unit: kW
+    - id: elapsed_time
+      unit: hour
+    output_unit: kWh
+    precision: 8
+    rounding: half_up
+    status:
+      lifecycle: active
+    version: 1.0.0
+outputs:
+  equipment_class:
+    source: node
+    node: select
+    path:
+    - result
+    - equipment_class
+  workload_factor:
+    source: node
+    node: select
+    path:
+    - result
+    - workload_factor
+  duration:
+    source: node
+    node: duration
+    path:
+    - output
+  energy:
+    source: node
+    node: energy
+    path:
+    - output
+test_cases:
+- id: small_part
+  input:
+    facts:
+      size: '100'
+    baseline_time:
+      literal: '1'
+      unit: hour
+    power:
+      literal: '3'
+      unit: kW
+  expected:
+    status: complete
+    output:
+      equipment_class: small
+      workload_factor: '1.0'
+      duration:
+        value: '1.0'
+        unit: hour
+      energy:
+        value: '3.0'
+        unit: kWh
+- id: boundary_part
+  input:
+    facts:
+      size: '300'
+    baseline_time:
+      literal: '1'
+      unit: hour
+    power:
+      literal: '3'
+      unit: kW
+  expected:
+    status: complete
+    output:
+      equipment_class: small
+      workload_factor: '1.0'
+      duration:
+        value: '1.0'
+        unit: hour
+      energy:
+        value: '3.0'
+        unit: kWh
+- id: large_part
+  input:
+    facts:
+      size: '600'
+    baseline_time:
+      literal: '1'
+      unit: hour
+    power:
+      literal: '3'
+      unit: kW
+  expected:
+    status: complete
+    output:
+      equipment_class: large
+      workload_factor: '2.0'
+      duration:
+        value: '2.0'
+        unit: hour
+      energy:
+        value: '6.0'
+        unit: kWh
+- id: large_half_hour
+  input:
+    facts:
+      size: '600'
+    baseline_time:
+      literal: '30'
+      unit: minute
+    power:
+      literal: '3'
+      unit: kW
+  expected:
+    status: complete
+    output:
+      equipment_class: large
+      workload_factor: '2.0'
+      duration:
+        value: '1.0'
+        unit: hour
+      energy:
+        value: '3.0'
+        unit: kWh

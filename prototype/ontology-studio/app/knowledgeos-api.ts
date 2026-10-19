@@ -234,15 +234,15 @@ export async function previewBusiness(kind: "business_constraint" | "business_ru
   });
 }
 
-export async function impactBusiness(kind: "business_constraint" | "business_rule", definition: Record<string, unknown>, subjectId: string, candidateIds: string[] | null) {
+export async function impactBusiness(kind: "business_constraint" | "business_rule", definition: Record<string, unknown>, subjectId: string, candidateIds: string[] | null, contextIds?: Record<string, string>) {
   return request<{ data: { results: { verdict: string; candidate_id: string | null; entity_id?: string; checks: { passed: boolean | null; message: string; left_value: string | null; right_value: string | null }[] }[]; eligible_candidate_ids?: string[]; verdict_counts: Record<string, number>; source_refs: unknown } }>("/v1/business/impact", {
-    method: "POST", body: JSON.stringify({ kind, definition, subject_id: subjectId || null, candidate_ids: candidateIds }),
+    method: "POST", body: JSON.stringify({ kind, definition, subject_id: subjectId || null, candidate_ids: candidateIds, context_ids: contextIds }),
   });
 }
 
-export async function evaluateBusiness(kind: "business_constraint" | "business_rule", id: string, subjectId: string, candidateIds: string[] | null) {
+export async function evaluateBusiness(kind: "business_constraint" | "business_rule", id: string, subjectId: string, candidateIds: string[] | null, contextIds?: Record<string, string>) {
   return request<{ data: { results: { verdict: string; candidate_id: string | null }[]; eligible_candidate_ids: string[]; source_refs: unknown } }>("/v1/business/evaluate", {
-    method: "POST", body: JSON.stringify({ kind, id, subject_id: subjectId, candidate_ids: candidateIds }),
+    method: "POST", body: JSON.stringify({ kind, id, subject_id: subjectId, candidate_ids: candidateIds, context_ids: contextIds }),
   });
 }
 

@@ -29,7 +29,7 @@ class Connector:
 
     def ingest_ndjson(self, input_path, mapping_path, isolate_errors=False):
         mapping = load_yaml(Path(mapping_path))
-        records = [json.loads(line) for line in Path(input_path).read_text().splitlines() if line.strip()]
+        records = [json.loads(line) for line in Path(input_path).read_text(encoding="utf-8-sig").splitlines() if line.strip()]
         counters = {"records": len(records), "ingested": 0, "skipped": 0, "rejected": []}
         for record in records:
             record_id = None

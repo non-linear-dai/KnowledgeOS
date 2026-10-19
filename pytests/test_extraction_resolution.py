@@ -70,7 +70,7 @@ def test_ambiguous_or_unsupported_identity_never_creates_or_updates(service, wor
     duplicate["base"]["node"].update({"id": "org:acme-duplicate", "key": "ACME-OTHER", "key_namespace": "alternate"})
     duplicate["knowledge"]["assertions"] = []
     path = workspace / "knowledge/entities/org-acme-duplicate.md"
-    path.write_text("---\n" + yaml.safe_dump(duplicate, sort_keys=False) + "---\n" + body)
+    path.write_text("---\n" + yaml.safe_dump(duplicate, sort_keys=False) + "---\n" + body, encoding="utf-8")
     service.compile()
     quote = "Acme Industrial Systems has updated its profile."
     entity = {"type": "organization", "label": "Acme Industrial Systems", "attrs": {"legal_name": "Acme Industrial Systems"},
@@ -121,7 +121,7 @@ def test_linked_context_disambiguates_duplicate_instance_names(service, workspac
     duplicate["base"]["node"].update({"id": "task:other-m1", "key": "OTHER-M1"})
     duplicate["knowledge"]["assertions"][0]["id"] = "assertion:other-m1-status"
     (workspace / "knowledge/entities/task-other-m1.md").write_text(
-        "---\n" + yaml.safe_dump(duplicate, sort_keys=False) + "---\n" + body)
+        "---\n" + yaml.safe_dump(duplicate, sort_keys=False) + "---\n" + body, encoding="utf-8")
     service.compile()
     quote = "Project Atlas reviewed Atlas Milestone 1 today."
     entity = {"type": "task", "label": "Atlas Milestone 1", "attrs": {"summary": "Review held."},
@@ -136,7 +136,7 @@ def test_linked_context_disambiguates_duplicate_instance_names(service, workspac
 
 def test_resolver_searches_beyond_bounded_model_hints(service, workspace):
     profile = workspace / "control/extraction/default.yaml"
-    profile.write_text(profile.read_text().replace("existing_entity_limit: 500", "existing_entity_limit: 1"))
+    profile.write_text(profile.read_text(encoding="utf-8").replace("existing_entity_limit: 500", "existing_entity_limit: 1"), encoding="utf-8")
     quote = "Acme discussed Project Atlas."
     entity = {"type": "project", "label": "Project Atlas", "attrs": {"summary": "Discussion recorded."},
               "assertions": [], "relations": [], "confidence": 0.9, "evidence": evidence(quote)}

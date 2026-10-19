@@ -10,4 +10,6 @@ The Python backend implements the `/health` and `/v1/*` routes, including Agent 
 
 `knowledge/` and `control/` remain Git-authored truth. The query index is disposable. Durable ChangeSets, connector records, model runs, snapshots, and the audit outbox live in `runtime/knowledge.state.db`; the hash-chained audit trail lives in `runtime/knowledge.ledger.db`. The Python backend reads existing Ruby-era ledger hashes and migrates legacy index state into the durable database. Back up state and ledger together while writers are stopped before migration. Rebuild replays connector records.
 
+Authored Markdown, YAML, JSON, connector NDJSON, CLI input files, and backup manifests use UTF-8 on every operating system. UTF-8 BOM is accepted on authored and CLI input files. Model and materializer command adapters exchange UTF-8 JSON over standard input and output. Windows system code pages such as GBK do not change this file and adapter contract. Existing files that were previously saved as GBK must be converted to UTF-8 before compilation; the compiler does not rewrite Git-authored sources.
+
 For validation, run `python -m pytest -q`, then from `prototype/ontology-studio` run `npm run install:ci`, `pnpm test`, `pnpm exec tsc --noEmit`, and `pnpm build`. Backend tests use temporary workspaces and never modify the repository's runtime databases.

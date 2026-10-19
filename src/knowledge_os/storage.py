@@ -38,7 +38,7 @@ else:
 class RuntimeLease:
     def __init__(self, config: Config, exclusive=False):
         config.ensure_runtime()
-        self.file = (config.runtime / ".state.lock").open("a+")
+        self.file = (config.runtime / ".state.lock").open("a+b")
         try:
             if sys.platform == "win32":
                 self._overlapped = _Overlapped()
@@ -99,6 +99,10 @@ CREATE TABLE IF NOT EXISTS entity_card(node_id TEXT PRIMARY KEY,card_json TEXT N
 """
 
 DURABLE_DDL = """
+CREATE TABLE IF NOT EXISTS durable.logic_run(id TEXT PRIMARY KEY,asset_ref TEXT NOT NULL,actor TEXT NOT NULL,
+ request_key TEXT NOT NULL,request_hash TEXT NOT NULL,recorded_at TEXT NOT NULL,record_json TEXT NOT NULL,
+ UNIQUE(actor,request_key));
+CREATE INDEX IF NOT EXISTS durable.idx_logic_run_asset ON logic_run(asset_ref,recorded_at);
 CREATE TABLE IF NOT EXISTS durable.derived_result(id TEXT PRIMARY KEY,model_id TEXT NOT NULL,model_version TEXT NOT NULL,
  input_hash TEXT NOT NULL,scenario TEXT NOT NULL DEFAULT 'default',output_json TEXT NOT NULL,trace_json TEXT NOT NULL,
  run_id TEXT NOT NULL,calculated_at TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'current',
@@ -132,6 +136,7 @@ CREATE INDEX IF NOT EXISTS durable.idx_source_entity_binding_node ON source_enti
 CREATE TABLE IF NOT EXISTS durable.schema_migration(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);
 INSERT OR IGNORE INTO durable.schema_migration VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 INSERT OR IGNORE INTO durable.schema_migration VALUES(4,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO durable.schema_migration VALUES(5,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 """
 
 LEDGER_DDL = """

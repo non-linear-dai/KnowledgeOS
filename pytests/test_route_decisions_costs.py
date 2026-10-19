@@ -106,7 +106,7 @@ def test_decision_package_roundtrip_isolation_compiler_and_ledger(service, works
     assert {o["id"] for o in service.template_catalog()["data"]["operations"]} == {
         "operation:etch:1.0.0", "operation:laminate:1.0.0", "operation:laminate:1.1.0"}
     path = workspace / "knowledge/decisions/layer_requirement/v1.0.0.md"
-    path.write_text(path.read_text().replace('UNIQUE', 'BOGUS'))
+    path.write_text(path.read_text(encoding="utf-8").replace('UNIQUE', 'BOGUS'), encoding="utf-8")
     with pytest.raises(ValidationError, match="hit policies"):
         service.compile()
 
@@ -169,9 +169,9 @@ def test_energy_quantity_model_uses_total_time_without_double_charging(service):
 def test_source_backed_rate_retains_provenance_and_enforces_as_of_freshness(service, workspace):
     # The isolated fixture models a governed price feed with automatic confirmation.
     predicate_path = workspace / "control/predicates/unit_cost.yaml"
-    predicate = yaml.safe_load(predicate_path.read_text())
+    predicate = yaml.safe_load(predicate_path.read_text(encoding="utf-8"))
     predicate["policy"]["write"] = "auto"
-    predicate_path.write_text(yaml.safe_dump(predicate))
+    predicate_path.write_text(yaml.safe_dump(predicate), encoding="utf-8")
     service.compile()
     mapping = workspace / "connectors/examples/test-price.mapping.yaml"
     mapping.write_text("""source_system: erp_operational
@@ -188,9 +188,9 @@ assertions:
     unit_field: unit
     kind: measurement
     qualifiers: { per_unit: one }
-""")
+""", encoding="utf-8")
     records = workspace / "connectors/examples/test-price.ndjson"
-    records.write_text(json.dumps({"resource_id": "resin", "version": "1", "observed_at": "2026-09-29T00:00:00Z", "price": "3", "unit": "CNY"}) + "\n")
+    records.write_text(json.dumps({"resource_id": "resin", "version": "1", "observed_at": "2026-09-29T00:00:00Z", "price": "3", "unit": "CNY"}) + "\n", encoding="utf-8")
     assert Connector(service).ingest_ndjson(records, mapping)["ingested"] == 1
     route = pcb_template(); route["groups"] = []; route["edges"] = []
     route["steps"] = [route["steps"][1]]; route["operations"] = [route["operations"][1]]

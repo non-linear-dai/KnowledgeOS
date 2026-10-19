@@ -22,25 +22,25 @@ export type RoutePositions = Record<string, { x: number; y: number; parent: stri
 
 function Stage({ id, data, selected }: NodeProps<StageNode>) {
   return <div data-testid={`route-card-${id}`} className={`relative h-full w-full rounded-2xl border-2 transition-colors [&:hover>.stage-tools]:opacity-100 ${data.inactive?'opacity-45':''} ${data.isGroup
-    ? selected ? "border-amber-500 bg-amber-50/70" : "border-amber-200 bg-amber-50/60"
-    : selected ? "border-primary/40 bg-white shadow-[0_4px_24px_rgba(79,70,229,.15)]" : "border-border bg-white shadow-sm"}`}>
+    ? selected ? "border-primary bg-secondary/70" : "border-input bg-secondary/60"
+    : selected ? "border-primary/40 bg-white shadow-[0_3px_12px_rgba(35,50,40,.08)]" : "border-border bg-white shadow-sm"}`}>
     <Handle type="target" position={Position.Left} className="!size-3 !border-2 !border-white !bg-slate-400" isConnectable={data.editable} />
-    <Handle type="source" position={Position.Right} className="!size-3 !border-2 !border-white !bg-blue-500" isConnectable={data.editable} />
+    <Handle type="source" position={Position.Right} className="!size-3 !border-2 !border-white !bg-primary" isConnectable={data.editable} />
     <div className={`flex items-center gap-2.5 px-4 pt-3.5 ${data.isGroup ? "pb-3" : ""}`}>
-      <span className={`grid size-7 shrink-0 place-items-center rounded-lg ${data.isGroup ? "bg-amber-100 text-amber-700" : "bg-accent text-primary"}`}>
+      <span className={`grid size-7 shrink-0 place-items-center rounded-lg ${data.isGroup ? "bg-secondary text-secondary-foreground" : "bg-accent text-primary"}`}>
         {data.isGroup ? <Layers3 className="size-4" /> : <GitBranch className="size-4" />}
       </span>
       <input aria-label={`工序名称 ${id}`} title={data.label} className={`nodrag min-w-0 flex-1 border-0 bg-transparent text-sm font-semibold outline-none ${data.editable ? "hover:bg-muted focus:bg-muted" : ""}`}
         value={data.label} readOnly={!data.editable} onFocus={() => data.onInspect(id)} onChange={(event) => data.onRename(id, event.target.value)} />
-      {data.isGroup && <button className="nodrag grid size-6 shrink-0 place-items-center rounded text-amber-700 hover:bg-amber-100" aria-label={`${data.collapsed ? "展开" : "折叠"}阶段 ${id}`} onClick={event => { event.stopPropagation(); data.onToggleGroup(id); }}>{data.collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}</button>}
-      {data.conditional && <span title="按条件或决策输出启用" className="rounded bg-violet-100 px-1.5 py-0.5 text-xs text-violet-700">{data.decision?'决策':'条件'}</span>}
+      {data.isGroup && <button className="nodrag grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-secondary" aria-label={`${data.collapsed ? "展开" : "折叠"}阶段 ${id}`} onClick={event => { event.stopPropagation(); data.onToggleGroup(id); }}>{data.collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}</button>}
+      {data.conditional && <span title="按条件或决策输出启用" className="rounded bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground">{data.decision?'决策':'条件'}</span>}
     </div>
     {data.isGroup ? <>
-      <p className="px-4 text-xs text-amber-700">{data.detail}</p>
-      {data.collapsed && <p className="mt-2 px-4 text-xs font-medium text-amber-700">{data.childCount} 道工序 · 点击箭头展开</p>}
-      <span className="absolute bottom-3 left-4 text-xs text-amber-700/80">全部完成后汇合</span>
+      <p className="px-4 text-xs text-muted-foreground">{data.detail}</p>
+      {data.collapsed && <p className="mt-2 px-4 text-xs font-medium text-muted-foreground">{data.childCount} 道工序 · 点击箭头展开</p>}
+      <span className="absolute bottom-3 left-4 text-xs text-muted-foreground">全部完成后汇合</span>
       {data.editable && <button aria-label={`添加组内工序 ${id}`} title="添加组内工序" onClick={event => { event.stopPropagation(); data.onInside(id); }}
-        className="nodrag absolute bottom-2 right-3 flex items-center gap-1 rounded-lg bg-amber-100 px-2 py-1 text-xs text-amber-800 hover:bg-amber-200"><Plus className="size-3.5" /> 组内工序</button>}
+        className="nodrag absolute bottom-2 right-3 flex items-center gap-1 rounded-lg bg-secondary px-2 py-1 text-xs text-secondary-foreground hover:bg-accent"><Plus className="size-3.5" /> 组内工序</button>}
     </> : <>
       <p className="truncate px-4 pt-2 text-xs text-muted-foreground" title={data.detail}>{data.detail}</p>
       <div className="flex items-center justify-between px-4 pt-2"><span className="rounded-md bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">{data.basis}</span>{data.count !== undefined ? <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">{data.count===0?'跳过':`× ${data.count}`}</span> : <span className="text-xs text-slate-300">{id.replace("step_", "#")}</span>}</div>
@@ -155,6 +155,7 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
     if (!container) return;
     let timer: ReturnType<typeof setTimeout>;
     const fit = () => {
+      if (!container.clientWidth || !container.clientHeight) return;
       const fullWidth = Math.max(0, ...boxes.filter((box) => !box.parent).map((box) => box.x + box.width));
       const needsFocus = fullWidth * 0.65 > container.clientWidth;
       const anchors = selection.current.length ? selection.current : boxes.filter((box) => !box.parent).slice(0, 2).map((box) => box.id);
@@ -164,6 +165,8 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
     const schedule = () => { clearTimeout(timer); timer = setTimeout(fit, 100); };
     let width = container.clientWidth, height = container.clientHeight;
     const observer = new ResizeObserver(() => {
+      // Hidden workspaces keep their last meaningful dimensions and viewport.
+      if (!container.clientWidth || !container.clientHeight) return;
       if (width !== container.clientWidth || height !== container.clientHeight) {
         width = container.clientWidth; height = container.clientHeight; schedule();
       }
@@ -176,8 +179,8 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
 
   const edges: Edge[] = useMemo(() => template.edges.map((edge) => ({ id: `${edge.from}>>${edge.to}`, source: edge.from, target: edge.to,
     hidden: [edge.from, edge.to].some(id => collapsedGroups.includes(template.steps.find(step => step.id === id)?.parent ?? "")),
-    type: "default", markerEnd: { type: MarkerType.ArrowClosed, color: "#537dbd", width: 16, height: 16 },
-    style: { stroke: "#7597c8", strokeWidth: 1.8 }, interactionWidth: 20, focusable: true,
+    type: "default", markerEnd: { type: MarkerType.ArrowClosed, color: "#7398cf", width: 16, height: 16 },
+    style: { stroke: "#a5b5cd", strokeWidth: 1.8 }, interactionWidth: 20, focusable: true,
     selected: selectedEdges.includes(`${edge.from}>>${edge.to}`) })), [template.edges, template.steps, selectedEdges, collapsedGroups]);
 
   return <div ref={containerRef} className="h-full w-full"><ReactFlow<StageNode> nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
@@ -232,10 +235,10 @@ function RouteCanvasContent({ template, operations, editable, selectedIds, selec
       const id = onDropOperation(ref, group?.id ?? null);
       if (id) dropPositions.current.set(id, { x: point.x - (group?.position.x ?? 0), y: point.y - (group?.position.y ?? 0) });
     }}
-    selectionOnDrag panOnDrag={[1, 2]} panOnScroll selectionKeyCode="Shift" multiSelectionKeyCode={["Meta", "Control", "Shift"]}
+    selectionOnDrag={false} panOnDrag={[0, 1]} panOnScroll selectionKeyCode="Shift" multiSelectionKeyCode={["Meta", "Control", "Shift"]}
     nodesConnectable={editable} deleteKeyCode={null}
     className="bg-background" aria-label="工艺编排白板">
-    <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#d6dce8" />
+    <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#d4dfef" />
     <Controls showInteractive={false} position="bottom-right" />
   </ReactFlow></div>;
 }

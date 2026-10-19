@@ -1,0 +1,113 @@
+{
+  "business_rule": {
+    "format": "knowledgeos.business-rule.v1",
+    "id": "guide_power_match",
+    "label": "教学示例：按功率要求筛选设备",
+    "description": "以基准设备要求为主体，筛选能力足够的候选设备；全部数值和标识均为虚构教学参数。",
+    "version": "1.0.0",
+    "status": { "lifecycle": "active" },
+    "scope": { "subject_concept": "equipment", "candidate_concept": "equipment", "context_concepts": {} },
+    "inputs": [
+      { "id": "required_power", "role": "subject", "predicate": "rated_power" },
+      { "id": "available_power", "role": "candidate", "predicate": "rated_power" }
+    ],
+    "checks": [
+      { "left": "available_power", "operator": "gte", "right": { "input": "required_power" }, "message": "候选设备额定功率须达到基准要求" }
+    ],
+    "test_cases": [
+      {
+        "id": "select_capable",
+        "input": {
+          "subject": { "id": "demo:required", "rated_power": { "literal": "10", "unit": "kW" } },
+          "candidates": [
+            { "id": "demo:large", "rated_power": { "literal": "12000", "unit": "W" } },
+            { "id": "demo:small", "rated_power": { "literal": "8", "unit": "kW" } }
+          ]
+        },
+        "expected": { "status": "complete", "eligible_candidate_ids": ["demo:large"], "results": [{ "verdict": "eligible" }, { "verdict": "condition_failed" }] }
+      },
+      {
+        "id": "lower_requirement",
+        "input": {
+          "subject": { "rated_power": { "literal": "6", "unit": "kW" } },
+          "candidates": [
+            { "id": "demo:large", "rated_power": { "literal": "12", "unit": "kW" } },
+            { "id": "demo:small", "rated_power": { "literal": "8", "unit": "kW" } }
+          ]
+        },
+        "expected": { "status": "complete", "eligible_candidate_ids": ["demo:large", "demo:small"] }
+      },
+      {
+        "id": "missing_capability",
+        "input": { "subject": { "rated_power": { "literal": "10", "unit": "kW" } }, "candidates": [{ "id": "demo:unknown" }] },
+        "expected": { "status": "incomplete", "eligible_candidate_ids": [], "results": [{ "verdict": "unknown" }] }
+      }
+    ]
+  },
+  "business_constraint": {
+    "format": "knowledgeos.business-constraint.v1",
+    "id": "guide_positive_power",
+    "label": "教学示例：设备功率必须大于零",
+    "description": "检查单个设备的功率事实是否满足业务约束；全部数值为虚构教学参数。",
+    "version": "1.0.0",
+    "status": { "lifecycle": "active" },
+    "scope": { "subject_concept": "equipment" },
+    "inputs": [{ "id": "power", "role": "subject", "predicate": "rated_power" }],
+    "checks": [{ "left": "power", "operator": "gt", "right": { "value": { "literal": "0", "unit": "W" } }, "message": "额定功率必须大于零" }],
+    "test_cases": [
+      { "id": "valid_power", "input": { "subject": { "rated_power": { "literal": "10", "unit": "kW" } } }, "expected": { "status": "complete", "results": [{ "verdict": "valid" }] } },
+      { "id": "zero_power", "input": { "subject": { "rated_power": { "literal": "0", "unit": "W" } } }, "expected": { "status": "blocked", "results": [{ "verdict": "invalid" }] } },
+      { "id": "missing_power", "input": { "subject": {} }, "expected": { "status": "incomplete", "results": [{ "verdict": "unknown" }] } }
+    ]
+  },
+  "model": {
+    "id": "guide_cycle_time",
+    "label": "教学示例：基准工时乘工作量系数",
+    "description": "计算工序时长，示例为 1 小时乘 2 倍工作量；全部数值为虚构教学参数。",
+    "version": "1.0.0",
+    "status": { "lifecycle": "active" },
+    "inputs": [{ "id": "baseline_time", "unit": "hour" }, { "id": "workload_factor", "unit": "one" }],
+    "formula": { "op": "multiply", "args": [{ "op": "input", "id": "baseline_time" }, { "op": "input", "id": "workload_factor" }] },
+    "output_unit": "hour",
+    "precision": 8,
+    "test_cases": [
+      { "id": "double_workload", "input": { "inputs": { "baseline_time": { "literal": "1", "unit": "hour" }, "workload_factor": "2" } }, "expected": { "status": "complete", "output": { "value": "2.0", "unit": "hour" } } },
+      { "id": "minute_conversion", "input": { "inputs": { "baseline_time": { "literal": "30", "unit": "minute" }, "workload_factor": "2" } }, "expected": { "output": { "value": "1.0", "unit": "hour" } } }
+    ]
+  },
+  "decision_table": {
+    "id": "guide_size_selection",
+    "label": "教学示例：尺寸不同，设备等级不同",
+    "description": "按统一口径的尺寸演示数值选择设备等级；实际业务应明确并注册物理单位。全部数值为虚构教学参数。",
+    "version": "1.0.0",
+    "hit_policy": "UNIQUE",
+    "inputs": [{ "id": "size", "source": "facts", "field": "size", "type": "number" }],
+    "outputs": [{ "id": "equipment_class", "type": "string" }],
+    "rules": [
+      { "id": "small", "when": { "size": { "op": "lte", "value": "300" } }, "then": { "equipment_class": "small" } },
+      { "id": "large", "when": { "size": { "op": "gt", "value": "300" } }, "then": { "equipment_class": "large" } }
+    ],
+    "test_cases": [
+      { "id": "small_part", "input": { "facts": { "size": "100" } }, "expected": { "result": { "equipment_class": "small" } } },
+      { "id": "boundary_part", "input": { "facts": { "size": "300" } }, "expected": { "result": { "equipment_class": "small" } } },
+      { "id": "large_part", "input": { "facts": { "size": "600" } }, "expected": { "result": { "equipment_class": "large" } } }
+    ]
+  },
+  "decision_model": {
+    "format": "knowledgeos.decision-model.v1",
+    "id": "guide_duration_energy",
+    "label": "教学示例：先算工时，再算能耗",
+    "description": "引用已启用的工时和能耗模型，沿依赖传递工时。全部输入为虚构教学参数。",
+    "version": "1.0.0",
+    "status": { "lifecycle": "active" },
+    "nodes": [
+      { "id": "duration", "kind": "model", "ref": "model:operation_cycle_time@1.0.0", "bindings": { "inputs": { "source": "facts", "path": ["time_inputs"] } } },
+      { "id": "energy", "kind": "model", "ref": "model:operation_energy@1.0.0", "bindings": { "effective_power": { "source": "facts", "path": ["power"] }, "elapsed_time": { "source": "node", "node": "duration", "path": ["output", "value"] } } }
+    ],
+    "outputs": { "duration": { "source": "node", "node": "duration", "path": ["output"] }, "energy": { "source": "node", "node": "energy", "path": ["output"] } },
+    "test_cases": [
+      { "id": "duration_then_energy", "input": { "time_inputs": { "baseline_time": { "literal": "1", "unit": "hour" }, "workload_factor": "2" }, "power": { "literal": "3", "unit": "kW" } }, "expected": { "status": "complete", "output": { "duration": { "value": "2.0", "unit": "hour" }, "energy": { "value": "6.0", "unit": "kWh" } } } },
+      { "id": "shorter_operation", "input": { "time_inputs": { "baseline_time": { "literal": "30", "unit": "minute" }, "workload_factor": "1" }, "power": { "literal": "2", "unit": "kW" } }, "expected": { "output": { "duration": { "value": "0.5", "unit": "hour" }, "energy": { "value": "1.0", "unit": "kWh" } } } }
+    ]
+  }
+}

@@ -156,6 +156,14 @@ class Service:
             data["history"] = self.history(identifier)["data"]
         return envelope(data, gaps=data.get("knowledge_gaps", []))
 
+    def instances(self, query="", **filters):
+        from .instances import InstanceDirectory
+        return envelope(InstanceDirectory(self).list(query, **filters))
+
+    def instance_get(self, key):
+        from .instances import InstanceDirectory
+        return envelope(InstanceDirectory(self).get(key))
+
     def query(self, template, params=None):
         params = params or {}
         if template == "nodes_by_type":
@@ -490,8 +498,9 @@ class Service:
             raise ValidationError("risk must be low, normal, or high")
         if not str(actor).strip() or not str(reason).strip():
             raise ValidationError("actor and reason are required")
-        if isinstance(patch, dict) and patch.get("op") == "template_package":
-            patch = {**patch, "actor": actor}
+        if isinstance(patch, dict) and patch.get("op") in ("template_package", "logic_asset"):
+            if patch["op"] == "template_package":
+                patch = {**patch, "actor": actor}
             risk = "high"
         operations = operations or []
         if any((operation.get("targetKind") or operation.get("target_kind")) in ("schema", "model", "unit", "currency", "business_constraint", "business_rule") for operation in operations) or any(
@@ -701,7 +710,7 @@ class Service:
             impact = self.semantic_impact(target_source=row["target_source"], patch=patch, operations=json.loads(row["operations_json"]))["data"]
             if not impact["compatible"]:
                 raise ValidationError(f"source application requires a compatible semantic preview: {impact['issues']}")
-        if isinstance(patch, dict) and patch.get("op") == "template_package":
+        if isinstance(patch, dict) and patch.get("op") in ("template_package", "logic_asset"):
             apply = plan.apply_approved_template
         elif row["target_source"].startswith("knowledge/entities/"):
             apply = plan.apply_approved_instance
@@ -762,6 +771,9 @@ class Service:
             if patch.get("op") == "template_package":
                 refs = {f"decision:{d['id']}:{d['version']}" for d in patch["template"].get("decisions", [])}
                 (published if row["status"] == "published" else pending).update(refs)
+            elif patch.get("op") == "logic_asset" and patch.get("kind") == "decision_table":
+                definition = patch["definition"]
+                (published if row["status"] == "published" else pending).add(f"decision:{definition['id']}:{definition['version']}")
         return pending - published
 
     def template_calculate(self, template, case, scenario):
@@ -793,7 +805,11 @@ class Service:
                                  "target_source": existing["target_source"], "base_revision": existing["base_revision"]})
         workbench = TemplateWorkbench(self)
         documents = workbench.render(template, actor)
-        failures = [case["id"] for case in template["cases"] if not workbench.preview(template, case)["matches_expected"]]
+        failures = []
+        for case in template["cases"]:
+            result = workbench.preview(template, case)
+            if not result["matches_expected"]:
+                failures.append(f"{case['id']} (expected {case['expected_operations']}, actual {result['operation_count']})")
         if failures:
             raise ValidationError("expert sample cases failed: " + ", ".join(failures))
         return self.propose(actor=actor, target_source=",".join(sorted(documents)),
@@ -812,6 +828,7 @@ class Service:
                          "semantics": self.semantics()["data"],
                          "predicates": self.registry._public(self.registry.predicates), "policies": policy_sets,
                          "models": self.registry._public(self.registry.models), "units": self.registry._public(self.registry.units),
+                         "decision_models": self.registry._public(self.registry.decision_models),
                          "currencies": self.registry._public(self.registry.currencies),
                          "domains": self.registry._public(self.registry.domains),
                          "retrieval_profiles": self.registry.retrieval_profiles, "schemas": self.registry.schemas,
@@ -909,6 +926,7 @@ class Service:
                             idempotency_key=idempotency_key, extraction=binding)
 
     def studio(self):
+        from .domain_scope import domain_scope, domain_definition_ids
         self.refresh_registry()
         definitions = []
         for kind, collection in (("concept", "concept_types"), ("relation", "relation_types")):
@@ -964,6 +982,7 @@ class Service:
                 else:
                     identifier, description = "domain:" + item["id"], "Domain workflow, retrieval, model, and tool policy."
                     config["retrieval_profile"] = self.registry.retrieval_profiles.get(item["id"])
+                    config["definition_scope"] = domain_definition_ids(domain_scope(self.registry, item["id"]))
                 definition = {"id": identifier, "kind": kind, "label": item.get("label", item["id"]),
                               "description": description, "lifecycle": item.get("status", {}).get("lifecycle", "active"), "source_path": path, "refs": 1,
                               "files": [path], "config": config, "read_only": kind != "model"}
@@ -1084,7 +1103,8 @@ class Service:
         node = self.db.first("SELECT id,type,attrs_json,source_path,source_hash FROM node WHERE id=?", (node_id,))
         if not node:
             raise NotFoundError(f"node not found: {node_id}")
-        if node["type"] != definition["scope"][f"{role}_concept"]:
+        from .business_logic import business_roles
+        if node["type"] != business_roles(definition).get(role):
             raise ValidationError(f"{node_id} is not in the {role} concept scope")
         attrs = json.loads(node["attrs_json"])
         facts, refs = {"id": node_id}, {}
@@ -1116,10 +1136,20 @@ class Service:
             candidate_ids = [row["id"] for row in rows]
         return candidate_ids
 
-    def impact_business(self, definition, kind, subject_id=None, candidate_ids=None, as_of=None):
+    def _business_context_facts(self, definition, context_ids, as_of):
+        context_ids = {} if context_ids is None else context_ids
+        if not isinstance(context_ids, dict) or any(role not in definition.get("scope", {}).get("context_concepts", {}) for role in context_ids):
+            raise ValidationError("instance context roles must match declared concepts")
+        facts, refs = {}, {}
+        for role, identifier in context_ids.items():
+            facts[role], refs[role] = self._business_facts_for(definition, identifier, role, as_of)
+        return facts, refs
+
+    def impact_business(self, definition, kind, subject_id=None, candidate_ids=None, as_of=None, context_ids=None):
         from .business_logic import evaluate_business, validate_business
         validate_business(definition, kind, self.registry.predicates, self.registry.ontology, self.registry.units)
         as_of = as_of or utcnow()
+        contexts, context_refs = self._business_context_facts(definition, context_ids, as_of)
         if kind == "business_constraint":
             rows = self.db.execute("SELECT id FROM node WHERE type=? AND lifecycle='active' ORDER BY id LIMIT 501",
                                    (definition["scope"]["subject_concept"],))
@@ -1146,15 +1176,17 @@ class Service:
             facts, refs = self._business_facts_for(definition, node_id, "candidate", as_of)
             candidates.append(facts)
             candidate_refs[node_id] = refs
-        result = evaluate_business(definition, kind, {"subject": subject, "candidates": candidates},
+        result = evaluate_business(definition, kind, {"subject": subject, "candidates": candidates, "contexts": contexts},
                                    self.registry.predicates, self.registry.ontology, self.registry.units)
         result["as_of"] = as_of
         result["source_refs"] = {"subject": subject_refs, "candidates": candidate_refs}
+        if context_refs:
+            result["source_refs"]["contexts"] = context_refs
         result["verdict_counts"] = {verdict: sum(item["verdict"] == verdict for item in result["results"])
                                     for verdict in ("eligible", "not_matched", "condition_failed", "unknown")}
         return envelope(result, quality={"impact_only": True, "durable_write": False})
 
-    def evaluate_business_definition(self, kind, identifier, subject_id, candidate_ids=None, as_of=None):
+    def evaluate_business_definition(self, kind, identifier, subject_id, candidate_ids=None, as_of=None, context_ids=None):
         from .business_logic import evaluate_business, validate_business
         if kind not in ("business_constraint", "business_rule"):
             raise ValidationError("unknown business definition kind")
@@ -1168,16 +1200,19 @@ class Service:
         if kind == "business_rule":
             candidate_ids = self._business_candidate_ids(definition, candidate_ids)
         as_of = as_of or utcnow()
+        contexts, context_refs = self._business_context_facts(definition, context_ids, as_of)
         subject, subject_refs = self._business_facts_for(definition, subject_id, "subject", as_of)
         candidates, candidate_refs = [], {}
         for node_id in candidate_ids or []:
             facts, refs = self._business_facts_for(definition, node_id, "candidate", as_of)
             candidates.append(facts)
             candidate_refs[node_id] = refs
-        result = evaluate_business(definition, kind, {"subject": subject, "candidates": candidates},
+        result = evaluate_business(definition, kind, {"subject": subject, "candidates": candidates, "contexts": contexts},
                                    self.registry.predicates, self.registry.ontology, self.registry.units)
         result["as_of"] = as_of
         result["source_refs"] = {"subject": subject_refs, "candidates": candidate_refs}
+        if context_refs:
+            result["source_refs"]["contexts"] = context_refs
         if result["relation_type"]:
             result["derived_edges"] = [{"source": subject_id, "relation": result["relation_type"], "target": node_id}
                                        for node_id in result["eligible_candidate_ids"]]

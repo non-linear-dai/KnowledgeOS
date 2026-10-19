@@ -528,18 +528,18 @@ const contractEdges: DependencyEdge[] = [
 export const initialEdges: DependencyEdge[] = [...governedEdges, ...domainRefs, ...contractEdges];
 
 export const kindMeta: Record<DefinitionKind, { label: string; short: string; color: string }> = {
-  concept: { label: "概念类型", short: "C", color: "#2563eb" },
-  relation: { label: "关系类型", short: "R", color: "#a86212" },
-  predicate: { label: "判断类型", short: "P", color: "#7c3aed" },
-  policy: { label: "治理策略", short: "G", color: "#0e7490" },
-  model: { label: "确定性模型", short: "L", color: "#dc2626" },
-  business_constraint: { label: "业务约束", short: "BC", color: "#b91c1c" },
-  business_rule: { label: "业务规则", short: "BR", color: "#0f766e" },
-  unit: { label: "物理单位", short: "U", color: "#b45309" },
-  currency: { label: "货币", short: "¥", color: "#0f766e" },
-  domain: { label: "工作领域", short: "D", color: "#475569" },
-  connector: { label: "连接器映射", short: "X", color: "#0f766e" },
-  schema: { label: "核心契约", short: "S", color: "#111827" },
+  concept: { label: "概念类型", short: "C", color: "#2f68d4" },
+  relation: { label: "关系类型", short: "R", color: "#18786e" },
+  predicate: { label: "判断类型", short: "P", color: "#7852ad" },
+  policy: { label: "治理策略", short: "G", color: "#5b687e" },
+  model: { label: "确定性模型", short: "L", color: "#9f641c" },
+  business_constraint: { label: "业务约束", short: "BC", color: "#a74960" },
+  business_rule: { label: "业务规则", short: "BR", color: "#54713a" },
+  unit: { label: "物理单位", short: "U", color: "#9f641c" },
+  currency: { label: "货币", short: "¥", color: "#18786e" },
+  domain: { label: "工作领域", short: "D", color: "#5b687e" },
+  connector: { label: "连接器映射", short: "X", color: "#18786e" },
+  schema: { label: "核心契约", short: "S", color: "#596c88" },
 };
 
 export const initialChangeSets: ChangeSet[] = [

@@ -47,16 +47,16 @@ def backup(config: Config, destination):
     manifest = {"format": "knowledgeos.backup.v1", "files": hashes,
                 "application_version": __version__, "contract_version": __contract_version__, "durable_schema_version": schema_version,
                 "authored_fingerprint": authored_fingerprint(config), "created_at": utcnow()}
-    (destination / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
+    (destination / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest
 
 
 def restore(config: Config, source):
     source = Path(source).expanduser().resolve()
-    manifest = json.loads((source / "manifest.json").read_text())
+    manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("format") != "knowledgeos.backup.v1":
         raise ValidationError("unsupported backup format")
-    if manifest.get("durable_schema_version", 1) > 4:
+    if manifest.get("durable_schema_version", 1) > 5:
         raise ValidationError("backup requires a newer KnowledgeOS release")
     if manifest.get("authored_fingerprint") != authored_fingerprint(config):
         raise ConflictError("restore requires the same authored knowledge/control checkout")

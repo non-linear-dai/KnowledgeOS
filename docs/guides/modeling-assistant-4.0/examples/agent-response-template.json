@@ -1,0 +1,40 @@
+{
+  "protocol_version": "knowledgeos.ontology-assist.v1",
+  "request_id": "REPLACE_WITH_EXPORTED_REQUEST_ID",
+  "operations": [
+    {
+      "operation": {
+        "type": "create",
+        "targetKind": "concept",
+        "targetId": "batch_inspection_report",
+        "after": {
+          "id": "batch_inspection_report",
+          "kind": "concept",
+          "label": "批次检验报告",
+          "description": "记录同一产品批次的出厂质量检验结论。",
+          "lifecycle": "draft",
+          "sourcePath": "control/ontology/core.yaml",
+          "config": {},
+          "refs": 0,
+          "files": [
+            "control/ontology/core.yaml"
+          ],
+          "bindings": [
+            {
+              "predicateId": "summary",
+              "required": false,
+              "cardinality": "inherit",
+              "group": "other"
+            }
+          ]
+        }
+      },
+      "evidence": [
+        {
+          "segment_id": "material:1",
+          "quote": "批次检验报告用于记录同一产品批次的出厂质量检验结论。报告采用已有 summary 属性保存文字摘要。"
+        }
+      ]
+    }
+  ]
+}

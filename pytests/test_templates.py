@@ -95,8 +95,8 @@ def test_template_publish_compiler_and_ledger(service, workspace):
     with pytest.raises(ConflictError, match="already exists"):
         service.template_propose(actor="expert:pcb", template=template, reason="Overwrite")
     route_file = workspace / "knowledge/templates/rigid_multilayer/v1.0.0/groups/inner_circuit.md"
-    raw = route_file.read_text()
-    route_file.write_text(raw.replace("route-step:rigid_multilayer:1.0.0:inner_etch", "route-group:rigid_multilayer:1.0.0:inner_circuit"))
+    raw = route_file.read_text(encoding="utf-8")
+    route_file.write_text(raw.replace("route-step:rigid_multilayer:1.0.0:inner_etch", "route-group:rigid_multilayer:1.0.0:inner_circuit"), encoding="utf-8")
     with pytest.raises(ValidationError):
         service.compile()
     assert service.db.first("SELECT type FROM node WHERE id='route:rigid_multilayer:1.0.0'")["type"] == "route_template"
@@ -131,6 +131,37 @@ def test_template_validation_rejects_invalid_graph_and_case(service):
     template["operations"][0]["time_model_ref"] = "machining_time@1.0.0"
     workbench.validate(template)
     assert "machining_time" in {model["id"] for model in service.template_catalog()["data"]["models"]}
+
+
+def test_new_template_basic_case_reports_counts_and_submits_after_confirmation(service):
+    template = pcb_template()
+    template.update(id="new_route", groups=[], edges=[], steps=[template["steps"][1]],
+                    cases=[{"id": "basic", "facts": {}, "sets": {}, "expected_operations": 0}])
+    before = service.db.first("SELECT COUNT(*) AS count FROM changeset")["count"]
+    preview = service.template_preview(template, template["cases"][0])
+    assert preview["data"]["operation_count"] == 1
+    assert preview["quality_status"]["write_performed"] is False
+    assert preview["data"]["matches_expected"] is False
+    with pytest.raises(ValidationError, match=r"basic \(expected 0, actual 1\)"):
+        service.template_propose(actor="expert:author", template=template, reason="New route")
+    assert template["cases"][0]["expected_operations"] == 0
+    assert service.db.first("SELECT COUNT(*) AS count FROM changeset")["count"] == before
+    template["cases"][0]["expected_operations"] = preview["data"]["operation_count"]
+    proposal = service.template_propose(actor="expert:author", template=template, reason="Confirmed sample")["data"]
+    assert proposal["status"] == "review_required"
+    patch = json.loads(service.db.first("SELECT patch_json FROM changeset WHERE id=?", (proposal["id"],))["patch_json"])
+    assert patch["template"]["cases"][0]["expected_operations"] == 1
+    assert service.ledger.verify()["valid"]
+
+
+def test_template_submission_reports_all_failed_expanded_sample_counts(service):
+    template = pcb_template()
+    for sample in template["cases"]:
+        sample["expected_operations"] = 0
+    with pytest.raises(ValidationError) as error:
+        service.template_propose(actor="expert:author", template=template, reason="Incorrect expectations")
+    assert str(error.value) == ("expert sample cases failed: four_layers (expected 0, actual 3), "
+                                "eight_layers (expected 0, actual 7)")
 
 
 def test_template_api_permissions_are_separate_from_ontology(service):
@@ -168,6 +199,11 @@ def test_template_api_permissions_are_separate_from_ontology(service):
         assert request("/v1/propose", "ontology", {"target_source": "knowledge/decisions/example/v1.0.0.md", "patch": {"op": "add", "path": "", "value": {}}, "reason": "bypass"})[0] == 422
         assert request("/v1/templates/preview", "reviewer", {"template": template, "case": template["cases"][0]})[0] == 200
         assert request("/v1/templates/propose", "ontology", {"template": template, "reason": "route"})[0] == 403
+        incorrect = json.loads(json.dumps(template))
+        incorrect["cases"][0]["expected_operations"] = 0
+        status, payload = request("/v1/templates/propose", "author", {"template": incorrect, "reason": "route"})
+        assert status == 422
+        assert "four_layers (expected 0, actual 3)" in payload["error"]
         status, payload = request("/v1/templates/propose", "author", {"template": template, "reason": "route"})
         assert status == 201
         proposal_id = payload["data"]["id"]

@@ -1,0 +1,26 @@
+{
+  "title": "KnowledgeOS 建模助手使用指导书",
+  "application_version": "4.0.0",
+  "guide_version": "1.0",
+  "date": "2026-10-12",
+  "source_commit": "b9d771818eaf215feb685240f6c637975750d399",
+  "pages": 19,
+  "screenshots": 14,
+  "format": [
+    "pdf",
+    "docx"
+  ],
+  "visual_qa": "all 19 pages inspected; final one-page revision inspected; other 18 rendered pages unchanged",
+  "accessibility_audit": {
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "examples": "generated structural response template; validated in isolated workspace; no external model call",
+  "live_workspace_changesets_before": 0,
+  "live_workspace_changesets_after": 0,
+  "file_sha256": {
+    "KnowledgeOS建模助手使用指导书.pdf": "43ef67e8bb4e9d86993c229344c832c7bffd439208b710798699723942fe5cbc",
+    "KnowledgeOS建模助手使用指导书.docx": "db9e48c213449e5a8a74bebd783c094e607f670a36a370cbc8d896ccba39b805"
+  }
+}
