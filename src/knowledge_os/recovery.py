@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from .core import Config, ConflictError, IntegrityError, NotFoundError, ValidationError, json_text, utcnow
@@ -36,10 +37,13 @@ def backup(config: Config, destination):
         destination.mkdir(parents=True)
         hashes = {}
         for name in FILES:
-            with sqlite3.connect(str(config.runtime / name)) as source, sqlite3.connect(str(destination / name)) as target:
+            # A sqlite3 connection used as a context manager only commits; close it
+            # explicitly so Windows releases the file handles before restore/cleanup.
+            with closing(sqlite3.connect(str(config.runtime / name))) as source, \
+                    closing(sqlite3.connect(str(destination / name))) as target:
                 source.backup(target)
             hashes[name] = hashlib.sha256((destination / name).read_bytes()).hexdigest()
-        with sqlite3.connect(str(destination / FILES[0])) as state:
+        with closing(sqlite3.connect(str(destination / FILES[0]))) as state:
             exists = state.execute("SELECT 1 FROM sqlite_master WHERE name='schema_migration'").fetchone()
             schema_version = state.execute("SELECT coalesce(max(version),1) FROM schema_migration").fetchone()[0] if exists else 1
     finally:
