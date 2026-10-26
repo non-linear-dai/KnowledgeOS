@@ -119,7 +119,7 @@ def test_decision_graph_snapshots_and_durable_replay_survive_source_changes(serv
     with pytest.raises(ConflictError):
         workbench.run(ref=ref, actor="logic:operator", facts={"facts": {"size": "600"}}, idempotency_key="run-1")
     source = workspace / "knowledge/decisions/size_selection/v1.0.0.md"
-    source.write_text(source.read_text().replace('equipment_class: small', 'equipment_class: changed'))
+    source.write_text(source.read_text(encoding="utf-8").replace('equipment_class: small', 'equipment_class: changed'), encoding="utf-8")
     service.registry.units["kW"]["factor_to_base"] = "999"
     assert workbench.replay(run["id"])["matches_recorded"]
     assert workbench.runs(ref)[0]["record"]["definition_hash"]
