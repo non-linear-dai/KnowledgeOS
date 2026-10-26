@@ -496,7 +496,7 @@ def test_control_studio_and_portable_agent_skill(service, workspace):
     assert len(control["currencies"]) == 4
     assert set(control["domains"]) == {"cost", "industry", "pm"}
     studio = service.studio()["data"]
-    assert len(studio["definitions"]) == 91
+    assert len(studio["definitions"]) == 92
     assert studio["coverage"]["concept"] == 14
     assert studio["coverage"]["relation"] == 10
     assert studio["coverage"]["predicate"] == 34

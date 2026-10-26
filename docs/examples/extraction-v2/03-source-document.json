@@ -1,0 +1,205 @@
+{
+  "protocol_version": "knowledgeos.extraction.v2",
+  "message_type": "source_document",
+  "document": {
+    "id": "source:dms:supplier-review:acme-2026q3",
+    "version": "v1",
+    "locator": "dms://supplier-review/acme/2026q3",
+    "kind": "meeting_minutes",
+    "mime_type": "text/markdown",
+    "content_hash": "3620494291923118cfba1ff5d4ff0352b41557b182ec5cf5006a1d9494bbadc5",
+    "captured_at": "2026-10-26T13:31:00Z",
+    "title": "Acme Industrial Systems 2026年第三季度供应商评审纪要",
+    "language": "zh",
+    "document_type": "supplier_review_minutes",
+    "document_dates": {
+      "issued_at": "2026-10-15",
+      "evidence": [
+        {
+          "block_id": "b2",
+          "start": 5,
+          "end": 16,
+          "quote": "2026年10月15日",
+          "role": "value"
+        }
+      ]
+    },
+    "issuer": "采购部",
+    "origin": {
+      "system": "dms",
+      "record_id": "SR-2026-Q3-ACME",
+      "record_version": "1",
+      "approval_status": "published"
+    }
+  },
+  "original": {
+    "sha256": "3620494291923118cfba1ff5d4ff0352b41557b182ec5cf5006a1d9494bbadc5",
+    "media_type": "text/markdown",
+    "bytes": 528,
+    "uri": "dms://supplier-review/acme/2026q3/files/minutes.md"
+  },
+  "parser": {
+    "name": "example-structured-parser",
+    "version": "1.0.0"
+  },
+  "pages": [
+    {
+      "number": 1,
+      "width": 595,
+      "height": 842,
+      "unit": "pt"
+    },
+    {
+      "number": 2,
+      "width": 595,
+      "height": 842,
+      "unit": "pt"
+    }
+  ],
+  "blocks": [
+    {
+      "id": "b1",
+      "type": "title",
+      "text": "Acme Industrial Systems 2026年第三季度供应商评审纪要",
+      "order": 0,
+      "page": 1
+    },
+    {
+      "id": "b2",
+      "type": "paragraph",
+      "text": "会议日期：2026年10月15日",
+      "order": 1,
+      "page": 1
+    },
+    {
+      "id": "b3",
+      "type": "heading",
+      "text": "一、产品与产能",
+      "order": 2,
+      "page": 1
+    },
+    {
+      "id": "b4",
+      "type": "paragraph",
+      "text": "Acme（Acme Industrial Systems Ltd.）表示，2026年三季度已在华东新增两条伺服模块装配线。",
+      "order": 3,
+      "page": 1,
+      "heading_path": [
+        "一、产品与产能"
+      ]
+    },
+    {
+      "id": "b5",
+      "type": "paragraph",
+      "text": "Servo Module X1（物料号 SERVO-MODULE-X1）由 Acme 供应，定位为中端伺服模块，用于标准装配单元。",
+      "order": 4,
+      "page": 1,
+      "heading_path": [
+        "一、产品与产能"
+      ]
+    },
+    {
+      "id": "t1",
+      "type": "table",
+      "text": "",
+      "order": 5,
+      "page": 1,
+      "heading_path": [
+        "一、产品与产能"
+      ]
+    },
+    {
+      "id": "t1.r0c0",
+      "type": "table_cell",
+      "text": "参数",
+      "parent_id": "t1",
+      "table": {
+        "table_id": "t1",
+        "row": 0,
+        "col": 0,
+        "header": true
+      },
+      "order": 6,
+      "page": 1,
+      "heading_path": [
+        "一、产品与产能"
+      ]
+    },
+    {
+      "id": "t1.r0c1",
+      "type": "table_cell",
+      "text": "数值",
+      "parent_id": "t1",
+      "table": {
+        "table_id": "t1",
+        "row": 0,
+        "col": 1,
+        "header": true
+      },
+      "order": 7,
+      "page": 1,
+      "heading_path": [
+        "一、产品与产能"
+      ]
+    },
+    {
+      "id": "t1.r1c0",
+      "type": "table_cell",
+      "text": "标准交期",
+      "parent_id": "t1",
+      "table": {
+        "table_id": "t1",
+        "row": 1,
+        "col": 0
+      },
+      "order": 8,
+      "page": 1,
+      "heading_path": [
+        "一、产品与产能"
+      ]
+    },
+    {
+      "id": "t1.r1c1",
+      "type": "table_cell",
+      "text": "约30天",
+      "parent_id": "t1",
+      "table": {
+        "table_id": "t1",
+        "row": 1,
+        "col": 1
+      },
+      "order": 9,
+      "page": 1,
+      "heading_path": [
+        "一、产品与产能"
+      ]
+    },
+    {
+      "id": "b6",
+      "type": "heading",
+      "text": "二、设备要求",
+      "order": 10,
+      "page": 2
+    },
+    {
+      "id": "b7",
+      "type": "paragraph",
+      "text": "用于 X1 出厂检验的测试台额定功率不得低于5kW。",
+      "order": 11,
+      "page": 2,
+      "heading_path": [
+        "二、设备要求"
+      ]
+    },
+    {
+      "id": "b8",
+      "type": "paragraph",
+      "text": "评审结论：维持 Acme 的 A 级供应商评级。",
+      "order": 12,
+      "page": 2,
+      "heading_path": [
+        "二、设备要求"
+      ]
+    }
+  ]
+}

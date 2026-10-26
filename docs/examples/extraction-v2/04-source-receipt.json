@@ -1,0 +1,11 @@
+{
+  "protocol_version": "knowledgeos.extraction.v2",
+  "message_type": "source_receipt",
+  "document_id": "source:dms:supplier-review:acme-2026q3",
+  "document_version": "v1",
+  "content_hash": "3620494291923118cfba1ff5d4ff0352b41557b182ec5cf5006a1d9494bbadc5",
+  "stored": true,
+  "evidence_ref": "evidence:sha256:3620494291923118cfba1ff5d4ff0352b41557b182ec5cf5006a1d9494bbadc5",
+  "block_count": 13,
+  "issues": []
+}

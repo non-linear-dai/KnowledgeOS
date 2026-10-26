@@ -1,0 +1,187 @@
+{
+  "protocol_version": "knowledgeos.extraction.v2",
+  "message_type": "validation_report",
+  "submission_id": "sub-acme-2026q3-001",
+  "mode": "precheck",
+  "status": "partially_accepted",
+  "registry_fingerprint": "214d27ae4a9312c8667505ecdbbe982ecd92a4c8d97895709eef3043f92dbbd0",
+  "contract_id": "contract:2026-10-26:supplier-review",
+  "evaluated_at": "2026-10-26T13:31:50Z",
+  "instances": [
+    {
+      "local_id": "tmp:org-1",
+      "outcome": "matched",
+      "node_id": "org:acme",
+      "resolution": {
+        "reason": "exact_alias",
+        "candidates": [
+          {
+            "node_id": "org:acme",
+            "label": "Acme Industrial Systems",
+            "rank": 70,
+            "reasons": [
+              "exact_alias"
+            ]
+          }
+        ]
+      },
+      "fields": [
+        {
+          "predicate": "legal_name",
+          "field_index": 0,
+          "outcome": "already_present",
+          "normalized": {
+            "type": "string",
+            "literal": "Acme Industrial Systems Ltd."
+          }
+        },
+        {
+          "predicate": "finding",
+          "field_index": 1,
+          "outcome": "accepted",
+          "normalized": {
+            "type": "text",
+            "literal": "2026年三季度已在华东新增两条伺服模块装配线"
+          },
+          "temporal": {
+            "observed_at": "2026-10-15T00:00:00+08:00",
+            "valid_from": null,
+            "valid_to": null
+          }
+        }
+      ]
+    },
+    {
+      "local_id": "tmp:prod-1",
+      "outcome": "matched",
+      "node_id": "product:servo-module",
+      "resolution": {
+        "reason": "scoped_business_key,exact_label",
+        "candidates": [
+          {
+            "node_id": "product:servo-module",
+            "label": "Servo Module X1",
+            "rank": 90,
+            "reasons": [
+              "scoped_business_key",
+              "exact_label"
+            ]
+          }
+        ]
+      },
+      "fields": [
+        {
+          "predicate": "summary",
+          "field_index": 0,
+          "outcome": "conflict",
+          "normalized": {
+            "type": "text",
+            "literal": "定位为中端伺服模块，用于标准装配单元"
+          },
+          "conflict": {
+            "existing": {
+              "type": "text",
+              "literal": "Reference servo module used for deterministic cost analysis."
+            },
+            "existing_source": "git:knowledge/entities/product-servo-module.md",
+            "authority_strategy": "review_equal_authority"
+          },
+          "issues": [
+            {
+              "code": "VALUE_CONFLICT",
+              "severity": "warning",
+              "path": "/instances/1/fields/0",
+              "message": "单值属性与现有取值不同，提案时需审核人确认是否替换。"
+            }
+          ]
+        },
+        {
+          "predicate": "lead_time_days",
+          "field_index": 1,
+          "outcome": "upstream_required",
+          "normalized": {
+            "type": "quantity",
+            "literal": "30",
+            "unit": "calendar_days",
+            "qualifiers": {
+              "approximation": "approximate"
+            }
+          },
+          "temporal": {
+            "observed_at": "2026-10-15T00:00:00+08:00",
+            "valid_from": null,
+            "valid_to": null
+          },
+          "issues": [
+            {
+              "code": "CONNECTOR_AUTHORITY_REQUIRED",
+              "severity": "info",
+              "path": "/instances/1/fields/1",
+              "message": "交期由 ERP 维护（authority: erp_operational），已登记为待核对事项，不写入 Git 真源。"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "local_id": "tmp:rel-1",
+      "outcome": "already_present",
+      "source_node_id": "org:acme",
+      "target_node_id": "product:servo-module"
+    }
+  ],
+  "rule_signals": [
+    {
+      "local_id": "tmp:rule-1",
+      "outcome": "differs_from_existing",
+      "logic_ref": "constraint:equipment_power_positive@1.0.0",
+      "comparison": {
+        "existing": {
+          "operator": "gt",
+          "value": "0",
+          "unit": "W",
+          "scope": "all equipment"
+        },
+        "extracted": {
+          "operator": "gte",
+          "value": "5",
+          "unit": "kW",
+          "scope": "用于 X1 出厂检验的测试台"
+        },
+        "differences": [
+          "阈值不同：> 0 W 与 ≥ 5 kW",
+          "适用范围更窄：仅 X1 出厂检验测试台"
+        ]
+      },
+      "next_action": "clarify_scope"
+    }
+  ],
+  "unmapped_recorded": 1,
+  "coverage": {
+    "blocks_total": 13,
+    "blocks_with_evidence": 8,
+    "uncovered_cue_blocks": [
+      {
+        "block_id": "b7",
+        "cues": [
+          {
+            "type": "term",
+            "match": "测试台",
+            "concept": "equipment"
+          },
+          {
+            "type": "term",
+            "match": "额定功率",
+            "concept": "equipment",
+            "predicate": "rated_power"
+          }
+        ]
+      }
+    ],
+    "missing_required": []
+  },
+  "changesets": [],
+  "issues": []
+}
