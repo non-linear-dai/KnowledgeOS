@@ -15,3 +15,5 @@ __pycache__/
 /.release-backups/
 
 !.gitkeep
+/runtime/preview-logs/
+/.preview-tools/

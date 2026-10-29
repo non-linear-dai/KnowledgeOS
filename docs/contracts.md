@@ -134,6 +134,10 @@ Extraction is read-only and uses two provider-neutral phases:
 
 The finalization call fails when control definitions changed after the request was created. The caller must regenerate the request and rerun extraction. Candidate generation never creates a ChangeSet, changes Git truth, or updates a runtime projection.
 
+## Extraction protocol v2
+
+Protocol v2 (`knowledgeos.extraction.v2`) runs alongside v1. `POST /v2/extraction/contract` (read) generates a scoped contract from the registry and `control/extraction/v2/`; `POST /v2/extraction/sources` (extract) registers a parsed source version with its block snapshot and optional inline original; `POST /v2/extraction/precheck` (extract) and `POST /v2/extraction/submissions` (propose) apply identical acceptance rules, the latter creating one ChangeSet per target instance and queueing upstream-only fields, draft instances, rule-signal differences and unmapped facts (`GET /v2/extraction/queue`). Agents submit raw text with field-level anchors; KnowledgeOS normalizes values, resolves identity with the evidence-bound resolver, and validates candidate documents exactly as publication will. Contracts, sources, submissions, fact evidence and queue items live in durable state schema 6. See [extraction-v2.md](extraction-v2.md).
+
 ## Agent and model service protocol
 
 The provider-neutral Agent service has four operations:

@@ -5,7 +5,14 @@
   "document_version": "v1",
   "content_hash": "3620494291923118cfba1ff5d4ff0352b41557b182ec5cf5006a1d9494bbadc5",
   "stored": true,
-  "evidence_ref": "evidence:sha256:3620494291923118cfba1ff5d4ff0352b41557b182ec5cf5006a1d9494bbadc5",
   "block_count": 13,
-  "issues": []
+  "evidence_ref": "evidence:sha256:3620494291923118cfba1ff5d4ff0352b41557b182ec5cf5006a1d9494bbadc5",
+  "issues": [
+    {
+      "code": "OTHER",
+      "severity": "info",
+      "message": "原件未内联提交，只登记 uri；KnowledgeOS 未归档原件字节",
+      "path": "/original"
+    }
+  ]
 }

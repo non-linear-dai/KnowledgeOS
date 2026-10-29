@@ -60,7 +60,7 @@ test('overview has its own route while retaining the same editor surface as the 
   const {workspaces,workspaceForPath,workspaceSurface}=load('../app/workspace-navigation.ts');
   assert.equal(workspaceForPath('/overview/'),'overview'); assert.equal(workspaceForPath('/changesets'),'changesets');
   assert.equal(workspaceSurface('overview'),workspaceSurface('ontology'));
-  assert.equal(new Set(workspaces.map(item=>item.href)).size,6);
+  assert.equal(new Set(workspaces.map(item=>item.href)).size,7); assert.equal(workspaceForPath('/extraction'),'extraction');
   assert.equal(workspaceForPath('/rules'),'rules');
   assert.notEqual(workspaceSurface('changesets'),workspaceSurface('templates'));
 });

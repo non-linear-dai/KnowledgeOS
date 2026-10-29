@@ -911,6 +911,7 @@ function Inspector({ definition, definitions, relatedDefinitions, expert, editSi
     </div></div>
     <ScrollArea className="min-h-0 flex-1"><div className="space-y-5 p-5 pb-28">
       {["model", "business_rule", "business_constraint", "concept", "predicate", "relation"].includes(definition.kind) && <Link className="logic-link" href={`/rules?${new URLSearchParams(["model", "business_rule", "business_constraint"].includes(definition.kind) ? { definition: definition.id } : definition.kind === "concept" ? { concept: definition.id } : { binding: definition.id })}`}>在规则与决策工作台查看关联逻辑 →</Link>}
+      {["concept", "predicate"].includes(definition.kind) && <Link className="logic-link" href={`/extraction?${new URLSearchParams(definition.kind === "concept" ? { concept: definition.id } : { predicate: definition.id })}`}>{definition.kind === "concept" ? "编辑文档抽取说明卡 →" : "编辑该属性的抽取写法 →"}</Link>}
       {editing ? <>
         <div className="space-y-1.5"><Label>显示名称</Label><Input value={definition.label} onChange={(event) => update("label", event.target.value)} /></div>
         <div className="space-y-1.5"><Label>语义说明</Label><Textarea value={definition.description} onChange={(event) => update("description", event.target.value)} /></div>

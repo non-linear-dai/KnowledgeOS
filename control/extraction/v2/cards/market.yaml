@@ -1,0 +1,21 @@
+format: knowledgeos.extraction-card.v1
+concept: market
+card_version: 1.0.0
+card:
+  definition:
+    zh: "有明确范围的研究对象市场。"
+    en: "A research subject with a bounded market scope."
+  recognition_cues: [市场, 行业, 细分市场]
+terms:
+  pref: {zh: 市场}
+  alt: [市场, 行业]
+identity:
+  keys: [{source: natural_key}]
+  minimum_fields: []
+properties:
+  summary:
+    terms: {pref: {zh: 概述}, alt: [市场概况]}
+  market_size:
+    terms: {pref: {zh: 市场规模}, alt: [规模, 市场容量]}
+  finding:
+    terms: {pref: {zh: 研究发现}, alt: [结论, 发现]}

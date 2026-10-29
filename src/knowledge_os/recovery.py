@@ -60,7 +60,7 @@ def restore(config: Config, source):
     manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("format") != "knowledgeos.backup.v1":
         raise ValidationError("unsupported backup format")
-    if manifest.get("durable_schema_version", 1) > 5:
+    if manifest.get("durable_schema_version", 1) > 6:
         raise ValidationError("backup requires a newer KnowledgeOS release")
     if manifest.get("authored_fingerprint") != authored_fingerprint(config):
         raise ConflictError("restore requires the same authored knowledge/control checkout")

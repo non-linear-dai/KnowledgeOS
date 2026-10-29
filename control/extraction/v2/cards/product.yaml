@@ -1,0 +1,30 @@
+format: knowledgeos.extraction-card.v1
+concept: product
+card_version: 1.0.0
+card:
+  definition:
+    zh: "可被分析、供应或使用的具体产品或物料。"
+    en: "A concrete product or material that is analyzed, supplied or used."
+  recognition_cues: [型号, 物料号, 料号, 产品, 模块]
+  positive_examples:
+    - {text: Servo Module X1（物料号 SERVO-MODULE-X1）, note: 物料号作为身份键}
+  negative_examples:
+    - {text: 伺服模块装配线, note: 产线不是产品实例}
+  boundary_notes: [只有指向具体型号或物料时才建实例；泛指的产品类别写入 unmapped_facts。]
+  typical_locations: [规格书标题, 物料清单, 评审纪要产品段落]
+terms:
+  alt: [物料, 型号, 料号]
+identity:
+  keys:
+    - source: natural_key
+      patterns: [{id: material_code, pattern: "^[A-Z0-9][A-Z0-9-]{2,63}$", description: 物料号或型号编码}]
+  minimum_fields: []
+properties:
+  summary:
+    terms: {pref: {zh: 概述}, alt: [简介, 定位, 产品定位, 说明]}
+  unit_cost:
+    terms: {pref: {zh: 单位成本}, alt: [单价, 标准成本, 成本]}
+    unit_aliases: {美元/件: USD_per_unit, 元/件: CNY_per_unit, 欧元/件: EUR_per_unit}
+  lead_time_days:
+    terms: {pref: {zh: 交期}, alt: [交货期, 标准交期, 供货周期, 交付周期]}
+    unit_aliases: {天: calendar_days, 日: calendar_days, 自然日: calendar_days, 个自然日: calendar_days}

@@ -11,6 +11,7 @@
     ],
     "concepts": [
       "organization",
+      "market",
       "product",
       "equipment"
     ]
@@ -23,7 +24,7 @@
     "max_quote_chars": 2000
   },
   "acceptance": {
-    "quote_match": "exact",
+    "quote_match": "normalized_exact",
     "evidence_level": "field",
     "draft_instances": true,
     "relations_between_new_instances": true,
@@ -32,58 +33,35 @@
   "concepts": [
     {
       "id": "organization",
+      "iri": "urn:knowledgeos:concept/organization",
       "labels": {
-        "zh": "企业",
-        "en": "Organization"
+        "en": "Organization",
+        "zh": "企业"
       },
       "terms": {
         "pref": {
+          "en": "Organization",
           "zh": "企业"
         },
         "alt": [
           "组织",
           "供应商",
+          "厂商",
+          "公司",
           "合作伙伴"
-        ]
-      },
-      "card": {
-        "card_version": "1.0.0",
-        "definition": {
-          "zh": "企业、供应商或合作伙伴的法人身份。"
-        },
-        "recognition_cues": [
-          "公司全称或简称后跟“有限公司”“Ltd.”等后缀",
-          "作为供应方、客户或合作方被提及"
-        ],
-        "positive_examples": [
-          {
-            "text": "Acme（Acme Industrial Systems Ltd.）表示……",
-            "note": "简称与全称同时出现"
-          }
-        ],
-        "negative_examples": [
-          {
-            "text": "华东工厂",
-            "note": "工厂/产线是企业的设施，不是企业实例"
-          }
-        ],
-        "boundary_notes": [
-          "品牌名不等于企业，除非原文明确指向法人主体"
-        ],
-        "typical_locations": [
-          "纪要标题",
-          "合同首部",
-          "供应商名录表"
         ]
       },
       "identity": {
         "keys": [
           {
+            "patterns": [
+              {
+                "description": "大写字母开头的组织编码",
+                "id": "organization_code",
+                "pattern": "^[A-Z][A-Z0-9-]{2,63}$"
+              }
+            ],
             "source": "natural_key"
-          },
-          {
-            "source": "predicate",
-            "predicate": "legal_name"
           }
         ],
         "minimum_fields": []
@@ -92,17 +70,8 @@
         {
           "predicate": "legal_name",
           "labels": {
-            "zh": "法定名称",
-            "en": "Legal name"
-          },
-          "terms": {
-            "pref": {
-              "zh": "法定名称"
-            },
-            "alt": [
-              "公司全称",
-              "注册名称"
-            ]
+            "en": "Legal name",
+            "zh": "法定名称"
           },
           "value": {
             "type": "string",
@@ -110,110 +79,75 @@
           },
           "storage": "attr",
           "required_for_publish": true,
-          "publication_route": "governed_changeset"
+          "temporal_required": false,
+          "evidence_required": false,
+          "publication_route": "governed_changeset",
+          "terms": {
+            "alt": [
+              "公司全称",
+              "注册名称",
+              "全称"
+            ],
+            "pref": {
+              "zh": "法定名称"
+            }
+          }
+        },
+        {
+          "predicate": "country",
+          "labels": {
+            "en": "Country or region",
+            "zh": "国家或地区"
+          },
+          "value": {
+            "type": "string",
+            "cardinality": "one"
+          },
+          "storage": "attr",
+          "required_for_publish": false,
+          "temporal_required": false,
+          "evidence_required": false,
+          "publication_route": "governed_changeset",
+          "terms": {
+            "alt": [
+              "国家",
+              "地区",
+              "所在地"
+            ],
+            "pref": {
+              "zh": "国家或地区"
+            }
+          }
         },
         {
           "predicate": "finding",
           "labels": {
-            "zh": "研究发现",
-            "en": "Finding"
+            "en": "Research finding",
+            "zh": "研究发现"
           },
           "value": {
             "type": "text",
             "cardinality": "temporal_many"
           },
           "storage": "assertion",
+          "required_for_publish": false,
           "temporal_required": false,
-          "evidence_required": true,
+          "evidence_required": false,
           "publication_route": "governed_changeset",
-          "card": {
-            "recognition_cues": [
-              "关于企业战略、产能、布局的事实性陈述"
+          "terms": {
+            "alt": [
+              "发现"
             ],
-            "boundary_notes": [
-              "评级、结论类主观判断不作为 finding，除非原文给出依据"
-            ]
+            "pref": {
+              "zh": "研究发现"
+            }
           }
-        }
-      ],
-      "relation_ids": [
-        "supplies",
-        "participates_in"
-      ]
-    },
-    {
-      "id": "product",
-      "labels": {
-        "zh": "产品",
-        "en": "Product"
-      },
-      "terms": {
-        "pref": {
-          "zh": "产品"
-        },
-        "alt": [
-          "物料",
-          "型号"
-        ]
-      },
-      "card": {
-        "definition": {
-          "zh": "可被分析、供应或使用的产品或物料。"
-        },
-        "recognition_cues": [
-          "型号、物料号",
-          "“定位为……”“用于……”的产品描述"
-        ],
-        "typical_locations": [
-          "规格表",
-          "BOM",
-          "评审纪要的产品章节"
-        ]
-      },
-      "identity": {
-        "keys": [
-          {
-            "source": "natural_key",
-            "patterns": [
-              {
-                "id": "material_code",
-                "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)+$",
-                "description": "物料号，例如 SERVO-MODULE-X1"
-              }
-            ]
-          }
-        ],
-        "minimum_fields": []
-      },
-      "properties": [
-        {
-          "predicate": "summary",
-          "labels": {
-            "zh": "概述",
-            "en": "Summary"
-          },
-          "value": {
-            "type": "text",
-            "cardinality": "one"
-          },
-          "storage": "attr",
-          "publication_route": "governed_changeset"
         },
         {
           "predicate": "lead_time_days",
           "labels": {
-            "zh": "交期",
-            "en": "Lead time"
-          },
-          "terms": {
-            "pref": {
-              "zh": "交期"
-            },
-            "alt": [
-              "标准交期",
-              "交货周期",
-              "Lead time"
-            ]
+            "en": "Lead time",
+            "zh": "交期"
           },
           "value": {
             "type": "quantity",
@@ -223,36 +157,88 @@
             ],
             "default_unit": "calendar_days",
             "unit_aliases": {
+              "个自然日": "calendar_days",
               "天": "calendar_days",
               "日": "calendar_days",
-              "days": "calendar_days"
+              "自然日": "calendar_days"
             }
           },
           "storage": "assertion",
+          "required_for_publish": false,
           "temporal_required": true,
           "evidence_required": true,
-          "publication_route": "upstream_source_system"
+          "publication_route": "upstream_source_system",
+          "terms": {
+            "alt": [
+              "交货期",
+              "标准交期",
+              "供货周期",
+              "交付周期"
+            ],
+            "pref": {
+              "zh": "交期"
+            }
+          }
         }
       ],
       "relation_ids": [
+        "depends_on",
+        "participates_in",
         "supplies",
-        "uses",
-        "participates_in"
-      ]
+        "uses"
+      ],
+      "card": {
+        "boundary_notes": [
+          "“该公司”“上述供应商”等指代需合并到被指代的实例，记入 mentions。"
+        ],
+        "definition": {
+          "en": "An enterprise, supplier or partner with its own identity.",
+          "zh": "企业、供应商或合作伙伴等具有独立身份的组织。"
+        },
+        "negative_examples": [
+          {
+            "note": "企业内部部门不是独立组织实例",
+            "text": "采购部"
+          }
+        ],
+        "positive_examples": [
+          {
+            "note": "简称与法定名称同时出现时合并为一个实例",
+            "text": "Acme（Acme Industrial Systems Ltd.）表示……"
+          }
+        ],
+        "recognition_cues": [
+          "供应商",
+          "厂商",
+          "公司",
+          "集团",
+          "有限公司",
+          "Ltd.",
+          "Inc."
+        ],
+        "typical_locations": [
+          "会议纪要参会方",
+          "合同首部",
+          "评审结论"
+        ],
+        "card_version": "1.0.0"
+      }
     },
     {
-      "id": "equipment",
+      "id": "market",
+      "iri": "urn:knowledgeos:concept/market",
       "labels": {
-        "zh": "设备",
-        "en": "Equipment"
+        "en": "Market",
+        "zh": "市场"
       },
       "terms": {
         "pref": {
-          "zh": "设备"
+          "en": "Market",
+          "zh": "市场"
         },
         "alt": [
-          "测试台",
-          "机台"
+          "市场",
+          "行业"
         ]
       },
       "identity": {
@@ -265,19 +251,305 @@
       },
       "properties": [
         {
+          "predicate": "summary",
+          "labels": {
+            "en": "Summary",
+            "zh": "概述"
+          },
+          "value": {
+            "type": "text",
+            "cardinality": "one"
+          },
+          "storage": "attr",
+          "required_for_publish": false,
+          "temporal_required": false,
+          "evidence_required": false,
+          "publication_route": "governed_changeset",
+          "terms": {
+            "alt": [
+              "市场概况"
+            ],
+            "pref": {
+              "zh": "概述"
+            }
+          }
+        },
+        {
+          "predicate": "market_size",
+          "labels": {
+            "en": "Market size",
+            "zh": "市场规模"
+          },
+          "value": {
+            "type": "quantity",
+            "cardinality": "temporal_many"
+          },
+          "storage": "assertion",
+          "required_for_publish": false,
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "governed_changeset",
+          "terms": {
+            "alt": [
+              "规模",
+              "市场容量"
+            ],
+            "pref": {
+              "zh": "市场规模"
+            }
+          }
+        },
+        {
+          "predicate": "finding",
+          "labels": {
+            "en": "Research finding",
+            "zh": "研究发现"
+          },
+          "value": {
+            "type": "text",
+            "cardinality": "temporal_many"
+          },
+          "storage": "assertion",
+          "required_for_publish": false,
+          "temporal_required": false,
+          "evidence_required": false,
+          "publication_route": "governed_changeset",
+          "terms": {
+            "alt": [
+              "结论",
+              "发现"
+            ],
+            "pref": {
+              "zh": "研究发现"
+            }
+          }
+        }
+      ],
+      "relation_ids": [
+        "participates_in"
+      ],
+      "card": {
+        "definition": {
+          "en": "A research subject with a bounded market scope.",
+          "zh": "有明确范围的研究对象市场。"
+        },
+        "recognition_cues": [
+          "市场",
+          "行业",
+          "细分市场"
+        ],
+        "card_version": "1.0.0"
+      }
+    },
+    {
+      "id": "product",
+      "iri": "urn:knowledgeos:concept/product",
+      "labels": {
+        "en": "Product",
+        "zh": "产品"
+      },
+      "terms": {
+        "pref": {
+          "en": "Product",
+          "zh": "产品"
+        },
+        "alt": [
+          "物料",
+          "型号",
+          "料号"
+        ]
+      },
+      "identity": {
+        "keys": [
+          {
+            "patterns": [
+              {
+                "description": "物料号或型号编码",
+                "id": "material_code",
+                "pattern": "^[A-Z0-9][A-Z0-9-]{2,63}$"
+              }
+            ],
+            "source": "natural_key"
+          }
+        ],
+        "minimum_fields": []
+      },
+      "properties": [
+        {
+          "predicate": "summary",
+          "labels": {
+            "en": "Summary",
+            "zh": "概述"
+          },
+          "value": {
+            "type": "text",
+            "cardinality": "one"
+          },
+          "storage": "attr",
+          "required_for_publish": false,
+          "temporal_required": false,
+          "evidence_required": false,
+          "publication_route": "governed_changeset",
+          "terms": {
+            "alt": [
+              "简介",
+              "定位",
+              "产品定位",
+              "说明"
+            ],
+            "pref": {
+              "zh": "概述"
+            }
+          }
+        },
+        {
+          "predicate": "unit_cost",
+          "labels": {
+            "en": "Unit cost",
+            "zh": "单位成本"
+          },
+          "value": {
+            "type": "quantity",
+            "cardinality": "temporal_many",
+            "unit_aliases": {
+              "元/件": "CNY_per_unit",
+              "欧元/件": "EUR_per_unit",
+              "美元/件": "USD_per_unit"
+            }
+          },
+          "storage": "assertion",
+          "required_for_publish": false,
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "upstream_source_system",
+          "terms": {
+            "alt": [
+              "单价",
+              "标准成本",
+              "成本"
+            ],
+            "pref": {
+              "zh": "单位成本"
+            }
+          }
+        },
+        {
+          "predicate": "lead_time_days",
+          "labels": {
+            "en": "Lead time",
+            "zh": "交期"
+          },
+          "value": {
+            "type": "quantity",
+            "cardinality": "temporal_many",
+            "units": [
+              "calendar_days"
+            ],
+            "default_unit": "calendar_days",
+            "unit_aliases": {
+              "个自然日": "calendar_days",
+              "天": "calendar_days",
+              "日": "calendar_days",
+              "自然日": "calendar_days"
+            }
+          },
+          "storage": "assertion",
+          "required_for_publish": false,
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "upstream_source_system",
+          "terms": {
+            "alt": [
+              "交货期",
+              "标准交期",
+              "供货周期",
+              "交付周期"
+            ],
+            "pref": {
+              "zh": "交期"
+            }
+          }
+        }
+      ],
+      "relation_ids": [
+        "participates_in",
+        "supplies",
+        "uses"
+      ],
+      "card": {
+        "boundary_notes": [
+          "只有指向具体型号或物料时才建实例；泛指的产品类别写入 unmapped_facts。"
+        ],
+        "definition": {
+          "en": "A concrete product or material that is analyzed, supplied or used.",
+          "zh": "可被分析、供应或使用的具体产品或物料。"
+        },
+        "negative_examples": [
+          {
+            "note": "产线不是产品实例",
+            "text": "伺服模块装配线"
+          }
+        ],
+        "positive_examples": [
+          {
+            "note": "物料号作为身份键",
+            "text": "Servo Module X1（物料号 SERVO-MODULE-X1）"
+          }
+        ],
+        "recognition_cues": [
+          "型号",
+          "物料号",
+          "料号",
+          "产品",
+          "模块"
+        ],
+        "typical_locations": [
+          "规格书标题",
+          "物料清单",
+          "评审纪要产品段落"
+        ],
+        "card_version": "1.0.0"
+      }
+    },
+    {
+      "id": "equipment",
+      "iri": "urn:knowledgeos:concept/equipment",
+      "labels": {
+        "en": "Equipment",
+        "zh": "设备"
+      },
+      "terms": {
+        "pref": {
+          "en": "Equipment",
+          "zh": "设备"
+        },
+        "alt": [
+          "设备",
+          "测试台",
+          "机台"
+        ]
+      },
+      "identity": {
+        "keys": [
+          {
+            "patterns": [
+              {
+                "description": "设备编号",
+                "id": "equipment_code",
+                "pattern": "^EQ-[A-Z0-9-]{2,60}$"
+              }
+            ],
+            "source": "natural_key"
+          }
+        ],
+        "minimum_fields": []
+      },
+      "properties": [
+        {
           "predicate": "rated_power",
           "labels": {
-            "zh": "额定功率",
-            "en": "Rated power"
-          },
-          "terms": {
-            "pref": {
-              "zh": "额定功率"
-            },
-            "alt": [
-              "标称功率",
-              "Rated Power"
-            ]
+            "en": "Rated power",
+            "zh": "额定功率"
           },
           "value": {
             "type": "quantity",
@@ -289,25 +561,255 @@
               "MW"
             ],
             "unit_aliases": {
+              "兆瓦": "MW",
               "千瓦": "kW",
               "瓦": "W",
-              "兆瓦": "MW"
+              "瓦特": "W"
             }
           },
           "storage": "assertion",
+          "required_for_publish": false,
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "upstream_source_system",
+          "terms": {
+            "alt": [
+              "功率",
+              "铭牌功率"
+            ],
+            "pref": {
+              "zh": "额定功率"
+            }
+          }
+        },
+        {
+          "predicate": "acquisition_cost",
+          "labels": {
+            "en": "Acquisition cost",
+            "zh": "购置成本"
+          },
+          "value": {
+            "type": "currency",
+            "cardinality": "temporal_many",
+            "unit_aliases": {
+              "$": "USD",
+              "CNY": "CNY",
+              "EUR": "EUR",
+              "JPY": "JPY",
+              "RMB": "CNY",
+              "US$": "USD",
+              "USD": "USD",
+              "€": "EUR",
+              "人民币": "CNY",
+              "人民币元": "CNY",
+              "元": "CNY",
+              "日元": "JPY",
+              "欧元": "EUR",
+              "美元": "USD",
+              "美金": "USD",
+              "￥": "CNY"
+            }
+          },
+          "storage": "assertion",
+          "required_for_publish": false,
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "upstream_source_system",
+          "terms": {
+            "alt": [
+              "购置价",
+              "采购价格",
+              "原值"
+            ],
+            "pref": {
+              "zh": "购置成本"
+            }
+          }
+        },
+        {
+          "predicate": "residual_value",
+          "labels": {
+            "en": "Residual value",
+            "zh": "残值"
+          },
+          "value": {
+            "type": "currency",
+            "cardinality": "temporal_many",
+            "unit_aliases": {
+              "$": "USD",
+              "CNY": "CNY",
+              "EUR": "EUR",
+              "JPY": "JPY",
+              "RMB": "CNY",
+              "US$": "USD",
+              "USD": "USD",
+              "€": "EUR",
+              "人民币": "CNY",
+              "人民币元": "CNY",
+              "元": "CNY",
+              "日元": "JPY",
+              "欧元": "EUR",
+              "美元": "USD",
+              "美金": "USD",
+              "￥": "CNY"
+            }
+          },
+          "storage": "assertion",
+          "required_for_publish": false,
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "upstream_source_system",
+          "terms": {
+            "alt": [
+              "预计残值"
+            ],
+            "pref": {
+              "zh": "残值"
+            }
+          }
+        },
+        {
+          "predicate": "useful_life_hours",
+          "labels": {
+            "en": "Useful life in hours",
+            "zh": "使用寿命"
+          },
+          "value": {
+            "type": "quantity",
+            "cardinality": "temporal_many",
+            "dimension": "duration",
+            "units": [
+              "hour"
+            ],
+            "unit_aliases": {
+              "h": "hour",
+              "hr": "hour",
+              "min": "minute",
+              "s": "second",
+              "分钟": "minute",
+              "小时": "hour",
+              "秒": "second"
+            }
+          },
+          "storage": "assertion",
+          "required_for_publish": false,
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "upstream_source_system",
+          "terms": {
+            "alt": [
+              "设计寿命",
+              "寿命工时"
+            ],
+            "pref": {
+              "zh": "使用寿命"
+            }
+          }
+        },
+        {
+          "predicate": "utilization_factor",
+          "labels": {
+            "en": "Utilization factor",
+            "zh": "利用率"
+          },
+          "value": {
+            "type": "quantity",
+            "cardinality": "temporal_many",
+            "dimension": "dimensionless",
+            "units": [
+              "one"
+            ]
+          },
+          "storage": "assertion",
+          "required_for_publish": false,
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "governed_changeset",
+          "terms": {
+            "alt": [
+              "稼动率",
+              "开动率"
+            ],
+            "pref": {
+              "zh": "利用率"
+            }
+          }
+        },
+        {
+          "predicate": "depreciation_cost_per_hour",
+          "labels": {
+            "en": "Depreciation cost per productive hour"
+          },
+          "value": {
+            "type": "quantity",
+            "cardinality": "temporal_many"
+          },
+          "storage": "assertion",
+          "required_for_publish": false,
           "temporal_required": true,
           "evidence_required": true,
           "publication_route": "upstream_source_system"
         }
-      ]
+      ],
+      "relation_ids": [],
+      "card": {
+        "boundary_notes": [
+          "“不得低于”“必须”等规范性表述记为 rule_signals，不要建设备实例。"
+        ],
+        "definition": {
+          "en": "A concrete piece of equipment, test bench or machine with measured parameters.",
+          "zh": "具有可计量参数的具体设备、测试台或机台。"
+        },
+        "negative_examples": [
+          {
+            "note": "泛指一类设备的要求是规则信号，不是设备实例",
+            "text": "用于 X1 出厂检验的测试台额定功率不得低于5kW"
+          }
+        ],
+        "positive_examples": [
+          {
+            "note": "有编号或名称的具体设备",
+            "text": "3号测试台（设备编号 EQ-TB-03）额定功率 7.5kW"
+          }
+        ],
+        "recognition_cues": [
+          "设备",
+          "测试台",
+          "机台",
+          "设备编号",
+          "铭牌"
+        ],
+        "typical_locations": [
+          "设备台账",
+          "验收报告",
+          "技术协议设备要求"
+        ],
+        "card_version": "1.0.0"
+      }
     }
   ],
   "relations": [
     {
+      "id": "participates_in",
+      "labels": {
+        "en": "participates in"
+      },
+      "mode": "simple",
+      "endpoints": [
+        {
+          "source_type": "organization",
+          "target_type": "market"
+        },
+        {
+          "source_type": "product",
+          "target_type": "market"
+        }
+      ]
+    },
+    {
       "id": "supplies",
       "labels": {
-        "zh": "供应",
-        "en": "Supplies"
+        "en": "supplies"
       },
       "mode": "simple",
       "endpoints": [
@@ -315,59 +817,127 @@
           "source_type": "organization",
           "target_type": "product"
         }
-      ],
-      "card": {
-        "recognition_cues": [
-          "“由 X 供应”“X 提供”"
-        ],
-        "negative_examples": [
-          {
-            "text": "X 采购了 Y",
-            "note": "采购方向相反"
-          }
-        ]
-      }
-    }
-  ],
-  "recipes": [
+      ]
+    },
     {
-      "id": "supplier_review_minutes",
-      "version": "1.0.0",
-      "document_types": [
-        "supplier_review_minutes"
-      ],
-      "match": {
-        "title_patterns": [
-          "供应商评审纪要"
-        ],
-        "source_kinds": [
-          "meeting_minutes",
-          "file"
-        ]
+      "id": "uses",
+      "labels": {
+        "en": "uses"
       },
-      "mappings": [
+      "mode": "simple",
+      "endpoints": [
         {
-          "selector": {
-            "kind": "table_header",
-            "pattern": "^(标准交期|交期)$"
-          },
-          "concept": "product",
-          "role": "field",
-          "predicate": "lead_time_days"
+          "source_type": "product",
+          "target_type": "product"
         },
         {
-          "selector": {
-            "kind": "heading",
-            "pattern": "产品"
-          },
-          "concept": "product",
-          "role": "instance_label"
+          "source_type": "product",
+          "target_type": "organization"
         }
       ]
     }
   ],
+  "recipes": [
+    {
+      "document_types": [
+        "supplier_review_minutes"
+      ],
+      "id": "supplier_review_minutes",
+      "mappings": [
+        {
+          "concept": "product",
+          "role": "instance_key",
+          "selector": {
+            "kind": "key_value_label",
+            "pattern": "^(物料号|料号)$"
+          }
+        },
+        {
+          "concept": "product",
+          "predicate": "lead_time_days",
+          "role": "field",
+          "selector": {
+            "kind": "table_header",
+            "pattern": "^(标准)?交期$"
+          }
+        },
+        {
+          "concept": "product",
+          "predicate": "unit_cost",
+          "role": "field",
+          "selector": {
+            "kind": "table_header",
+            "pattern": "^(单价|标准成本)$"
+          }
+        },
+        {
+          "concept": "equipment",
+          "role": "instance_label",
+          "selector": {
+            "kind": "heading",
+            "pattern": "设备要求"
+          }
+        },
+        {
+          "concept": "organization",
+          "role": "instance_label",
+          "selector": {
+            "kind": "key_value_label",
+            "pattern": "^供应商$"
+          }
+        }
+      ],
+      "match": {
+        "source_kinds": [
+          "meeting_minutes"
+        ],
+        "title_patterns": [
+          "供应商.*评审",
+          "[Ss]upplier [Rr]eview"
+        ]
+      },
+      "version": "1.0.0"
+    }
+  ],
+  "rule_slots": [
+    {
+      "logic_ref": "constraint:equipment_power_positive@1.0.0",
+      "kind": "business_constraint",
+      "label": {
+        "zh": "设备额定功率应为正值"
+      },
+      "subject_concept": "equipment",
+      "predicates": [
+        "rated_power"
+      ],
+      "summary": "状态：draft；rated_power > 0 W"
+    },
+    {
+      "logic_ref": "rule:equipment_power_match@1.0.0",
+      "kind": "business_rule",
+      "label": {
+        "zh": "设备功率匹配业务规则"
+      },
+      "subject_concept": "equipment",
+      "predicates": [
+        "rated_power"
+      ],
+      "summary": "状态：draft；rated_power ≥ required_power"
+    }
+  ],
   "lexicon": {
     "entries": [
+      {
+        "node_id": "market:industrial-automation",
+        "concept": "market",
+        "names": [
+          "Industrial Automation Market",
+          "Factory Automation Market"
+        ],
+        "keys": [
+          "INDUSTRIAL-AUTOMATION"
+        ]
+      },
       {
         "node_id": "org:acme",
         "concept": "organization",
@@ -391,19 +961,5 @@
       }
     ],
     "next_cursor": null
-  },
-  "rule_slots": [
-    {
-      "logic_ref": "constraint:equipment_power_positive@1.0.0",
-      "kind": "business_constraint",
-      "label": {
-        "zh": "设备额定功率应为正值"
-      },
-      "subject_concept": "equipment",
-      "predicates": [
-        "rated_power"
-      ],
-      "summary": "rated_power > 0 W"
-    }
-  ]
+  }
 }

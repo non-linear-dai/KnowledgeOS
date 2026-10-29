@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { lazy, Suspense, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
-import { BookOpen, Database, GitBranch, GitPullRequestArrow, Network, PanelLeftClose, Pin, PinOff, Workflow } from "lucide-react";
+import { BookOpen, Database, FileText, GitBranch, GitPullRequestArrow, Network, PanelLeftClose, Pin, PinOff, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -15,12 +15,13 @@ import { NavigationContext } from "./workspace-navigation-context";
 import { initialNavigationState, navigationPinPreferenceKey, navigationReducer } from "./navigation-state";
 import { loadSession, setSessionToken } from "./knowledgeos-api";
 
-const icons = { ontology: Network, instances: Database, rules: GitBranch, templates: Workflow, changesets: GitPullRequestArrow, overview: BookOpen };
+const icons = { ontology: Network, instances: Database, rules: GitBranch, templates: Workflow, extraction: FileText, changesets: GitPullRequestArrow, overview: BookOpen };
 const OntologyWorkspace = lazy(() => import("./ontology-workspace"));
 const ExpertTemplateWorkspace = lazy(() => import("./templates/template-workspace"));
 const InstancesWorkspace = lazy(() => import("./instances/instances-workspace"));
 const ChangesetsWorkspace = lazy(() => import("./changesets/changesets-workspace"));
 const RulesWorkspace = lazy(() => import("./rules/rules-workspace"));
+const ExtractionWorkspace = lazy(() => import("./extraction/extraction-workspace"));
 
 function NavigationHint({ children, label, enabled }: { children: ReactNode; label: string; enabled: boolean }) {
   return <Tooltip><TooltipTrigger asChild>{children}</TooltipTrigger>{enabled && <TooltipContent side="right" sideOffset={12} className="navigation-tooltip">{label}</TooltipContent>}</Tooltip>;
@@ -126,7 +127,7 @@ function Shell({ children }: { children: ReactNode }) {
       {workspaces.filter(({ id }) => id !== "overview" && (id === activeSurface || visited.includes(id))).map(({ id, title }) =>
         <section key={id} id={`${id}-surface`} hidden={activeSurface !== id} aria-label={id === "ontology" && active === "overview" ? "定义总览" : title} tabIndex={-1} className="workspace-surface">
           <Suspense fallback={<div className="workspace-loading" role="status">正在打开工作区…</div>}>
-            {id === "ontology" ? <OntologyWorkspace active={activeSurface === id} view={active === "overview" ? "control" : "studio"} /> : id === "instances" ? <InstancesWorkspace active={active === id} /> : id === "rules" ? <RulesWorkspace active={active === id} /> : id === "changesets" ? <ChangesetsWorkspace active={active === id} /> : <ExpertTemplateWorkspace active={active === id} />}
+            {id === "ontology" ? <OntologyWorkspace active={activeSurface === id} view={active === "overview" ? "control" : "studio"} /> : id === "instances" ? <InstancesWorkspace active={active === id} /> : id === "rules" ? <RulesWorkspace active={active === id} /> : id === "changesets" ? <ChangesetsWorkspace active={active === id} /> : id === "extraction" ? <ExtractionWorkspace active={active === id} /> : <ExpertTemplateWorkspace active={active === id} />}
           </Suspense>
         </section>)}
       {children}
