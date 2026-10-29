@@ -11,7 +11,7 @@ import type { OntologyDefinition } from './studio-data';
 import { conceptOutput, downloadText, draftIdentifier, updateVocabulary } from './semantic-draft';
 import { evaluateSemantics, exportSemantics, loadSemantics, ontologyPreview, ontologyPropose, ontologyRequest, vocabularyPropose, type JsonObject, type OntologyPreview, type OntologyRequest, type SemanticSummary, type Vocabulary } from './semantic-api';
 import { OntologyDraftTab, SimilarDefinitions, type SimilarEntry } from './ontology-assistant';
-import { checkDraft } from './assistant/assistant-api';
+import { checkDraft as checkAuthoringDraft } from './assistant/assistant-api';
 
 export function SemanticAssistant({ open, onOpenChange, definitions, canPropose, onSubmitted }: { open: boolean; onOpenChange: (open: boolean) => void; definitions: OntologyDefinition[]; canPropose: boolean; onSubmitted: () => Promise<unknown> }) {
   const [tab, setTab] = useState('model');
@@ -29,7 +29,7 @@ export function SemanticAssistant({ open, onOpenChange, definitions, canPropose,
   const run = async (action: () => Promise<void>) => { setBusy(true); setError(''); try { await action(); } catch (e) { setError(e instanceof Error ? e.message : '操作失败，请重试'); } finally { setBusy(false); } };
   const invalidate = () => { setPreview(null); setPacket(null); setOutput(null); setSimilar([]); key.current = ''; };
   // Reuse hints come from the deterministic KnowledgeOS check; they never block a manual draft.
-  const loadSimilar = (request: OntologyRequest, candidate: JsonObject) => { checkDraft('ontology.model', { ontology_request: request, model_output: candidate }).then(result => setSimilar((result.analysis.similar ?? []) as SimilarEntry[])).catch(() => setSimilar([])); };
+  const loadSimilar = (request: OntologyRequest, candidate: JsonObject) => { checkAuthoringDraft('ontology.model', { ontology_request: request, model_output: candidate }).then(result => setSimilar((result.analysis.similar ?? []) as SimilarEntry[])).catch(() => setSimilar([])); };
   const prepare = async () => {
     const source = material.trim() || `名称：${label.trim()}\n说明：${description.trim()}\n属性：${properties.join('、') || '暂无'}`;
     const r = await ontologyRequest(`建模：${label.trim()}`, source); setPacket(r.data);

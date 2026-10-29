@@ -131,7 +131,7 @@ export function adoptLogic(suggestion: Suggestion<LogicDraftOutput>, acceptedInt
   const cases = acceptedCases(existing, intent, acceptedIntent, coverage?.boundary_cases ?? [], confirmedBoundary);
   // Items the assistant proposed: its rules/checks and its intent cases. Boundary cases are the expert's own confirmations.
   const accepted = intent.filter(item => item.passed && acceptedIntent.includes(item.id)).length;
-  const definition = { ...structuredClone(submitted), test_cases: cases };
+  const definition: Record<string, unknown> = { ...structuredClone(submitted), test_cases: cases };
   const rules = Array.isArray(definition.rules) ? definition.rules.length : Array.isArray(definition.checks) ? definition.checks.length : 0;
   return { kind: suggestion.output.kind, definition, assistance: withAccepted(suggestion.assistance, rules + accepted) };
 }
