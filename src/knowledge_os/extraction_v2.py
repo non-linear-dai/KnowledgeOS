@@ -83,35 +83,48 @@ def _pattern(text, where):
         raise ValidationError(f"{where}: invalid pattern {text!r}: {exc}") from exc
 
 
-def load_assets(registry):
-    """Load and validate control/extraction/v2 (profile, extraction cards, recipes).
+class _Drift:
+    """Collects reference drift; strict mode (new proposals) turns drift into errors."""
 
-    Structural mistakes (wrong format, schema violations, invalid patterns) fail the
-    registry load. References that drift when the ontology, units or currencies change
-    (an unbound predicate, a removed concept, a narrowed unit list) never block control
-    plane edits: the stale entry is dropped and reported in ``warnings``.
-    """
-    root = registry.config.control / "extraction" / "v2"
-    profile_path = root / "profile.yaml"
+    def __init__(self, registry, strict):
+        self.registry, self.strict, self.warnings = registry, strict, []
+
+    def __call__(self, location, message):
+        location = str(location)
+        path = Path(location)
+        if path.is_absolute():
+            try:
+                location = path.relative_to(self.registry.config.root).as_posix()
+            except ValueError:
+                pass
+        if self.strict:
+            raise ValidationError(f"{location}: {message.split('; ')[0]}")
+        self.warnings.append(f"{location}: {message}")
+
+
+def _validators(registry):
+    defs = registry.schemas["extraction-v2"]["$defs"]
+    return {"card": _protocol_validator(registry, "ExtractionCard"), "pattern": _protocol_validator(registry, "ValuePattern"),
+            "recipe": _protocol_validator(registry, "Recipe"),
+            "identity": jsonschema.Draft202012Validator({"$ref": "#/$defs/ConceptContract/properties/identity", "$defs": defs}),
+            "terms": jsonschema.Draft202012Validator({"$ref": "#/$defs/PropertyContract/properties/terms", "$defs": defs})}
+
+
+def _check_profile(registry, loaded, where, drift):
     profile = copy.deepcopy(DEFAULT_PROFILE)
-    warnings = []
-    if profile_path.exists():
-        loaded = load_yaml(profile_path)
-        for key, value in loaded.items():
-            if isinstance(value, dict) and isinstance(profile.get(key), dict):
-                profile[key] = {**profile[key], **value}
-            else:
-                profile[key] = value
-        profile["_path"] = str(profile_path)
-    concepts = {item["id"]: item for item in registry.ontology.get("concept_types", [])}
-    relations = {item["id"]: item for item in registry.ontology.get("relation_types", [])}
-    where = str(profile_path)
-
-    def drift(location, message):
-        warnings.append(f"{Path(location).relative_to(registry.config.root).as_posix() if Path(location).is_absolute() else location}: {message}")
-
+    for key, value in (loaded or {}).items():
+        if isinstance(value, dict) and isinstance(profile.get(key), dict):
+            profile[key] = {**profile[key], **value}
+        else:
+            profile[key] = value
+    concepts = {item["id"] for item in registry.ontology.get("concept_types", [])}
+    allowed = set(DEFAULT_PROFILE) | {"_path"}
+    if set(profile) - allowed:
+        raise ValidationError(f"{where}: unsupported profile keys {sorted(set(profile) - allowed)}")
     if profile.get("format") != PROFILE_FORMAT or profile.get("protocol_version") != PROTOCOL:
         raise ValidationError(f"{where}: extraction v2 profile must use {PROFILE_FORMAT} and {PROTOCOL}")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", str(profile.get("version", ""))):
+        raise ValidationError(f"{where}: version must be a semantic version")
     if not re.fullmatch(r"[+-]\d{2}:\d{2}", str(profile.get("default_utc_offset", ""))):
         raise ValidationError(f"{where}: default_utc_offset must look like +08:00")
     excluded = []
@@ -125,8 +138,13 @@ def load_assets(registry):
         if key not in DEFAULT_PROFILE["limits"] or not isinstance(value, int) or isinstance(value, bool) or value < 1:
             raise ValidationError(f"{where}: invalid limit {key}")
     acceptance = profile["acceptance"]
+    if set(acceptance) - set(DEFAULT_PROFILE["acceptance"]):
+        raise ValidationError(f"{where}: unsupported acceptance keys")
     if acceptance.get("quote_match") not in ("exact", "normalized_exact") or acceptance.get("evidence_level") != "field":
         raise ValidationError(f"{where}: acceptance.quote_match must be exact or normalized_exact and evidence_level field")
+    for key in ("draft_instances", "relations_between_new_instances"):
+        if not isinstance(acceptance.get(key), bool):
+            raise ValidationError(f"{where}: acceptance.{key} must be true or false")
     minimum = acceptance.get("min_confidence", 0)
     if isinstance(minimum, bool) or not isinstance(minimum, (int, float)) or not 0 <= minimum <= 1:
         raise ValidationError(f"{where}: acceptance.min_confidence must be between 0 and 1")
@@ -140,139 +158,211 @@ def load_assets(registry):
             drift(where, f"identity prefix for unregistered concept {concept} ignored")
     profile["identity_prefixes"] = prefixes
     for key, known in (("unit_aliases", registry.units), ("currency_aliases", registry.currencies)):
+        if not isinstance(profile.get(key) or {}, dict):
+            raise ValidationError(f"{where}: {key} must be a mapping")
         kept = {}
         for alias, target in (profile.get(key) or {}).items():
+            if not str(alias).strip():
+                raise ValidationError(f"{where}: {key} contains an empty alias")
             if target in known:
-                kept[alias] = target
+                kept[str(alias)] = target
             else:
                 drift(where, f"{key} {alias} -> {target} is not registered; ignored")
         profile[key] = kept
     authority = profile.get("source_authority") or {}
     if not isinstance(authority.get("systems", {}), dict) or not str(authority.get("default") or ""):
         raise ValidationError(f"{where}: source_authority requires default and systems")
+    return profile
 
-    card_validator = _protocol_validator(registry, "ExtractionCard")
-    pattern_validator = _protocol_validator(registry, "ValuePattern")
-    identity_validator = jsonschema.Draft202012Validator(
-        {"$ref": "#/$defs/ConceptContract/properties/identity", "$defs": registry.schemas["extraction-v2"]["$defs"]})
-    terms_validator = jsonschema.Draft202012Validator(
-        {"$ref": "#/$defs/PropertyContract/properties/terms", "$defs": registry.schemas["extraction-v2"]["$defs"]})
-    cards = {}
-    for path in sorted(root.glob("cards/*.yaml")):
-        item = load_yaml(path)
-        where = str(path)
-        concept = item.get("concept")
-        if item.get("format") != CARD_FORMAT or not isinstance(concept, str) or concept in cards:
-            raise ValidationError(f"{where}: extraction card needs {CARD_FORMAT} and a unique concept")
-        allowed_keys = {"format", "concept", "card_version", "card", "terms", "identity", "properties"}
-        if set(item) - allowed_keys:
-            raise ValidationError(f"{where}: unsupported keys {sorted(set(item) - allowed_keys)}")
-        card = dict(item.get("card") or {})
-        if item.get("card_version"):
-            card["card_version"] = str(item["card_version"])
-        for message in _schema_errors(card_validator, card) + _schema_errors(terms_validator, item.get("terms") or {}):
-            raise ValidationError(f"{where}: {message}")
-        identity = copy.deepcopy(item.get("identity") or {})
-        for message in _schema_errors(identity_validator, identity):
-            raise ValidationError(f"{where}: identity{message}")
-        properties = item.get("properties") or {}
-        if not isinstance(properties, dict):
-            raise ValidationError(f"{where}: properties must be keyed by predicate")
-        for key in identity.get("keys", []):
-            for pattern in key.get("patterns", []):
-                _pattern(pattern["pattern"], where)
-        for predicate_id, entry in properties.items():
-            if not isinstance(entry, dict) or set(entry) - {"terms", "unit_aliases", "enum_map", "value_patterns", "card"}:
-                raise ValidationError(f"{where}: invalid property card {predicate_id}")
-            for message in _schema_errors(terms_validator, entry.get("terms") or {}) + _schema_errors(card_validator, entry.get("card") or {}):
-                raise ValidationError(f"{where}: {predicate_id}{message}")
-            for pattern in entry.get("value_patterns") or []:
-                for message in _schema_errors(pattern_validator, pattern):
-                    raise ValidationError(f"{where}: {predicate_id} value_patterns{message}")
-                _pattern(pattern["pattern"], where)
-        if concept not in concepts:
-            drift(where, f"concept {concept} is not registered; card ignored")
+
+def _check_card(registry, item, where, drift, profile, validators):
+    concepts = {entry["id"]: entry for entry in registry.ontology.get("concept_types", [])}
+    concept = item.get("concept")
+    if item.get("format") != CARD_FORMAT or not isinstance(concept, str):
+        raise ValidationError(f"{where}: extraction card needs {CARD_FORMAT} and a concept")
+    allowed_keys = {"format", "concept", "card_version", "card", "terms", "identity", "properties"}
+    if set(item) - allowed_keys:
+        raise ValidationError(f"{where}: unsupported keys {sorted(set(item) - allowed_keys)}")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", str(item.get("card_version", ""))):
+        raise ValidationError(f"{where}: card_version must be a semantic version")
+    card = dict(item.get("card") or {})
+    card["card_version"] = str(item["card_version"])
+    for message in _schema_errors(validators["card"], card) + _schema_errors(validators["terms"], item.get("terms") or {}):
+        raise ValidationError(f"{where}: {message}")
+    identity = copy.deepcopy(item.get("identity") or {})
+    for message in _schema_errors(validators["identity"], identity):
+        raise ValidationError(f"{where}: identity{message}")
+    properties = item.get("properties") or {}
+    if not isinstance(properties, dict):
+        raise ValidationError(f"{where}: properties must be keyed by predicate")
+    for key in identity.get("keys", []):
+        for pattern in key.get("patterns", []):
+            _pattern(pattern["pattern"], where)
+    for predicate_id, entry in properties.items():
+        if not isinstance(entry, dict) or set(entry) - {"terms", "unit_aliases", "enum_map", "value_patterns", "card"}:
+            raise ValidationError(f"{where}: invalid property card {predicate_id}")
+        for message in _schema_errors(validators["terms"], entry.get("terms") or {}) + _schema_errors(validators["card"], entry.get("card") or {}):
+            raise ValidationError(f"{where}: {predicate_id}{message}")
+        for pattern in entry.get("value_patterns") or []:
+            for message in _schema_errors(validators["pattern"], pattern):
+                raise ValidationError(f"{where}: {predicate_id} value_patterns{message}")
+            _pattern(pattern["pattern"], where)
+        for key in ("unit_aliases", "enum_map"):
+            if not isinstance(entry.get(key) or {}, dict) or any(not str(alias).strip() or not isinstance(value, str)
+                                                                 for alias, value in (entry.get(key) or {}).items()):
+                raise ValidationError(f"{where}: {predicate_id}.{key} must map non-empty text to identifiers")
+    if concept not in concepts:
+        drift(where, f"concept {concept} is not registered; card ignored")
+        return None
+    if concept in profile["excluded_concepts"]:
+        drift(where, f"concept {concept} is excluded from extraction; card ignored")
+        return None
+    bindings = {binding["predicate"] for binding in concepts[concept].get("properties", [])}
+    keys = []
+    for key in identity.get("keys", []):
+        if key["source"] == "predicate" and key.get("predicate") not in bindings:
+            drift(where, f"identity key predicate {key.get('predicate')} is not bound to {concept}; ignored")
+        else:
+            keys.append(key)
+    if "keys" in identity:
+        identity["keys"] = keys
+    if "minimum_fields" in identity:
+        stale = [value for value in identity["minimum_fields"] if value not in bindings]
+        if stale:
+            drift(where, f"minimum_fields {stale} are not bound to {concept}; ignored")
+        identity["minimum_fields"] = [value for value in identity["minimum_fields"] if value in bindings]
+    sanitized = {}
+    for predicate_id, entry in properties.items():
+        if predicate_id not in bindings:
+            drift(where, f"{predicate_id} is not bound to {concept}; property card ignored")
             continue
-        if concept in profile["excluded_concepts"]:
-            drift(where, f"concept {concept} is excluded from extraction; card ignored")
+        entry = copy.deepcopy(entry)
+        definition = registry.predicates[predicate_id].get("value", {})
+        units = definition.get("units") or []
+        aliases = {}
+        for alias, unit in (entry.get("unit_aliases") or {}).items():
+            dimension = definition.get("dimension")
+            valid = definition.get("type") == "quantity" and (
+                unit in units or unit == definition.get("default_unit") or not units and not dimension or (
+                    dimension and unit in registry.units and registry.units[unit]["dimension"] == dimension))
+            if valid:
+                aliases[alias] = unit
+            else:
+                drift(where, f"unit alias {alias} -> {unit} is not allowed for {predicate_id}; ignored")
+        if "unit_aliases" in entry:
+            entry["unit_aliases"] = aliases
+        mapping = {}
+        for alias, value in (entry.get("enum_map") or {}).items():
+            if definition.get("type") == "enum" and value in (definition.get("allowed") or []):
+                mapping[alias] = value
+            else:
+                drift(where, f"enum_map {alias} -> {value} is not allowed for {predicate_id}; ignored")
+        if "enum_map" in entry:
+            entry["enum_map"] = mapping
+        sanitized[predicate_id] = entry
+    return {**item, "identity": identity, "properties": sanitized}
+
+
+def _check_recipe(registry, item, where, drift, validators):
+    concepts = {entry["id"]: entry for entry in registry.ontology.get("concept_types", [])}
+    relations = {entry["id"] for entry in registry.ontology.get("relation_types", [])}
+    body = {key: value for key, value in item.items() if key != "format"}
+    if item.get("format") != RECIPE_FORMAT:
+        raise ValidationError(f"{where}: recipe needs {RECIPE_FORMAT}")
+    for message in _schema_errors(validators["recipe"], body):
+        raise ValidationError(f"{where}: {message}")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", str(body.get("version", ""))):
+        raise ValidationError(f"{where}: version must be a semantic version")
+    for pattern in (body.get("match") or {}).get("title_patterns", []):
+        _pattern(pattern, where)
+    mappings = []
+    for mapping in body["mappings"]:
+        _pattern(mapping["selector"]["pattern"], where)
+        concept = mapping["concept"]
+        if concept not in concepts:
+            drift(where, f"mapping concept {concept} is not registered; mapping ignored")
             continue
         bindings = {binding["predicate"] for binding in concepts[concept].get("properties", [])}
-        keys = []
-        for key in identity.get("keys", []):
-            if key["source"] == "predicate" and key.get("predicate") not in bindings:
-                drift(where, f"identity key predicate {key.get('predicate')} is not bound to {concept}; ignored")
-            else:
-                keys.append(key)
-        if "keys" in identity:
-            identity["keys"] = keys
-        if "minimum_fields" in identity:
-            stale = [item_ for item_ in identity["minimum_fields"] if item_ not in bindings]
-            if stale:
-                drift(where, f"minimum_fields {stale} are not bound to {concept}; ignored")
-            identity["minimum_fields"] = [item_ for item_ in identity["minimum_fields"] if item_ in bindings]
-        sanitized = {}
-        for predicate_id, entry in properties.items():
-            if predicate_id not in bindings:
-                drift(where, f"{predicate_id} is not bound to {concept}; property card ignored")
-                continue
-            entry = copy.deepcopy(entry)
-            definition = registry.predicates[predicate_id].get("value", {})
-            units = definition.get("units") or []
-            aliases = {}
-            for alias, unit in (entry.get("unit_aliases") or {}).items():
-                dimension = definition.get("dimension")
-                valid = definition.get("type") == "quantity" and (
-                    unit in units or unit == definition.get("default_unit") or not units and not dimension or (
-                        dimension and unit in registry.units and registry.units[unit]["dimension"] == dimension))
-                if valid:
-                    aliases[alias] = unit
-                else:
-                    drift(where, f"unit alias {alias} -> {unit} is not allowed for {predicate_id}; ignored")
-            if "unit_aliases" in entry:
-                entry["unit_aliases"] = aliases
-            mapping = {}
-            for alias, value in (entry.get("enum_map") or {}).items():
-                if definition.get("type") == "enum" and value in (definition.get("allowed") or []):
-                    mapping[alias] = value
-                else:
-                    drift(where, f"enum_map {alias} -> {value} is not allowed for {predicate_id}; ignored")
-            if "enum_map" in entry:
-                entry["enum_map"] = mapping
-            sanitized[predicate_id] = entry
-        cards[concept] = {**item, "identity": identity, "properties": sanitized, "_path": where}
+        if mapping["role"] == "field" and mapping.get("predicate") not in bindings:
+            drift(where, f"field mapping predicate {mapping.get('predicate')} is not bound to {concept}; mapping ignored")
+            continue
+        if mapping["role"] == "relation" and mapping.get("relation") not in relations:
+            drift(where, f"relation mapping {mapping.get('relation')} is not registered; mapping ignored")
+            continue
+        mappings.append(mapping)
+    if not mappings:
+        drift(where, "recipe has no valid mappings; ignored")
+        return None
+    return {**body, "mappings": mappings}
 
-    recipe_validator = _protocol_validator(registry, "Recipe")
-    recipes = {}
+
+def load_assets(registry):
+    """Load and validate control/extraction/v2 (profile, extraction cards, recipes).
+
+    Structural mistakes (wrong format, schema violations, invalid patterns) fail the
+    registry load. References that drift when the ontology, units or currencies change
+    (an unbound predicate, a removed concept, a narrowed unit list) never block control
+    plane edits: the stale entry is dropped and reported in ``warnings``.
+    """
+    root = registry.config.control / "extraction" / "v2"
+    drift = _Drift(registry, strict=False)
+    profile_path = root / "profile.yaml"
+    profile = _check_profile(registry, load_yaml(profile_path) if profile_path.exists() else None, str(profile_path), drift)
+    if profile_path.exists():
+        profile["_path"] = str(profile_path)
+    validators = _validators(registry)
+    cards, recipes = {}, {}
+    for path in sorted(root.glob("cards/*.yaml")):
+        item = load_yaml(path)
+        if item.get("concept") in cards or path.stem != item.get("concept"):
+            raise ValidationError(f"{path}: card file name must equal its unique concept id")
+        checked = _check_card(registry, item, str(path), drift, profile, validators)
+        if checked:
+            cards[checked["concept"]] = {**checked, "_path": str(path)}
     for path in sorted(root.glob("recipes/*.yaml")):
         item = load_yaml(path)
-        where = str(path)
-        body = {key: value for key, value in item.items() if key != "format"}
-        if item.get("format") != RECIPE_FORMAT or body.get("id") in recipes:
-            raise ValidationError(f"{where}: recipe needs {RECIPE_FORMAT} and a unique id")
-        for message in _schema_errors(recipe_validator, body):
-            raise ValidationError(f"{where}: {message}")
-        for pattern in (body.get("match") or {}).get("title_patterns", []):
-            _pattern(pattern, where)
-        mappings = []
-        for mapping in body["mappings"]:
-            _pattern(mapping["selector"]["pattern"], where)
-            concept = mapping["concept"]
-            if concept not in concepts:
-                drift(where, f"mapping concept {concept} is not registered; mapping ignored")
-                continue
-            bindings = {binding["predicate"] for binding in concepts[concept].get("properties", [])}
-            if mapping["role"] == "field" and mapping.get("predicate") not in bindings:
-                drift(where, f"field mapping predicate {mapping.get('predicate')} is not bound to {concept}; mapping ignored")
-                continue
-            if mapping["role"] == "relation" and mapping.get("relation") not in relations:
-                drift(where, f"relation mapping {mapping.get('relation')} is not registered; mapping ignored")
-                continue
-            mappings.append(mapping)
-        if not mappings:
-            drift(where, "recipe has no valid mappings; ignored")
-            continue
-        recipes[body["id"]] = {**body, "mappings": mappings, "_path": where}
-    return {"profile": profile, "cards": cards, "recipes": recipes, "warnings": warnings}
+        if item.get("id") in recipes or path.stem != item.get("id"):
+            raise ValidationError(f"{path}: recipe file name must equal its unique id")
+        checked = _check_recipe(registry, item, str(path), drift, validators)
+        if checked:
+            recipes[checked["id"]] = {**checked, "_path": str(path)}
+    return {"profile": profile, "cards": cards, "recipes": recipes, "warnings": drift.warnings}
+
+
+ASSET_KINDS = ("profile", "card", "recipe")
+
+
+def asset_path(kind, document):
+    """Git-authored path of an extraction asset document."""
+    if kind == "profile":
+        return "control/extraction/v2/profile.yaml"
+    key = document.get("concept") if kind == "card" else document.get("id") if kind == "recipe" else None
+    if kind not in ASSET_KINDS or not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", key):
+        raise ValidationError("extraction asset requires kind profile, card or recipe and a stable lowercase id")
+    return f"control/extraction/v2/{'cards' if kind == 'card' else 'recipes'}/{key}.yaml"
+
+
+def validate_asset(registry, kind, document):
+    """Strictly validate one proposed asset: structural errors and reference drift both fail."""
+    if not isinstance(document, dict):
+        raise ValidationError("extraction asset document must be an object")
+    path = asset_path(kind, document)
+    drift = _Drift(registry, strict=True)
+    if kind == "profile":
+        return _check_profile(registry, document, path, drift)
+    profile = registry.extraction_v2["profile"]
+    validators = _validators(registry)
+    if kind == "card":
+        return _check_card(registry, document, path, drift, profile, validators)
+    return _check_recipe(registry, document, path, drift, validators)
+
+
+def _version_key(value):
+    return tuple(int(part) for part in str(value).split("."))
+
+
+def asset_version(kind, document):
+    return str(document.get("card_version") if kind == "card" else document.get("version"))
 
 
 def public(value):
@@ -914,6 +1004,145 @@ class ExtractionV2:
                 "receipt": json.loads(row["receipt_json"]), "versions": versions,
                 "original_archived": bool(self.db.first("SELECT 1 FROM durable.extraction_original WHERE sha256=? AND content IS NOT NULL",
                                                         (row["content_hash"],)))}
+
+
+    # -- authoring (Studio extraction workspace) -------------------------------
+
+    def _raw(self, path):
+        return {key: value for key, value in load_yaml(path).items()} if path.exists() else None
+
+    def assets(self):
+        """Editable view of control/extraction/v2 plus the registry facts the editor needs."""
+        from .governance import ChangePlan
+        from .semantic_contract import SemanticContract
+        plan = ChangePlan(self.service)
+        root = self.service.config.root
+        directory = self.service.config.control / "extraction" / "v2"
+        excluded = set(self.profile.get("excluded_concepts") or [])
+        semantics = SemanticContract(self.registry)
+
+        def item(kind, path, key):
+            relative = path.relative_to(root).as_posix()
+            return {"kind": kind, "id": key, "source_path": relative, "exists": path.exists(),
+                    "revision": plan.revision(relative), "document": self._raw(path)}
+
+        concepts = []
+        for concept_id, concept in self.concepts.items():
+            pref, alt = {}, []
+            for term in semantics.terminology(concept_id):
+                pref.update({key: value for key, value in (term.get("pref_labels") or {}).items() if value})
+                for values in (term.get("alt_labels") or {}).values():
+                    alt.extend(values if isinstance(values, list) else [values])
+            properties = []
+            for binding in concept.get("properties", []):
+                predicate = self.registry.predicates[binding["predicate"]]
+                value = predicate.get("value", {})
+                properties.append({"predicate": binding["predicate"], "label": predicate.get("label") or binding["predicate"],
+                                   "description": predicate.get("semantics", {}).get("description", ""),
+                                   "type": value.get("type"), "cardinality": value.get("cardinality"),
+                                   "dimension": value.get("dimension"), "units": value.get("units") or [],
+                                   "default_unit": value.get("default_unit"), "allowed": value.get("allowed") or [],
+                                   "storage": predicate.get("storage", {}).get("mode", "attr"), "required": bool(binding.get("required")),
+                                   "publication_route": "upstream_source_system" if self.connector_only(binding["predicate"]) else "governed_changeset"})
+            concepts.append({"id": concept_id, "label": concept.get("label") or concept_id, "description": concept.get("description", ""),
+                             "terms": {"pref": pref, "alt": list(dict.fromkeys(alt))}, "excluded": concept_id in excluded,
+                             "properties": properties, "card": item("card", directory / "cards" / f"{concept_id}.yaml", concept_id)})
+        recipe_paths = {path.stem: path for path in sorted((directory / "recipes").glob("*.yaml"))}
+        pending = [{"id": row["id"], "status": row["status"], "target_source": row["target_source"], "title": row["title"],
+                    "actor": row["actor"], "created_at": row["created_at"]}
+                   for row in self.db.execute("""SELECT id,status,target_source,title,actor,created_at FROM changeset
+                     WHERE target_source LIKE 'control/extraction/v2/%' AND status NOT IN ('published','rejected') ORDER BY created_at DESC""")]
+        return {"registry_fingerprint": self.registry.fingerprint,
+                "profile": item("profile", directory / "profile.yaml", "profile"),
+                "effective_profile": public(self.profile),
+                "concepts": concepts,
+                "recipes": [item("recipe", path, key) for key, path in recipe_paths.items()],
+                "relations": [{"id": relation["id"], "label": relation.get("label") or relation["id"],
+                               "endpoints": [{"source_type": edge["source_type"], "target_type": edge["target_type"]}
+                                             for edge in relation.get("connections", [])]} for relation in self.relations.values()],
+                "units": [{"id": key, "label": value.get("label") or key, "dimension": value.get("dimension")} for key, value in self.registry.units.items()],
+                "currencies": sorted(self.registry.currencies),
+                "warnings": list(self.registry.extraction_v2.get("warnings") or []),
+                "pending": pending}
+
+    def asset_preview(self, kind, document, samples=None, sample_text=None):
+        """Strict validation, the resulting contract fragment, value trials and cue hits for a draft asset."""
+        from .governance import ChangePlan
+        result = {"kind": kind, "valid": False, "errors": [], "warnings": []}
+        try:
+            path = asset_path(kind, document)
+            result["source_path"] = path
+            checked = validate_asset(self.registry, kind, document)
+        except ValidationError as exc:
+            result["errors"].append(str(exc))
+            return result
+        target = self.service.config.root / path
+        current = self._raw(target)
+        result["revision"] = ChangePlan(self.service).revision(path)
+        result["exists"] = current is not None
+        if current is not None:
+            try:
+                newer = _version_key(asset_version(kind, document)) > _version_key(asset_version(kind, current))
+            except ValueError:
+                newer = True
+            if not newer:
+                result["errors"].append(f"版本 {asset_version(kind, document)} 必须高于当前版本 {asset_version(kind, current)}")
+        engine = ExtractionV2(self.service)
+        if kind == "card":
+            engine.cards = {**engine.cards, checked["concept"]: checked}
+            result["contract"] = engine.concept_contract(checked["concept"])
+            concepts = [checked["concept"]]
+        elif kind == "recipe":
+            engine.recipes = {**engine.recipes, checked["id"]: checked}
+            concepts = sorted({mapping["concept"] for mapping in checked["mappings"]} & set(engine.extractable()))
+            result["contract"] = {"recipe": public(checked)}
+        else:
+            engine.profile = checked
+            engine.normalizer = ValueNormalizer(self.registry, checked)
+            concepts = engine.extractable()
+            result["contract"] = {"limits": checked["limits"], "acceptance": checked["acceptance"],
+                                  "extractable_concepts": concepts}
+        trials = []
+        for sample in (samples or [])[:50]:
+            predicate_id, raw = (sample or {}).get("predicate"), str((sample or {}).get("raw") or "")
+            concept = (sample or {}).get("concept") or (checked.get("concept") if kind == "card" else None)
+            trial = {"predicate": predicate_id, "raw": raw}
+            if predicate_id not in self.registry.predicates or not raw.strip():
+                trial["error"] = "需要已注册的属性和非空原文"
+            else:
+                try:
+                    value = {"raw": raw}
+                    if (sample or {}).get("unit_raw"):
+                        value["unit_raw"] = sample["unit_raw"]
+                    normalized, issues = engine.normalizer.normalize(predicate_id, value, card=engine.cards.get(concept))
+                    trial["normalized"] = normalized
+                    if issues:
+                        trial["notes"] = [message for _, _, message in issues]
+                except NormalizationError as exc:
+                    trial.update({"error": exc.message, "code": exc.code})
+            trials.append(trial)
+        result["trials"] = trials
+        if sample_text and str(sample_text).strip() and concepts:
+            text = str(sample_text)[:20000]
+            evaluation = _Evaluation.__new__(_Evaluation)
+            evaluation.engine, evaluation.registry, evaluation.db, evaluation.profile = engine, self.registry, self.db, engine.profile
+            evaluation.scope = {"concepts": concepts}
+            evaluation.document = {"document_type": (checked.get("document_types") or [None])[0] if kind == "recipe" else None,
+                                   "kind": None}
+            lines = [line for line in text.splitlines() if line.strip()][:200]
+            evaluation.block_rows = []
+            for index, line in enumerate(lines):
+                heading = bool(re.match(r"^\s*(#+\s|[一二三四五六七八九十]+、)", line))
+                evaluation.block_rows.append({"id": f"s{index + 1}", "type": "heading" if heading else "paragraph", "text": line, "order": index})
+            hits = evaluation._cues()
+            blocks = []
+            for block in evaluation.block_rows:
+                cues = [{**{key: value for key, value in cue.items() if key != "_span"}, "start": cue["_span"][0], "end": cue["_span"][1]}
+                        for cue in hits.get(block["id"], [])]
+                blocks.append({"block_id": block["id"], "text": block["text"], "cues": cues})
+            result["cue_preview"] = blocks
+        result["valid"] = not result["errors"]
+        return result
 
 
 class _Evaluation:
@@ -2072,7 +2301,7 @@ class _Evaluation:
                 except re.error:
                     continue
             for word in unit_words:
-                for match in re.finditer(r"\d\s*" + re.escape(word), text):
+                for match in re.finditer(r"\d+(?:\.\d+)?\s*" + re.escape(word), text):
                     add(block["id"], match.start(), match.end(), {"type": "unit", "match": match.group(0)})
             for name, concept_id, node_id in lexicon:
                 if mentioned(name, text):

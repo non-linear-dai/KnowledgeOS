@@ -397,6 +397,15 @@ def test_http_routes_and_permissions(service):
         assert status == 200 and len(queue["data"]) == 1
         status, stored = request("GET", "/v2/extraction/source?id=source:dms:supplier-review:acme-2026q3", "reader-token")
         assert status == 200 and stored["data"]["versions"] == ["v1"]
+        status, assets = request("GET", "/v2/extraction/assets", "reader-token")
+        assert status == 200 and assets["data"]["profile"]["exists"]
+        card = next(item for item in assets["data"]["concepts"] if item["id"] == "product")["card"]["document"]
+        assert request("POST", "/v2/extraction/assets/preview", "reader-token", {"kind": "card", "document": card})[0] == 403
+        status, preview = request("POST", "/v2/extraction/assets/preview", "agent-token", {"kind": "card", "document": {**card, "card_version": "1.0.1"}})
+        assert status == 200 and preview["data"]["valid"]
+        status, created = request("POST", "/v2/extraction/assets/propose", "agent-token",
+                                  {"kind": "card", "document": {**card, "card_version": "1.0.1"}, "reason": "HTTP 说明卡提案"})
+        assert status == 201 and created["data"]["target_source"] == "control/extraction/v2/cards/product.yaml"
     finally:
         server.shutdown()
         server.server_close()
@@ -414,3 +423,57 @@ def test_ontology_drift_drops_stale_card_entries_without_blocking_the_registry(s
     assert "finding" not in service.registry.extraction_v2["cards"]["decision"]["properties"]
     contract = contract_for(service, concepts=["decision"])
     assert "finding" not in {item["predicate"] for item in contract["concepts"][0]["properties"]}
+
+
+def test_extraction_assets_are_edited_through_governed_changesets(service, workspace):
+    assets = service.extraction_v2_assets()["data"]
+    equipment = next(item for item in assets["concepts"] if item["id"] == "equipment")
+    assert equipment["card"]["exists"] and equipment["card"]["source_path"] == "control/extraction/v2/cards/equipment.yaml"
+    assert {item["predicate"] for item in equipment["properties"]} >= {"rated_power", "utilization_factor"}
+    assert next(item for item in equipment["properties"] if item["predicate"] == "rated_power")["publication_route"] == "upstream_source_system"
+    assert [item["id"] for item in assets["recipes"]] == ["supplier_review_minutes"] and assets["profile"]["exists"]
+    card = copy.deepcopy(equipment["card"]["document"])
+    card["properties"]["rated_power"]["terms"]["alt"].append("电机功率")
+    card["properties"]["rated_power"]["unit_aliases"] = {"千瓦特": "kW"}
+    preview = service.extraction_v2_asset_preview(kind="card", document=card, samples=[{"predicate": "rated_power", "raw": "7.5千瓦特"}],
+                                                  sample_text="3号测试台电机功率 7.5千瓦特")["data"]
+    assert not preview["valid"] and "必须高于当前版本" in preview["errors"][0]
+    assert preview["trials"][0]["normalized"] == {"type": "quantity", "literal": "7.5", "unit": "kW"}
+    cues = {cue["match"] for cue in preview["cue_preview"][0]["cues"]}
+    assert {"测试台", "电机功率", "7.5千瓦特"} <= cues
+    assert "电机功率" in next(item for item in preview["contract"]["properties"] if item["predicate"] == "rated_power")["terms"]["alt"]
+    card["card_version"] = "1.1.0"
+    preview = service.extraction_v2_asset_preview(kind="card", document=card)["data"]
+    assert preview["valid"], preview["errors"]
+    unbound = copy.deepcopy(card)
+    unbound["properties"]["finding"] = {"terms": {"alt": ["结论"]}}
+    errors = service.extraction_v2_asset_preview(kind="card", document=unbound)["data"]["errors"]
+    assert errors == ["control/extraction/v2/cards/equipment.yaml: finding is not bound to equipment"]
+    with pytest.raises(ValidationError):
+        service.extraction_v2_asset_propose(kind="card", document=unbound, reason="错误提案", actor="author:test")
+    proposal = service.extraction_v2_asset_propose(kind="card", document=card, reason="补充功率写法", actor="author:test",
+                                                   base_revision=preview["revision"])["data"]
+    row = service.db.first("SELECT risk,title FROM changeset WHERE id=?", (proposal["id"],))
+    assert row["risk"] == "high" and row["title"].startswith("抽取说明卡：")
+    assert service.extraction_v2_assets()["data"]["pending"][0]["id"] == proposal["id"]
+    with pytest.raises(ValidationError, match="independent reviewer"):
+        service.review_changeset(id=proposal["id"], reviewer="author:test", decision="approved")
+    service.review_changeset(id=proposal["id"], reviewer="reviewer:test", decision="approved")
+    revision = service.apply_changeset(id=proposal["id"], publisher="publisher:test")["data"]["source_revision"]
+    service.publish_changeset(id=proposal["id"], publisher="publisher:test", source_revision=revision)
+    service.refresh_registry()
+    published = service.registry.extraction_v2["cards"]["equipment"]
+    assert published["card_version"] == "1.1.0" and published["properties"]["rated_power"]["unit_aliases"] == {"千瓦特": "kW"}
+    recipe = {"format": "knowledgeos.extraction-recipe.v1", "id": "equipment_ledger", "version": "1.0.0", "document_types": ["equipment_ledger"],
+              "mappings": [{"selector": {"kind": "table_header", "pattern": "^额定功率$"}, "concept": "equipment", "role": "field", "predicate": "rated_power"}]}
+    created = service.extraction_v2_asset_propose(kind="recipe", document=recipe, reason="新增设备台账方案", actor="author:test")["data"]
+    assert created["target_source"] == "control/extraction/v2/recipes/equipment_ledger.yaml"
+    service.review_changeset(id=created["id"], reviewer="reviewer:test", decision="approved")
+    revision = service.apply_changeset(id=created["id"], publisher="publisher:test")["data"]["source_revision"]
+    service.publish_changeset(id=created["id"], publisher="publisher:test", source_revision=revision)
+    service.refresh_registry()
+    assert "equipment_ledger" in service.registry.extraction_v2["recipes"]
+    assert (workspace / "control/extraction/v2/recipes/equipment_ledger.yaml").exists()
+    profile = copy.deepcopy(service.extraction_v2_assets()["data"]["profile"]["document"])
+    profile["acceptance"]["min_confidence"] = 1.5
+    assert service.extraction_v2_asset_preview(kind="profile", document=profile)["data"]["errors"]

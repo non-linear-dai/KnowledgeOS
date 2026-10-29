@@ -504,7 +504,7 @@ class Service:
             risk = "high"
         operations = operations or []
         if any((operation.get("targetKind") or operation.get("target_kind")) in ("schema", "model", "unit", "currency", "business_constraint", "business_rule") for operation in operations) or any(
-            path.strip().startswith(("control/schemas/", "control/models/", "control/units/", "control/currencies/", "control/constraints/business/", "control/rules/business/", "control/vocabularies/", "control/semantics/")) for path in target_source.split(",")
+            path.strip().startswith(("control/schemas/", "control/models/", "control/units/", "control/currencies/", "control/constraints/business/", "control/rules/business/", "control/vocabularies/", "control/semantics/", "control/extraction/")) for path in target_source.split(",")
         ):
             risk = "high"
         plan = ChangePlan(self)
@@ -957,6 +957,26 @@ class Service:
         return envelope(data, quality={"status": data["status"], "changesets": len(data.get("changesets") or []),
                                        "write_performed": bool(data.get("changesets"))},
                         traces=[submission["source"]["document_id"]])
+
+    def extraction_v2_assets(self):
+        return envelope(self._extraction_v2().assets(), source={"class": "git_authored", "roots": ["control/extraction/v2"]})
+
+    def extraction_v2_asset_preview(self, *, kind, document, samples=None, sample_text=None):
+        return envelope(self._extraction_v2().asset_preview(kind, document, samples=samples, sample_text=sample_text),
+                        quality={"preview_only": True, "write_performed": False})
+
+    def extraction_v2_asset_propose(self, *, kind, document, reason, actor, base_revision=None, idempotency_key=None):
+        from .extraction_v2 import asset_path, validate_asset
+        engine = self._extraction_v2()
+        validate_asset(self.registry, kind, document)
+        label = {"profile": "抽取配置", "card": "抽取说明卡", "recipe": "抽取方案"}[kind]
+        name = document.get("concept") or document.get("id") or "profile"
+        if kind == "card" and name in engine.concepts:
+            name = f"{engine.concepts[name].get('label') or name}（{name}）"
+        version = document.get("card_version") if kind == "card" else document.get("version")
+        return self.propose(actor=actor, target_source=asset_path(kind, document),
+                            patch={"op": "extraction_asset", "kind": kind, "document": document}, reason=reason, risk="high",
+                            title=f"{label}：{name} v{version}", base_revision=base_revision, idempotency_key=idempotency_key)
 
     def extraction_v2_queue(self, kind=None, status="open", limit=100):
         return envelope(self._extraction_v2().queue(kind, status, limit))

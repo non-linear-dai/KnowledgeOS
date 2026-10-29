@@ -14,7 +14,11 @@ export const changeStatusLabels: Record<string, string> = { proposed: "已提交
 export function isTemplateChange(change: ChangeRecord) {
   return change.target_source.split(",").some(path => /^(knowledge\/(templates|operations|decisions)\/)/.test(path.trim()));
 }
+export function isExtractionChange(change: ChangeRecord) {
+  return change.patch.op === "extraction_asset" || change.target_source.split(",").every(path => path.trim().startsWith("control/extraction/"));
+}
 export function changeCategory(change: ChangeRecord) {
+  if (isExtractionChange(change)) return "抽取配置";
   if (change.patch.op === "logic_asset" || change.target_source.split(",").every(path => /^control\/(models|rules\/business|constraints\/business|decision-models)\//.test(path.trim()))) return "业务逻辑";
   return isTemplateChange(change) ? "专家模板" : change.target_source.split(",").every(path => path.trim().startsWith("control/")) ? "本体与定义" : "知识变更";
 }
@@ -30,6 +34,7 @@ export function reviewAccess(change: ChangeRecord, session: UserSession | null) 
 }
 export function supportsSourceApplication(change: ChangeRecord) {
   if (change.patch.op === "logic_asset") return true;
+  if (change.patch.op === "extraction_asset") return /^control\/extraction\/v2\/(profile|cards\/[a-z][a-z0-9_]*|recipes\/[a-z][a-z0-9_]*)\.yaml$/.test(change.target_source.trim());
   if (isTemplateChange(change)) return change.patch.op === "template_package";
   return ["studio_batch", "semantic_control"].includes(change.patch.op ?? "") && change.target_source.split(",").every(path => /^control\/(ontology|predicates|models|units|currencies|vocabularies|constraints\/business|rules\/business)\/[^,]+\.yaml$/.test(path.trim()));
 }

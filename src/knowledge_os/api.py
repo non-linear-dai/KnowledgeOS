@@ -88,6 +88,7 @@ PERMISSIONS = {
     "/v2/extraction/contract": "read", "/v2/extraction/sources": "extract",
     "/v2/extraction/precheck": "extract", "/v2/extraction/submissions": "propose",
     "/v2/extraction/queue": "read", "/v2/extraction/source": "read",
+    "/v2/extraction/assets": "read", "/v2/extraction/assets/preview": "propose", "/v2/extraction/assets/propose": "propose",
 }
 POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/extraction/request",
              "/v1/ontology/request", "/v1/ontology/preview", "/v1/ontology/propose", "/v1/semantics/validate", "/v1/semantics/impact", "/v1/semantics/vocabulary/propose",
@@ -96,7 +97,8 @@ POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/
              "/v1/calculate", "/v1/calculate/entity", "/v1/fx/convert", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/propose",
              "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose",
              "/v1/logic/preview", "/v1/logic/propose", "/v1/logic/run", "/v1/logic/replay",
-             "/v2/extraction/contract", "/v2/extraction/sources", "/v2/extraction/precheck", "/v2/extraction/submissions"}
+             "/v2/extraction/contract", "/v2/extraction/sources", "/v2/extraction/precheck", "/v2/extraction/submissions",
+             "/v2/extraction/assets/preview", "/v2/extraction/assets/propose"}
 LARGE_BODY = {"/v2/extraction/sources": 16 * 1_048_576, "/v2/extraction/precheck": 8 * 1_048_576,
               "/v2/extraction/submissions": 8 * 1_048_576}
 
@@ -162,7 +164,7 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                 service.refresh_registry()
                 self._authorize_governed_mutation(path, body, principal)
                 result = self._dispatch(path, params, body, principal)
-            status = 201 if path in ("/v1/propose", "/v1/templates/propose", "/v1/extraction/propose") or (
+            status = 201 if path in ("/v1/propose", "/v1/templates/propose", "/v1/extraction/propose", "/v2/extraction/assets/propose") or (
                 path == "/v2/extraction/submissions" and result.get("data", {}).get("changesets")) else 200
             self._send(status, result, principal)
         except AuthenticationError as exc:
@@ -380,6 +382,14 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return s.extraction_v2_precheck(body)
         if path == "/v2/extraction/submissions":
             return s.extraction_v2_submit(body, actor=principal["id"])
+        if path == "/v2/extraction/assets":
+            return s.extraction_v2_assets()
+        if path == "/v2/extraction/assets/preview":
+            return s.extraction_v2_asset_preview(kind=body["kind"], document=body["document"], samples=body.get("samples"),
+                                                 sample_text=body.get("sample_text"))
+        if path == "/v2/extraction/assets/propose":
+            return s.extraction_v2_asset_propose(kind=body["kind"], document=body["document"], reason=body["reason"], actor=principal["id"],
+                                                 base_revision=body.get("base_revision"), idempotency_key=body.get("idempotency_key"))
         if path == "/v2/extraction/queue":
             return s.extraction_v2_queue(p.get("kind"), p.get("status", "open"), p.get("limit", 100))
         if path == "/v2/extraction/source":
