@@ -978,6 +978,11 @@ class Service:
                             patch={"op": "extraction_asset", "kind": kind, "document": document}, reason=reason, risk="high",
                             title=f"{label}：{name} v{version}", base_revision=base_revision, idempotency_key=idempotency_key)
 
+    def extraction_v2_feedback(self, concept=None, since=None, until=None):
+        from .extraction_feedback import Feedback
+        data = Feedback(self._extraction_v2()).build(concept=concept or None, since=since or None, until=until or None)
+        return envelope(data, quality={"write_performed": False, "open_suggestions": data["totals"]["open_suggestions"]})
+
     def extraction_v2_queue(self, kind=None, status="open", limit=100):
         return envelope(self._extraction_v2().queue(kind, status, limit))
 

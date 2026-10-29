@@ -77,3 +77,33 @@ test('studio proxy exposes only the extraction authoring routes', async () => {
     assert.equal(calls.length, 3);
   } finally { globalThis.fetch = original; }
 });
+
+test('feedback suggestions apply only to drafts and keep existing card content', () => {
+  const draft = { concept: 'equipment', properties: { rated_power: { terms: { alt: ['功率'] }, unit_aliases: { 千瓦: 'kW' } } } };
+  const unit = { id: 'u', kind: 'unit_alias', concept: 'equipment', predicate: 'rated_power', text: ' 千瓦特 ', status: 'open', action: { target: 'card', field: 'unit_aliases', choices: ['W', 'kW'] } };
+  assert.deepEqual(api.applySuggestion(draft, unit, 'kW').properties.rated_power, { terms: { alt: ['功率'] }, unit_aliases: { 千瓦: 'kW', 千瓦特: 'kW' } });
+  assert.equal(draft.properties.rated_power.unit_aliases['千瓦特'], undefined, 'the original draft is not mutated');
+  const term = { ...unit, kind: 'property_term', predicate: null, text: '电机功率', action: { target: 'card', field: 'terms', choices: ['rated_power'] } };
+  assert.deepEqual(api.applySuggestion(draft, term, 'rated_power').properties.rated_power.terms.alt, ['功率', '电机功率']);
+  assert.deepEqual(api.applySuggestion(api.applySuggestion(draft, term, 'rated_power'), term, 'rated_power').properties.rated_power.terms.alt, ['功率', '电机功率']);
+  const enumAlias = { ...unit, kind: 'enum_alias', predicate: 'risk_level', text: '爆表' };
+  assert.deepEqual(api.applySuggestion({}, enumAlias, 'critical').properties.risk_level, { enum_map: { 爆表: 'critical' } });
+  const currency = { ...unit, kind: 'currency_alias', text: '块钱' };
+  assert.deepEqual(api.applySuggestion({ currency_aliases: { 元: 'CNY' } }, currency, 'CNY').currency_aliases, { 元: 'CNY', 块钱: 'CNY' });
+  assert.equal(api.applySuggestion(draft, unit, ''), draft);
+  assert.equal(api.applicable(unit), true); assert.equal(api.applicable({ ...unit, status: 'resolved' }), false);
+  assert.equal(api.applicable({ ...unit, kind: 'uncovered_cue' }), false);
+  assert.equal(api.percent(0.8333), '83.3%'); assert.equal(api.percent(null), '—');
+});
+
+test('feedback loader passes filters and the proxy exposes it read-only', async () => {
+  const calls = [];
+  const client = load('../app/extraction/extraction-api.ts', { '../knowledgeos-api': { request: async path => { calls.push(path); return { data: {} }; } } });
+  await client.loadFeedback(); await client.loadFeedback({ concept: 'equipment', since: '' });
+  assert.deepEqual(calls, ['/v2/extraction/feedback', '/v2/extraction/feedback?concept=equipment']);
+  const route = load('../app/api/knowledgeos/[...path]/route.ts', { 'cloudflare:workers': { env: { KNOWLEDGEOS_API_BASE_URL: 'https://backend.test' } } });
+  const original = globalThis.fetch; globalThis.fetch = async () => Response.json({ data: {} });
+  const request = method => route[method]({ method, headers: new Headers({ authorization: 'Bearer reader', 'content-type': 'application/json' }), nextUrl: new URL('https://studio.test/api/knowledgeos/v2/extraction/feedback'), text: async () => '{}' },
+    { params: Promise.resolve({ path: ['v2', 'extraction', 'feedback'] }) });
+  try { assert.equal((await request('GET')).status, 200); assert.equal((await request('POST')).status, 404); } finally { globalThis.fetch = original; }
+});

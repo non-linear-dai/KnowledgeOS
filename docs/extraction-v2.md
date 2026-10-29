@@ -43,10 +43,11 @@ Agent                                         KnowledgeOS
 | `POST /v2/extraction/submissions` | `extraction_submission`（propose）→ `validation_report` | propose |
 | `GET /v2/extraction/queue?kind=&status=` | 待核对、草稿、规则差异、未映射事实队列 | read |
 | `GET /v2/extraction/source?id=&version=` | 已登记的来源快照、回执与版本列表 | read |
+| `GET /v2/extraction/feedback?concept=&since=&until=` | 抽取反馈：统计、配置版本对比与改进建议（见第 12 节） | read |
 
 响应沿用 KnowledgeOS 的统一信封，`data` 就是协议消息本身。`sources` 请求体上限 16 MiB（含内联原件），`precheck` 与 `submissions` 上限 8 MiB，其余 1 MiB。生成 ChangeSet 的 `submissions` 返回 201。
 
-CLI 对应命令：`extract-v2-contract --request`、`extract-v2-register --source-document --actor`、`extract-v2-precheck --submission`、`extract-v2-submit --submission --actor`、`extract-v2-queue`。
+CLI 对应命令：`extract-v2-contract --request`、`extract-v2-instructions --request [--stage]`、`extract-v2-feedback [--concept --since --until]`、`extract-v2-register --source-document --actor`、`extract-v2-precheck --submission`、`extract-v2-submit --submission --actor`、`extract-v2-queue`。
 
 提案人身份取自 HTTP 认证主体，不取自消息内容（沿用现有约定）。
 
@@ -156,7 +157,38 @@ v1 端点保持可用。待现有 Agent 迁移完成后，再评估是否弃用 
 - 未映射事实；
 - 覆盖率线索。
 
-## 11. 待定事项
+## 11. 标准提示词渲染
+
+契约请求的 `include` 带上 `instructions` 时，契约额外返回 `instructions`（格式 `knowledgeos.extraction-instructions.v1`）：KnowledgeOS 按抽取 Skill 的阶段，把本次契约中的本体、说明卡、术语、单位与枚举写法、身份规则、抽取方案、关系、规则槽位和验收口径渲染成中文 Markdown。
+
+- `sections[]`：每段带 `stage`，取值为 `all`、`route`、`mentions`、`consolidate`、`fill_fields`、`relations`、`rule_signals`、`precheck_and_repair`，与 Skill 的阶段一一对应。Agent 在每个阶段放入 `all` 与该阶段的段落。
+- `concepts.<概念>.mentions / consolidate / fill_fields`：按概念拆分的片段，供分批抽取时只放入本批涉及的概念。
+- `markdown`：全文；`content_hash` 为全文 SHA-256，`renderer_version` 为渲染器版本。Agent 把二者记入运行清单即可复现当次提示词。
+
+渲染器只读取契约本身，因此说明与结构化契约逐字一致；相同契约总是得到相同文本。说明卡、术语或本体变化后指纹改变，Agent 重新获取契约时自动拿到新说明。需要确定性处理的内容（锚点匹配、值模式、单位写法）仍应读取结构化字段，不要从 Markdown 中解析。CLI `knowledgeos extract-v2-instructions --request <contract_request.json> [--stage fill_fields]` 可直接打印说明。Studio「抽取配置」的试算会用未提交的草稿渲染同样的说明，业务人员在提交前就能看到 Agent 将收到的内容。
+
+## 12. 反馈闭环
+
+`GET /v2/extraction/feedback` 汇总已提案（`mode=propose`）的抽取提交，预检不写入、不计入。结果包括：
+
+- `totals`：提交数、文档数、待处理建议数；
+- `versions[]`：按注册表指纹（即配置版本）分组的提交数、字段通过率（被接受、已存在、冲突待审、转业务系统的字段占比）、规范化失败、未覆盖线索、未映射事实与身份待确认数量，用来比较每次修改说明卡后的效果；
+- `concepts[]`：按概念统计实例结果、字段结果与常见问题代码；
+- `suggestions[]`：可执行的改进建议，按出现次数排序，附原文样例（文档、版本、块与块文本）。
+
+| 建议类型 | 来源 | 建议的处理 |
+|---|---|---|
+| `unit_alias` / `currency_alias` | `UNIT_NOT_ALLOWED` 的字段，取原文单位或金额写法 | 在说明卡加入单位写法，或在全局配置加入币种写法 |
+| `enum_alias` | `ENUM_NOT_ALLOWED` 的字段 | 在说明卡加入枚举写法 |
+| `value_format` | `VALUE_UNPARSEABLE` 的字段 | 调整属性说明与值模式 |
+| `property_term` | 未映射事实中带 `suggested_property_label` 且原因为 `no_matching_predicate` | 加入已有属性的叫法，或在本体白板注册新属性 |
+| `identity_rule` | 身份待确认的实例 | 配置身份键与编码模式 |
+| `uncovered_cue` | 验收报告中未被覆盖的术语、方案、值模式与单位线索 | 补充反例或边界说明、收窄叫法，或补充识别说明 |
+| `unmapped_fact` | 其他未映射事实 | 反复出现时考虑扩展本体 |
+
+建议每次按当前配置重新计算：当前说明卡已能规范化该写法、或叫法已存在时标为 `resolved`；属性已解绑时标为 `obsolete`。因此无需额外状态。Studio「抽取配置」的“抽取反馈与改进建议”页面展示上述内容，“加入草稿”把单位、枚举、币种写法或属性叫法写入对应说明卡或全局配置的草稿，之后仍需检查草稿、提交审核、应用真源并验证发布；发布后形成新的配置版本，其效果在版本对比中体现。
+
+## 13. 待定事项
 
 - 草稿实例在什么条件下允许发布，是否需要独立的补全审核（当前进入补全队列，不生成 ChangeSet）。
 - 证据库的存储后端：当前原件字节存于 state 库（随成对备份），大文件和对象存储尚未支持。

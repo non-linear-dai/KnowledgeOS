@@ -477,3 +477,86 @@ def test_extraction_assets_are_edited_through_governed_changesets(service, works
     profile = copy.deepcopy(service.extraction_v2_assets()["data"]["profile"]["document"])
     profile["acceptance"]["min_confidence"] = 1.5
     assert service.extraction_v2_asset_preview(kind="profile", document=profile)["data"]["errors"]
+
+
+def test_contract_renders_standard_instructions_by_skill_stage(service):
+    request = {"protocol_version": PROTOCOL, "message_type": "contract_request", "scope": {"domains": ["cost", "industry"], "document_type": "supplier_review_minutes"},
+               "include": ["concepts", "relations", "recipes", "lexicon", "rule_slots", "instructions"]}
+    contract = service.extraction_v2_contract(request)["data"]
+    assert_protocol(service, contract)
+    instructions = contract["instructions"]
+    assert instructions["format"] == "knowledgeos.extraction-instructions.v1" and instructions["language"] == "zh"
+    stages = [section["stage"] for section in instructions["sections"]]
+    assert stages == ["all", "route", "mentions", "consolidate", "fill_fields", "relations", "rule_signals", "precheck_and_repair"]
+    markdown = instructions["markdown"]
+    assert hashlib.sha256(markdown.encode("utf-8")).hexdigest() == instructions["content_hash"]
+    assert contract["contract_id"] in markdown
+    equipment = instructions["concepts"]["equipment"]
+    assert "用于 X1 出厂检验的测试台额定功率不得低于5kW" in equipment["mentions"] and "不应抽取" in equipment["mentions"]
+    assert "千瓦 → kW" in equipment["fill_fields"] and "由业务系统维护" in equipment["fill_fields"]
+    assert "`^EQ-[A-Z0-9-]{2,60}$`" in equipment["consolidate"]
+    assert "rated_power > 0 W" in markdown and "表头或行标签 匹配 `^(标准)?交期$`" in markdown
+    assert service.extraction_v2_contract(request)["data"]["instructions"]["content_hash"] == instructions["content_hash"]
+    assert "instructions" not in contract_for(service)
+    card = copy.deepcopy(next(item for item in service.extraction_v2_assets()["data"]["concepts"] if item["id"] == "equipment")["card"]["document"])
+    card.update({"card_version": "1.0.1"})
+    card["card"]["boundary_notes"].append("备用设备不单独建实例。")
+    preview = service.extraction_v2_asset_preview(kind="card", document=card)["data"]
+    assert "备用设备不单独建实例。" in preview["instructions"]["concepts"]["equipment"]["mentions"]
+
+
+def test_feedback_aggregates_signals_and_resolves_after_card_publication(service, workspace):
+    contract = contract_for(service, concepts=["organization", "project", "equipment"])
+    source = source_document("source:test:feedback", "v1", [
+        {"id": "p1", "text": "3号测试台（设备编号 EQ-TB-03）额定功率 7.5千瓦特。"},
+        {"id": "p2", "text": "Project Atlas 风险评估：爆表。"},
+        {"id": "p3", "text": "Acme 的供应商评级为 A 级。"},
+        {"id": "p4", "text": "现场还有一台测试台在维修，铭牌功率不清。"},
+    ])
+    service.extraction_v2_register(source, actor="agent:extractor")
+    instances = [
+        {"local_id": "tmp:bench", "concept": "equipment", "label": {"raw": "3号测试台", "evidence": [anchor(source, "p1", "3号测试台")]},
+         "identity": {"key": {"raw": "EQ-TB-03", "evidence": [anchor(source, "p1", "EQ-TB-03", "key")]}},
+         "fields": [{"predicate": "rated_power", "value": {"raw": "7.5千瓦特"}, "evidence": [anchor(source, "p1", "7.5千瓦特", "value")]}]},
+        {"local_id": "tmp:atlas", "concept": "project", "label": {"raw": "Project Atlas", "evidence": [anchor(source, "p2", "Project Atlas")]},
+         "fields": [{"predicate": "risk_level", "value": {"raw": "爆表"}, "evidence": [anchor(source, "p2", "爆表", "value")]}]},
+    ]
+    unmapped = [{"text": "Acme 的供应商评级为 A 级", "reason": "no_matching_predicate", "suggested_concept": "organization",
+                 "suggested_property_label": "供应商评级", "evidence": [anchor(source, "p3", "Acme 的供应商评级为 A 级")]}]
+    message = submission(contract, source, instances, mode="propose", submission_id="sub-feedback-1", unmapped_facts=unmapped)
+    service.extraction_v2_submit(message, actor="agent:extractor")
+    feedback = service.extraction_v2_feedback()["data"]
+    assert feedback["totals"]["submissions"] == 1 and feedback["totals"]["open_suggestions"] >= 4
+    by_kind = {}
+    for item in feedback["suggestions"]:
+        by_kind.setdefault(item["kind"], []).append(item)
+    unit = by_kind["unit_alias"][0]
+    assert (unit["concept"], unit["predicate"], unit["text"], unit["status"]) == ("equipment", "rated_power", "千瓦特", "open")
+    assert unit["action"]["choices"] == ["W", "kW", "MW"] and unit["samples"][0]["text"].startswith("3号测试台")
+    enum = by_kind["enum_alias"][0]
+    assert (enum["predicate"], enum["text"]) == ("risk_level", "爆表") and enum["action"]["choices"] == ["low", "medium", "high", "critical"]
+    term = by_kind["property_term"][0]
+    assert (term["concept"], term["text"]) == ("organization", "供应商评级") and "legal_name" in term["action"]["choices"]
+    assert any(item["text"] == "测试台" for item in by_kind["uncovered_cue"])
+    stats = {item["concept"]: item for item in feedback["concepts"]}
+    assert stats["equipment"]["fields"]["rejected"] == 1 and stats["equipment"]["issues"]["UNIT_NOT_ALLOWED"] == 1
+    assert len(feedback["versions"]) == 1 and feedback["versions"][0]["current"] and feedback["versions"][0]["field_acceptance_rate"] == 0
+    assert service.extraction_v2_feedback(concept="project")["data"]["suggestions"][0]["kind"] == "enum_alias"
+    # Applying the suggestion is a governed card change; afterwards the suggestion is resolved and a new version is measured.
+    card = copy.deepcopy(next(item for item in service.extraction_v2_assets()["data"]["concepts"] if item["id"] == "equipment")["card"]["document"])
+    card["card_version"] = "1.0.1"
+    card["properties"]["rated_power"]["unit_aliases"] = {"千瓦特": "kW"}
+    proposal = service.extraction_v2_asset_propose(kind="card", document=card, reason="反馈：补充单位写法", actor="author:test")["data"]
+    service.review_changeset(id=proposal["id"], reviewer="reviewer:test", decision="approved")
+    revision = service.apply_changeset(id=proposal["id"], publisher="publisher:test")["data"]["source_revision"]
+    service.publish_changeset(id=proposal["id"], publisher="publisher:test", source_revision=revision)
+    service.refresh_registry()
+    resolved = next(item for item in service.extraction_v2_feedback()["data"]["suggestions"] if item["kind"] == "unit_alias")
+    assert resolved["status"] == "resolved"
+    renewed = contract_for(service, concepts=["organization", "project", "equipment"])
+    retry = submission(renewed, source, instances[:1], mode="propose", submission_id="sub-feedback-2")
+    service.extraction_v2_submit(retry, actor="agent:extractor")
+    versions = service.extraction_v2_feedback(concept="equipment")["data"]["versions"]
+    assert [item["field_acceptance_rate"] for item in versions] == [0, 1] and versions[1]["current"]
+    with pytest.raises(ValidationError):
+        service.extraction_v2_feedback(concept="unknown")

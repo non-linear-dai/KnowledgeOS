@@ -522,3 +522,26 @@ input[type="checkbox"] { accent-color: var(--primary); width: 1rem; height: 1rem
   .extraction-row > span { display: none; }
   .extraction-submit { position: static; }
 }
+.extraction-instructions pre { max-height: 520px; white-space: pre-wrap; font-family: var(--font-sans); font-size: .75rem; line-height: 1.85; }
+.extraction-feedback-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: 1.25rem; }
+.extraction-feedback-filters select, .extraction-suggestions select { height: 34px; min-width: 0; border: 1px solid var(--input); border-radius: .4rem; background: var(--card); padding-inline: .5rem; font-size: .75rem; }
+.extraction-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .75rem; margin-top: 1.25rem; }
+.extraction-stats > div { display: flex; flex-direction: column; gap: .25rem; border: 1px solid var(--border); border-radius: .5rem; padding: .75rem 1rem; background: #fafbfd; }
+.extraction-stats strong { font-size: 1.4rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.extraction-stats span { font-size: .6875rem; color: var(--muted-foreground); }
+.extraction-table td small { display: block; color: var(--muted-foreground); }
+.extraction-table td { font-variant-numeric: tabular-nums; }
+.extraction-suggestions { display: flex; flex-direction: column; gap: .6rem; padding: 0; list-style: none; }
+.extraction-suggestions > li { border: 1px solid var(--border); border-radius: .5rem; padding: .75rem .9rem; background: var(--card); font-size: .75rem; line-height: 1.8; }
+.extraction-suggestions > li[data-status="resolved"], .extraction-suggestions > li[data-status="obsolete"] { opacity: .7; background: var(--muted); }
+.extraction-suggestions > li > p { margin-top: .35rem; color: var(--secondary-foreground); }
+.extraction-suggestions details { margin-top: .4rem; }
+.extraction-suggestions summary { cursor: pointer; color: var(--muted-foreground); }
+.extraction-suggestion-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.extraction-suggestion-head strong { font-size: .8125rem; overflow-wrap: anywhere; }
+.extraction-suggestion-head > span:not(.neutral-badge) { color: var(--muted-foreground); }
+.extraction-suggestion-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.extraction-samples { margin-top: .35rem; padding-left: 0; list-style: none; }
+.extraction-samples li { border-left: 2px solid var(--border); padding-left: .6rem; margin-top: .35rem; }
+.extraction-samples li span { font-size: .625rem; color: var(--muted-foreground); }
+.extraction-samples li p { overflow-wrap: anywhere; }

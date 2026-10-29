@@ -24,6 +24,31 @@ export type AssetPreview = {
   kind: AssetKind; valid: boolean; errors: string[]; warnings: string[]; source_path?: string; revision?: string; exists?: boolean;
   contract?: JsonRecord; trials?: { predicate: string; raw: string; normalized?: JsonRecord; notes?: string[]; error?: string; code?: string }[];
   cue_preview?: { block_id: string; text: string; cues: Cue[] }[];
+  instructions?: Instructions;
+};
+export type Instructions = {
+  format: string; renderer_version: string; language: string; content_hash: string; markdown: string;
+  sections: { id: string; stage: string; title: string; markdown: string }[];
+  concepts?: Record<string, { mentions: string; consolidate: string; fill_fields: string }>;
+};
+export type SuggestionKind = "unit_alias" | "currency_alias" | "enum_alias" | "value_format" | "property_term" | "identity_rule" | "uncovered_cue" | "unmapped_fact";
+export type Suggestion = {
+  id: string; kind: SuggestionKind; concept: string | null; concept_label: string | null; predicate: string | null; predicate_label: string | null;
+  text: string; count: number; documents: number; last_seen: string; status: "open" | "resolved" | "obsolete"; advice: string;
+  action: { target: "card" | "profile"; field: string; choices?: string[]; tab?: string } | null;
+  samples: { document_id: string; document_version: string; submission_id: string; block_id: string | null; text: string }[];
+  raw_values?: string[]; reasons?: string[]; facts?: string[]; cue_types?: string[];
+};
+export type FeedbackVersion = {
+  registry_fingerprint: string; label: string; current: boolean; first_seen: string; last_seen: string; submissions: number; documents: number;
+  fields: number; fields_ok: number; field_acceptance_rate: number | null; normalization_failures: number; uncovered_cues: number; unmapped_facts: number; needs_resolution: number;
+};
+export type FeedbackConcept = {
+  concept: string; label: string; submissions: number; instances: Record<string, number>; fields: Record<string, number>; issues: Record<string, number>;
+};
+export type ExtractionFeedback = {
+  registry_fingerprint: string; totals: { submissions: number; documents: number; open_suggestions: number };
+  concepts: FeedbackConcept[]; versions: FeedbackVersion[]; suggestions: Suggestion[];
 };
 export type ValueSample = { predicate: string; raw: string; concept?: string };
 
@@ -33,6 +58,10 @@ export async function loadExtractionAssets(signal?: AbortSignal) {
 export async function previewAsset(kind: AssetKind, document: JsonRecord, options: { samples?: ValueSample[]; sampleText?: string } = {}) {
   return (await request<{ data: AssetPreview }>("/v2/extraction/assets/preview", { method: "POST",
     body: JSON.stringify({ kind, document, samples: options.samples ?? [], sample_text: options.sampleText ?? "" }) })).data;
+}
+export async function loadFeedback(options: { concept?: string; since?: string } = {}, signal?: AbortSignal) {
+  const query = new URLSearchParams(Object.entries(options).filter(([, value]) => value) as [string, string][]).toString();
+  return (await request<{ data: ExtractionFeedback }>(`/v2/extraction/feedback${query ? `?${query}` : ""}`, { signal })).data;
 }
 export async function proposeAsset(kind: AssetKind, document: JsonRecord, reason: string, baseRevision?: string) {
   return (await request<{ data: { id: string; status: string; target_source: string } }>("/v2/extraction/assets/propose", { method: "POST",
@@ -132,4 +161,42 @@ export function cueSegments(text: string, cues: Cue[]): { text: string; cue?: Cu
 
 export function pendingFor(assets: ExtractionAssets | null, path: string) {
   return (assets?.pending ?? []).filter(change => change.target_source === path);
+}
+
+export const suggestionKinds: Record<SuggestionKind, string> = {
+  unit_alias: "单位写法", currency_alias: "币种写法", enum_alias: "枚举写法", value_format: "取值格式", property_term: "属性叫法",
+  identity_rule: "身份规则", uncovered_cue: "未覆盖线索", unmapped_fact: "未映射事实",
+};
+export const suggestionStatus = { open: "待处理", resolved: "已解决", obsolete: "已失效" } as const;
+
+/** Whether a suggestion can be written into a draft directly (it needs a chosen target such as a unit, value or predicate). */
+export function applicable(suggestion: Suggestion) {
+  return suggestion.status === "open" && Boolean(suggestion.action?.choices?.length) &&
+    ["unit_alias", "currency_alias", "enum_alias", "property_term"].includes(suggestion.kind);
+}
+
+/**
+ * Apply a suggestion to a card or profile draft. Only edits the draft; publishing still needs review.
+ * unit_alias/enum_alias: choice is the registered unit / allowed value. property_term: choice is the predicate.
+ * currency_alias: applies to the profile draft; choice is the currency code.
+ */
+export function applySuggestion(draft: JsonRecord, suggestion: Suggestion, choice: string): JsonRecord {
+  const text = suggestion.text.trim();
+  if (!text || !choice) return draft;
+  if (suggestion.kind === "currency_alias") return { ...draft, currency_aliases: { ...object(draft.currency_aliases), [text]: choice } };
+  const properties = object(draft.properties);
+  if (suggestion.kind === "property_term") {
+    const entry = object(properties[choice]), terms = object(entry.terms);
+    const alt = strings(terms.alt);
+    return { ...draft, properties: { ...properties, [choice]: { ...entry, terms: { ...terms, alt: alt.includes(text) ? alt : [...alt, text] } } } };
+  }
+  if (!suggestion.predicate) return draft;
+  const field = suggestion.kind === "unit_alias" ? "unit_aliases" : suggestion.kind === "enum_alias" ? "enum_map" : "";
+  if (!field) return draft;
+  const entry = object(properties[suggestion.predicate]);
+  return { ...draft, properties: { ...properties, [suggestion.predicate]: { ...entry, [field]: { ...object(entry[field]), [text]: choice } } } };
+}
+
+export function percent(value: number | null | undefined) {
+  return value === null || value === undefined ? "—" : `${Math.round(value * 1000) / 10}%`;
 }

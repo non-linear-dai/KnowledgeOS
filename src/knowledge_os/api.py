@@ -88,7 +88,7 @@ PERMISSIONS = {
     "/v2/extraction/contract": "read", "/v2/extraction/sources": "extract",
     "/v2/extraction/precheck": "extract", "/v2/extraction/submissions": "propose",
     "/v2/extraction/queue": "read", "/v2/extraction/source": "read",
-    "/v2/extraction/assets": "read", "/v2/extraction/assets/preview": "propose", "/v2/extraction/assets/propose": "propose",
+    "/v2/extraction/assets": "read", "/v2/extraction/feedback": "read", "/v2/extraction/assets/preview": "propose", "/v2/extraction/assets/propose": "propose",
 }
 POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/extraction/request",
              "/v1/ontology/request", "/v1/ontology/preview", "/v1/ontology/propose", "/v1/semantics/validate", "/v1/semantics/impact", "/v1/semantics/vocabulary/propose",
@@ -384,6 +384,8 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return s.extraction_v2_submit(body, actor=principal["id"])
         if path == "/v2/extraction/assets":
             return s.extraction_v2_assets()
+        if path == "/v2/extraction/feedback":
+            return s.extraction_v2_feedback(p.get("concept"), p.get("since"), p.get("until"))
         if path == "/v2/extraction/assets/preview":
             return s.extraction_v2_asset_preview(kind=body["kind"], document=body["document"], samples=body.get("samples"),
                                                  sample_text=body.get("sample_text"))

@@ -7,6 +7,7 @@ card:
     en: "A governed business or research decision."
   recognition_cues: [决定, 决议, 评审结论, 批准]
 terms:
+  pref: {zh: 决策}
   alt: [决定, 决议]
 identity:
   keys: [{source: natural_key}]

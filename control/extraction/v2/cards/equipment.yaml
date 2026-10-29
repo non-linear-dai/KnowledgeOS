@@ -13,6 +13,7 @@ card:
   boundary_notes: [“不得低于”“必须”等规范性表述记为 rule_signals，不要建设备实例。]
   typical_locations: [设备台账, 验收报告, 技术协议设备要求]
 terms:
+  pref: {zh: 设备}
   alt: [设备, 测试台, 机台]
 identity:
   keys:

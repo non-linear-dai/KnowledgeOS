@@ -240,10 +240,10 @@
           "additionalProperties": false
         },
         "include": {
-          "description": "需要返回的部分；省略时返回 concepts、relations、recipes、rule_slots，不含 lexicon。",
+          "description": "需要返回的部分；省略时返回 concepts、relations、recipes、rule_slots，不含 lexicon 与 instructions。instructions 为按 Skill 阶段组织的标准 Markdown 说明。",
           "type": "array",
           "uniqueItems": true,
-          "items": { "enum": ["concepts", "relations", "recipes", "lexicon", "rule_slots"] }
+          "items": { "enum": ["concepts", "relations", "recipes", "lexicon", "rule_slots", "instructions"] }
         },
         "lexicon": {
           "type": "object",
@@ -540,7 +540,49 @@
           },
           "additionalProperties": false
         },
-        "rule_slots": { "type": "array", "items": { "$ref": "#/$defs/RuleSlot" } }
+        "rule_slots": { "type": "array", "items": { "$ref": "#/$defs/RuleSlot" } },
+        "instructions": { "$ref": "#/$defs/Instructions" }
+      },
+      "additionalProperties": false
+    },
+    "Instructions": {
+      "description": "由契约确定性渲染的标准抽取说明。sections 按 Skill 阶段组织，concepts 提供按概念拆分的片段，便于分批放入提示词；content_hash 为 markdown 的 SHA-256。",
+      "type": "object",
+      "required": ["format", "renderer_version", "language", "content_hash", "markdown", "sections"],
+      "properties": {
+        "format": { "const": "knowledgeos.extraction-instructions.v1" },
+        "renderer_version": { "type": "string", "minLength": 1 },
+        "language": { "type": "string", "minLength": 2, "maxLength": 16 },
+        "content_hash": { "$ref": "#/$defs/Sha256" },
+        "markdown": { "type": "string", "minLength": 1 },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "stage", "title", "markdown"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "stage": { "enum": ["all", "route", "mentions", "consolidate", "fill_fields", "relations", "rule_signals", "precheck_and_repair"] },
+              "title": { "type": "string", "minLength": 1 },
+              "markdown": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "concepts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["mentions", "consolidate", "fill_fields"],
+            "properties": {
+              "mentions": { "type": "string" },
+              "consolidate": { "type": "string" },
+              "fill_fields": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "additionalProperties": false
     },

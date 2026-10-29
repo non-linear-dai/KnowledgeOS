@@ -7,6 +7,7 @@ card:
     en: "A research subject with a bounded market scope."
   recognition_cues: [市场, 行业, 细分市场]
 terms:
+  pref: {zh: 市场}
   alt: [市场, 行业]
 identity:
   keys: [{source: natural_key}]

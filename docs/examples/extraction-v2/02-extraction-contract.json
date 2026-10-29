@@ -228,11 +228,13 @@
       "id": "market",
       "iri": "urn:knowledgeos:concept/market",
       "labels": {
-        "en": "Market"
+        "en": "Market",
+        "zh": "市场"
       },
       "terms": {
         "pref": {
-          "en": "Market"
+          "en": "Market",
+          "zh": "市场"
         },
         "alt": [
           "市场",
@@ -513,11 +515,13 @@
       "id": "equipment",
       "iri": "urn:knowledgeos:concept/equipment",
       "labels": {
-        "en": "Equipment"
+        "en": "Equipment",
+        "zh": "设备"
       },
       "terms": {
         "pref": {
-          "en": "Equipment"
+          "en": "Equipment",
+          "zh": "设备"
         },
         "alt": [
           "设备",
@@ -906,7 +910,7 @@
       "predicates": [
         "rated_power"
       ],
-      "summary": "状态：draft；rated_power > {\"unit\":\"W\",\"value\":0}"
+      "summary": "状态：draft；rated_power > 0 W"
     },
     {
       "logic_ref": "rule:equipment_power_match@1.0.0",

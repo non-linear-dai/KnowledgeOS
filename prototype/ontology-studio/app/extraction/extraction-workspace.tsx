@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { CircleAlert, FileText, FlaskConical, Loader2, Plus, RefreshCw, Search, Send, ShieldCheck, Trash2 } from "lucide-react";
+import { BarChart3, CircleAlert, FileText, FlaskConical, Loader2, Plus, RefreshCw, Search, Send, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,9 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "../workspace-session";
 import { NavigationToggle } from "../workspace-navigation-context";
 import {
-  assetVersion, bumpVersion, cleanDraft, compareVersions, cueSegments, cueTypes, isStableId, lines, loadExtractionAssets, mapping,
+  applicable, applySuggestion, assetVersion, bumpVersion, cleanDraft, loadFeedback, percent, suggestionKinds, suggestionStatus, compareVersions, cueSegments, cueTypes, isStableId, lines, loadExtractionAssets, mapping,
   mappingRoles, newCard, newRecipe, object, pairs, pendingFor, previewAsset, proposeAsset, routeLabels, selectorKinds, strings,
-  type AssetKind, type AssetPreview, type ConceptInfo, type ExtractionAssets, type JsonRecord, type PropertyInfo, type ValueSample,
+  type AssetKind, type AssetPreview, type ExtractionFeedback, type Suggestion, type ConceptInfo, type ExtractionAssets, type JsonRecord, type PropertyInfo, type ValueSample,
 } from "./extraction-api";
 
 type Selection = { kind: AssetKind; id: string; isNew?: boolean };
@@ -251,7 +251,7 @@ function TrialPanel({ kind, properties, conceptId, draft, canPreview }: { kind: 
     finally { setBusy(false); }
   }
   return <section className="change-section extraction-section">
-    <p className="change-section-note">用当前草稿试算：粘贴一段材料查看会命中的线索；填写原文取值查看服务端规范化结果。试算不写入任何数据。</p>
+    <p className="change-section-note">用当前草稿试算：粘贴一段材料查看会命中的线索；填写原文取值查看服务端规范化结果；同时生成外部 Agent 将收到的标准说明。试算不写入任何数据。</p>
     <Field label="样例材料" hint="每行作为一个文本块；以“一、”或 # 开头的行视为标题"><Textarea rows={6} value={text} onChange={event => setText(event.target.value)} placeholder={"一、设备要求\n3号测试台（设备编号 EQ-TB-03）额定功率 7.5kW"} /></Field>
     {properties.length > 0 && <div className="extraction-field"><span>取值试算</span><div className="extraction-rows">
       {samples.map((sample, index) => <div className="extraction-row" key={index}>
@@ -269,6 +269,8 @@ function TrialPanel({ kind, properties, conceptId, draft, canPreview }: { kind: 
       {(result.trials ?? []).length > 0 && <table className="extraction-table"><thead><tr><th>属性</th><th>原文</th><th>规范化结果</th></tr></thead><tbody>{(result.trials ?? []).map((trial, index) => <tr key={index}><td>{trial.predicate}</td><td>{trial.raw}</td><td>{trial.error ? <span className="text-destructive">{trial.code ? `${trial.code}：` : ""}{trial.error}</span> : <code>{JSON.stringify(trial.normalized)}</code>}{trial.notes?.map(note => <small key={note}>{note}</small>)}</td></tr>)}</tbody></table>}
       {(result.cue_preview ?? []).length > 0 && <div className="extraction-cues">{(result.cue_preview ?? []).map(block => <p key={block.block_id}>{cueSegments(block.text, block.cues).map((segment, index) => segment.cue ? <mark key={index} title={`${cueTypes[segment.cue.type] ?? segment.cue.type}${segment.cue.predicate ? ` · ${segment.cue.predicate}` : segment.cue.concept ? ` · ${segment.cue.concept}` : ""}`} data-cue={segment.cue.type}>{segment.text}</mark> : <span key={index}>{segment.text}</span>)}</p>)}
         <div className="extraction-legend">{Object.entries(cueTypes).map(([type, label]) => <span key={type}><mark data-cue={type}>{label}</mark></span>)}</div></div>}
+      {result.instructions && <details className="change-json extraction-instructions" open><summary>Agent 将看到的说明 <span>标准提示词 · {result.instructions.renderer_version} · {result.instructions.content_hash.slice(0, 12)}</span></summary>
+        <pre>{conceptId && result.instructions.concepts?.[conceptId] ? [result.instructions.concepts[conceptId].mentions, result.instructions.concepts[conceptId].consolidate, result.instructions.concepts[conceptId].fill_fields].join("\n\n") : result.instructions.markdown}</pre></details>}
       {result.contract && <details className="change-json"><summary>草稿生效后的契约片段</summary><pre>{JSON.stringify(result.contract, null, 2)}</pre></details>}
     </div>}
   </section>;
@@ -307,6 +309,64 @@ function SubmitBar({ kind, draft, original, revision, canPropose, onSubmitted, o
   </section>;
 }
 
+
+function FeedbackView({ feedback, assets, loading, error, concept, onConcept, onRefresh, onApply, onOpen }: {
+  feedback: ExtractionFeedback | null; assets: ExtractionAssets; loading: boolean; error: string; concept: string; onConcept: (value: string) => void;
+  onRefresh: () => void; onApply: (suggestion: Suggestion, choice: string) => void; onOpen: (suggestion: Suggestion) => void;
+}) {
+  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [showClosed, setShowClosed] = useState(false);
+  const label = (conceptId: string | null) => assets.concepts.find(item => item.id === conceptId)?.label ?? conceptId ?? "—";
+  const suggestions = (feedback?.suggestions ?? []).filter(item => showClosed || item.status === "open");
+  return <div className="change-detail-content">
+    <div className="change-title"><h2>抽取反馈</h2><p>汇总外部 Agent 已提案的抽取结果：哪些写法没能规范化、哪些线索反复漏抽、哪些事实找不到对应属性，并按配置版本比较效果。建议只会加入说明卡草稿，仍需检查并提交审核。预检不计入统计。</p></div>
+    <div className="extraction-feedback-filters">
+      <select aria-label="按概念筛选" value={concept} onChange={event => onConcept(event.target.value)}><option value="">全部概念</option>{assets.concepts.filter(item => !item.excluded).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
+      <label className="extraction-checks"><span><input type="checkbox" checked={showClosed} onChange={event => setShowClosed(event.target.checked)} />显示已解决和已失效</span></label>
+      <Button variant="outline" size="sm" disabled={loading} onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} />刷新</Button>
+    </div>
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {!feedback ? <p className="change-section-note">{loading ? "正在汇总…" : ""}</p> : feedback.totals.submissions === 0 ? <div className="extraction-pending"><p>还没有已提案的抽取提交。外部 Agent 以 propose 模式提交后，这里会出现统计与建议。</p></div> : <>
+      <div className="extraction-stats" role="status">
+        <div><strong>{feedback.totals.submissions}</strong><span>提案提交</span></div>
+        <div><strong>{feedback.totals.documents}</strong><span>文档</span></div>
+        <div><strong>{feedback.totals.open_suggestions}</strong><span>待处理建议</span></div>
+      </div>
+      <section className="change-section"><h3>按配置版本比较</h3><p className="change-section-note">每次发布本体或抽取配置都会形成新的配置版本。字段通过率 = 被接受、已存在、冲突待审或转业务系统的字段占比。</p>
+        <table className="extraction-table"><thead><tr><th>版本</th><th>时间</th><th>提交</th><th>字段通过率</th><th>规范化失败</th><th>未覆盖线索</th><th>未映射事实</th><th>身份待确认</th></tr></thead>
+          <tbody>{feedback.versions.map(version => <tr key={version.registry_fingerprint}><td>{version.label}{version.current ? " · 当前" : ""}<small><code>{version.registry_fingerprint.slice(0, 10)}</code></small></td><td>{version.first_seen.slice(0, 10)}{version.last_seen.slice(0, 10) !== version.first_seen.slice(0, 10) ? ` 至 ${version.last_seen.slice(0, 10)}` : ""}</td><td>{version.submissions}</td><td>{percent(version.field_acceptance_rate)}</td><td>{version.normalization_failures}</td><td>{version.uncovered_cues}</td><td>{version.unmapped_facts}</td><td>{version.needs_resolution}</td></tr>)}</tbody></table>
+      </section>
+      <section className="change-section"><h3>按概念</h3>
+        <table className="extraction-table"><thead><tr><th>概念</th><th>实例（匹配/新建/草稿/待确认/拒绝）</th><th>字段（通过/拒绝）</th><th>常见问题</th></tr></thead>
+          <tbody>{feedback.concepts.map(item => {
+            const ok = ["accepted", "already_present", "conflict", "upstream_required"].reduce((sum, key) => sum + (item.fields[key] ?? 0), 0);
+            const issues = Object.entries(item.issues).sort((a, b) => b[1] - a[1]).slice(0, 3);
+            return <tr key={item.concept}><td>{item.label}</td><td>{["matched", "new", "draft", "needs_resolution", "rejected"].map(key => item.instances[key] ?? 0).join(" / ")}</td><td>{ok} / {item.fields.rejected ?? 0}</td><td>{issues.map(([code, count]) => <small key={code}>{code} × {count}</small>)}</td></tr>;
+          })}</tbody></table>
+      </section>
+      <section className="change-section"><h3>改进建议 <span>{suggestions.length} 项</span></h3>
+        {suggestions.length === 0 && <p className="change-section-note">暂无待处理建议。</p>}
+        <ul className="extraction-suggestions">{suggestions.map(item => {
+          const choice = choices[item.id] ?? (item.action?.choices?.length === 1 ? item.action.choices[0] : "");
+          const property = item.concept ? assets.concepts.find(value => value.id === item.concept)?.properties : undefined;
+          const choiceLabel = (value: string) => item.kind === "property_term" ? `${property?.find(entry => entry.predicate === value)?.label ?? value}（${value}）` : value;
+          return <li key={item.id} data-status={item.status}>
+            <div className="extraction-suggestion-head"><span className="neutral-badge">{suggestionKinds[item.kind]}</span><strong>{item.text || "（空）"}</strong><span>{label(item.concept)}{item.predicate ? ` · ${item.predicate_label ?? item.predicate}` : ""}</span><span className="extraction-suggestion-count">{item.count} 次 · {item.documents} 份文档 · {suggestionStatus[item.status]}</span></div>
+            <p>{item.advice}</p>
+            {item.facts && item.facts.length > 0 && <p className="change-section-note">事实：{item.facts.join("；")}</p>}
+            {item.samples.length > 0 && <details><summary>原文样例 {item.samples.length} 条</summary><ul className="extraction-samples">{item.samples.map((sample, index) => <li key={index}><span>{sample.document_id} · {sample.document_version}{sample.block_id ? ` · ${sample.block_id}` : ""}</span><p>{sample.text}</p></li>)}</ul></details>}
+            {item.status === "open" && <div className="change-actions">
+              {applicable(item) && <><select aria-label="选择对应项" value={choice} onChange={event => setChoices(current => ({ ...current, [item.id]: event.target.value }))}><option value="">{item.kind === "property_term" ? "加入哪个属性的叫法" : item.kind === "enum_alias" ? "对应的可选值" : item.kind === "currency_alias" ? "对应的币种" : "对应的注册单位"}</option>{item.action?.choices?.map(value => <option key={value} value={value}>{choiceLabel(value)}</option>)}</select>
+                <Button size="sm" disabled={!choice} onClick={() => onApply(item, choice)}><Plus />加入草稿</Button></>}
+              {item.concept && <Button size="sm" variant="outline" onClick={() => onOpen(item)}>打开说明卡</Button>}
+            </div>}
+          </li>;
+        })}</ul>
+      </section>
+    </>}
+  </div>;
+}
+
 // ---------------------------------------------------------------------------
 // Workspace
 
@@ -334,13 +394,18 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
   const [revision, setRevision] = useState(0);
   const [submitted, setSubmitted] = useState<{ key: string; id: string } | null>(null);
   const [newRecipeId, setNewRecipeId] = useState("");
+  const [view, setView] = useState<"assets" | "feedback">("assets");
+  const [feedback, setFeedback] = useState<ExtractionFeedback | null>(null);
+  const [feedbackConcept, setFeedbackConcept] = useState("");
+  const [feedbackLoading, setFeedbackLoading] = useState(false), [feedbackError, setFeedbackError] = useState("");
+  const [feedbackRevision, setFeedbackRevision] = useState(0);
   const detailRef = useRef<HTMLElement>(null);
   const permissions = session?.permissions ?? [];
   const canPropose = permissions.includes("propose");
 
   // Credentials and drafts belong to one principal.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setAssets(null); setDrafts({}); setSelection(null); setSubmitted(null); }, [session?.principal]);
+  useEffect(() => { setAssets(null); setDrafts({}); setSelection(null); setSubmitted(null); setFeedback(null); setView("assets"); }, [session?.principal]);
   useEffect(() => {
     if (!active || !session) return;
     const controller = new AbortController();
@@ -352,6 +417,17 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [active, session, revision]);
+  useEffect(() => {
+    if (!active || !session) return;
+    const controller = new AbortController();
+    // Reset feedback state at the start of this abortable request.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFeedbackLoading(true); setFeedbackError("");
+    void loadFeedback({ concept: feedbackConcept }, controller.signal).then(next => { if (!controller.signal.aborted) setFeedback(next); })
+      .catch(cause => { if (!controller.signal.aborted) setFeedbackError(cause instanceof Error ? cause.message : "无法加载抽取反馈"); })
+      .finally(() => { if (!controller.signal.aborted) setFeedbackLoading(false); });
+    return () => controller.abort();
+  }, [active, session, revision, feedbackRevision, feedbackConcept]);
   const conceptParam = params.get("concept") ?? "", predicateParam = params.get("predicate") ?? "", recipeParam = params.get("recipe") ?? "";
   useEffect(() => {
     if (!active || !assets) return;
@@ -374,7 +450,25 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
   const pending = pendingFor(assets, sourcePath);
   const dirty = Boolean(key && drafts[key]);
   const change: Update = updater => { if (!selection || !assets) return; setDrafts(current => ({ ...current, [key]: updater(current[key] ?? initialDraft(selection, assets)) })); setSubmitted(null); };
-  function select(next: Selection) { setSelection(next); setSubmitted(null); setTab("overview"); requestAnimationFrame(() => detailRef.current?.focus({ preventScroll: true })); }
+  function select(next: Selection, nextTab: CardTab = "overview") { setView("assets"); setSelection(next); setSubmitted(null); setTab(nextTab); requestAnimationFrame(() => detailRef.current?.focus({ preventScroll: true })); }
+  function openFeedback() { setSelection(null); setView("feedback"); setFeedbackRevision(value => value + 1); }
+  function suggestionTab(suggestion: Suggestion): CardTab {
+    return suggestion.action?.tab === "identity" ? "identity" : suggestion.predicate || suggestion.kind === "property_term" ? "properties" : "overview";
+  }
+  function applyFeedback(suggestion: Suggestion, choice: string) {
+    if (!assets) return;
+    const target: Selection = suggestion.kind === "currency_alias" ? { kind: "profile", id: "profile" } : { kind: "card", id: suggestion.concept ?? "" };
+    if (target.kind === "card" && !assets.concepts.some(item => item.id === target.id)) return;
+    const targetKey = selectionKey(target);
+    setDrafts(current => ({ ...current, [targetKey]: applySuggestion(current[targetKey] ?? initialDraft(target, assets), suggestion, choice) }));
+    setEditorEpoch(value => value + 1);
+    select(target, target.kind === "card" ? suggestionTab(suggestion) : "overview");
+    toast.success(`已加入${target.kind === "card" ? "说明卡" : "全局配置"}草稿；检查后提交审核`);
+  }
+  function openSuggestion(suggestion: Suggestion) {
+    if (suggestion.kind === "currency_alias") select({ kind: "profile", id: "profile" });
+    else if (suggestion.concept) select({ kind: "card", id: suggestion.concept }, suggestionTab(suggestion));
+  }
   function discard() { setDrafts(current => { const next = { ...current }; delete next[key]; return next; }); setEditorEpoch(value => value + 1); }
   function submittedProposal(id: string) {
     setSubmitted({ key, id }); setDrafts(current => { const next = { ...current }; delete next[key]; return next; }); setEditorEpoch(value => value + 1); setRevision(value => value + 1);
@@ -389,7 +483,7 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
     {!session && <><h1 className="sr-only">抽取配置</h1><div className="workspace-navigation-access"><NavigationToggle /></div></>}
     {!session ? <div className="change-empty"><FileText size={28} strokeWidth={1.3} /><h2>抽取配置</h2><p>从左下角“账户与连接”登录后，维护概念抽取说明卡、属性写法和文档抽取方案。修改通过 ChangeSet 审核后才写入真源。</p></div> : <>
       {error && <div role="alert" className="instance-error"><p>{error}</p><Button variant="outline" size="sm" disabled={loading} onClick={() => setRevision(value => value + 1)}>重试</Button></div>}
-      <div className="changesets-layout" data-detail-open={Boolean(selection)}>
+      <div className="changesets-layout" data-detail-open={Boolean(selection) || view === "feedback"}>
         <aside className="changeset-directory" aria-label="抽取配置目录">
           <div className="change-list-filters">
             <div className="directory-heading"><NavigationToggle /><h1>抽取配置</h1><Button variant="ghost" size="icon-sm" aria-label="刷新抽取配置" title="刷新抽取配置" disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw className={loading ? "animate-spin" : ""} /></Button></div>
@@ -413,10 +507,16 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
               <Button type="submit" size="sm" variant="outline" disabled={!isStableId(newRecipeId.trim()) || Boolean(assets?.recipes.some(item => item.id === newRecipeId.trim()))}><Plus />新建</Button>
             </form>
             <h2 className="extraction-list-heading">全局</h2>
-            <ul><li><button aria-pressed={key === "profile:profile"} onClick={() => select({ kind: "profile", id: "profile" })}><div><span>profile.yaml</span><span>v{String(object(assets?.profile.document).version ?? "")}{drafts["profile:profile"] ? " · 草稿" : ""}</span></div><strong>验收口径、时区与单位写法</strong></button></li></ul>
+            <ul><li><button aria-pressed={view === "feedback"} onClick={openFeedback}><div><span><BarChart3 size={12} aria-hidden="true" /> 已提案的抽取</span><span>{feedback ? `${feedback.totals.open_suggestions} 项待处理` : ""}</span></div><strong>抽取反馈与改进建议</strong></button></li>
+              <li><button aria-pressed={view === "assets" && key === "profile:profile"} onClick={() => select({ kind: "profile", id: "profile" })}><div><span>profile.yaml</span><span>v{String(object(assets?.profile.document).version ?? "")}{drafts["profile:profile"] ? " · 草稿" : ""}</span></div><strong>验收口径、时区与单位写法</strong></button></li></ul>
           </div>
         </aside>
-        {selection && assets && draft ? <article ref={detailRef} tabIndex={-1} className="change-detail outline-none" aria-label="抽取配置详情" onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setSelection(null); } }}>
+        {view === "feedback" && assets ? <article className="change-detail outline-none" aria-label="抽取反馈" tabIndex={-1}>
+          <div className="change-detail-topline"><span className="detail-navigation-access"><NavigationToggle /></span><Button className="change-back" size="sm" variant="ghost" onClick={() => setView("assets")}>返回目录</Button><span>抽取反馈</span><code>GET /v2/extraction/feedback</code></div>
+          <FeedbackView feedback={feedback} assets={assets} loading={feedbackLoading} error={feedbackError} concept={feedbackConcept} onConcept={setFeedbackConcept}
+            onRefresh={() => setFeedbackRevision(value => value + 1)} onApply={applyFeedback} onOpen={openSuggestion} />
+        </article> :
+        selection && assets && draft ? <article ref={detailRef} tabIndex={-1} className="change-detail outline-none" aria-label="抽取配置详情" onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setSelection(null); } }}>
           <div className="change-detail-topline"><span className="detail-navigation-access"><NavigationToggle /></span><Button className="change-back" size="sm" variant="ghost" onClick={() => setSelection(null)}>返回目录</Button><span>{selection.kind === "card" ? "抽取说明卡" : selection.kind === "recipe" ? "文档抽取方案" : "全局配置"}</span><code>{sourcePath}</code></div>
           <div className="change-detail-content">
             <div className="change-title">

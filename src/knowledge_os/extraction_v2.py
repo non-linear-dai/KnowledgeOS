@@ -577,7 +577,11 @@ class ExtractionV2:
                 inputs = {item["id"]: item for item in definition.get("inputs", [])}
                 for check in definition.get("checks", []):
                     right = check.get("right", {})
-                    rhs = right.get("input") if "input" in right else json_text(right.get("value"))
+                    if "input" in right:
+                        rhs = right["input"]
+                    else:
+                        value = right.get("value")
+                        rhs = f"{value.get('value')} {value.get('unit', '')}".strip() if isinstance(value, dict) and "value" in value else json_text(value)
                     checks.append(f"{inputs.get(check['left'], {}).get('predicate', check['left'])} {OPERATOR_SYMBOLS.get(check['operator'], check['operator'])} {rhs}")
                 slots.append({"logic_ref": f"{prefix}:{identifier}@{definition.get('version')}", "kind": kind,
                               "label": {"zh": definition.get("label") or identifier}, "subject_concept": subject,
@@ -620,6 +624,9 @@ class ExtractionV2:
             message["rule_slots"] = self.rule_slots(concepts)
         if "lexicon" in include:
             message["lexicon"] = self.lexicon(concepts, lexicon_request.get("limit"), lexicon_request.get("cursor"))
+        if "instructions" in include:
+            from .extraction_instructions import render
+            message["instructions"] = render(message)
         with self.db.transaction():
             self.db.write("""INSERT OR IGNORE INTO durable.extraction_contract(id,registry_fingerprint,scope_json,issued_at)
               VALUES(?,?,?,?)""", (contract_id, fingerprint, json_text(scope_key), message["issued_at"]))
@@ -1102,6 +1109,19 @@ class ExtractionV2:
             concepts = engine.extractable()
             result["contract"] = {"limits": checked["limits"], "acceptance": checked["acceptance"],
                                   "extractable_concepts": concepts}
+        if concepts:
+            from .extraction_instructions import render
+            draft_contract = {"contract_id": "draft-preview", "registry_fingerprint": self.registry.fingerprint,
+                              "limits": dict(engine.profile["limits"]), "acceptance": dict(engine.profile["acceptance"]),
+                              "concepts": [engine.concept_contract(identifier) for identifier in concepts],
+                              "relations": [{"id": relation["id"], "labels": {"en": relation.get("label") or relation["id"]},
+                                             "endpoints": [{"source_type": edge["source_type"], "target_type": edge["target_type"]}
+                                                           for edge in relation.get("connections", []) if edge["source_type"] in concepts and edge["target_type"] in concepts]}
+                                            for relation in engine.relations.values()
+                                            if any(edge["source_type"] in concepts and edge["target_type"] in concepts for edge in relation.get("connections", []))],
+                              "recipes": engine.select_recipes(None, None, concepts), "rule_slots": engine.rule_slots(concepts),
+                              "lexicon": engine.lexicon(concepts)}
+            result["instructions"] = render(draft_contract)
         trials = []
         for sample in (samples or [])[:50]:
             predicate_id, raw = (sample or {}).get("predicate"), str((sample or {}).get("raw") or "")
