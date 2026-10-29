@@ -39,6 +39,13 @@ KnowledgeOS includes a deterministic local hash-vector index for provider-free h
 
 ## Quick start
 
+For a one-command local preview of the backend API and Studio (macOS/Linux, Python ≥ 3.10, Node.js ≥ 22.13):
+
+```bash
+bash scripts/preview.sh   # opens http://localhost:5173 ; sign in with local-admin-token
+```
+
+
 Python 3.10+ is required for the backend. The commands below work in macOS/Linux shells and Windows PowerShell after Python is on `PATH`:
 On macOS installations that expose Python as `python3`, use `python3` in place of `python`.
 
