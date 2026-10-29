@@ -262,6 +262,9 @@ class Authoring:
     def _card_context(self, task_input):
         from .extraction_feedback import Feedback
         concept = _text(task_input.get("concept"), "concept", 64)
+        include_samples = task_input.get("include_samples", True)
+        if not isinstance(include_samples, bool):
+            raise ValidationError("include_samples must be true or false")
         engine = self.service._extraction_v2()
         if concept not in engine.concepts:
             raise NotFoundError(f"unknown concept: {concept}")
@@ -286,7 +289,8 @@ class Authoring:
                                "properties": properties},
                    "current_card": current, "card_exists": current is not None,
                    "suggestions": [{key: item.get(key) for key in ("id", "kind", "predicate", "predicate_label", "text", "count", "documents",
-                                                                    "samples", "raw_values", "action", "advice")} for item in suggestions],
+                                                                    *(("samples",) if include_samples else ()), "raw_values", "action", "advice")}
+                                   for item in suggestions],
                    "feedback_totals": feedback["totals"],
                    "units": [{"id": identifier, "dimension": item.get("dimension")} for identifier, item in sorted(self.registry.units.items())]}
         schema = _envelope_schema("extraction.card", ["card", "changes"], {
@@ -297,7 +301,7 @@ class Authoring:
                         "items": {"type": "object", "required": ["field", "description"], "additionalProperties": False,
                                   "properties": {"suggestion_id": {"type": "string"}, "field": {"type": "string", "maxLength": 200},
                                                  "description": {"type": "string", "maxLength": 800}}}}})
-        return {"concept": concept, "suggestion_ids": focus}, context, schema, {}
+        return {"concept": concept, "suggestion_ids": focus, "include_samples": include_samples}, context, schema, {}
 
     def _template_context(self, task_input):
         from .templates import TemplateWorkbench
