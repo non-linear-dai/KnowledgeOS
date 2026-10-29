@@ -108,6 +108,22 @@ class Service:
         from .semantic_workbench import SemanticWorkbench
         return SemanticWorkbench(self).vocabulary_propose(**arguments)
 
+    def authoring_tasks(self):
+        from .authoring import Authoring
+        return envelope(Authoring(self).tasks())
+
+    def authoring_context(self, *, task, input=None, include=("instructions",)):
+        from .authoring import Authoring
+        return envelope(Authoring(self).context(task, input, include), quality={"write_performed": False, "model_calls": 0})
+
+    def authoring_check(self, *, task, draft, input=None):
+        from .authoring import Authoring
+        return envelope(Authoring(self).check(task, draft, input), quality={"preview_only": True, "write_performed": False})
+
+    def authoring_feedback(self):
+        from .authoring import Authoring
+        return envelope(Authoring(self).feedback(), quality={"write_performed": False})
+
     def semantic_history(self):
         rows = self.db.execute("SELECT * FROM durable.semantic_revision ORDER BY recorded_at DESC,id DESC LIMIT 50")
         return envelope([{**r, "definition": json.loads(r["definition_json"])} for r in rows])
@@ -792,8 +808,10 @@ class Service:
         result = workbench.preview(template, case)
         return envelope(result, quality={"write_performed": False})
 
-    def template_propose(self, *, actor, template, reason, idempotency_key=None):
+    def template_propose(self, *, actor, template, reason, idempotency_key=None, assistance=None):
+        from .authoring import assistance_metadata
         from .templates import TemplateWorkbench
+        metadata = {"assistance": assistance_metadata(assistance, template)} if assistance is not None else None
         if idempotency_key:
             existing = self.db.first("SELECT id,status,patch_json,reason,base_revision,target_source FROM changeset WHERE actor=? AND request_key=?",
                                      (actor, idempotency_key))
@@ -815,7 +833,7 @@ class Service:
         return self.propose(actor=actor, target_source=",".join(sorted(documents)),
                             patch={"op": "template_package", "template": template}, operations=[],
                             reason=reason, title=f"Expert route {template['label']} v{template['version']}",
-                            risk="high", idempotency_key=idempotency_key)
+                            risk="high", idempotency_key=idempotency_key, proposal_metadata=metadata)
 
     def control_plane(self):
         self.refresh_registry()
@@ -965,8 +983,10 @@ class Service:
         return envelope(self._extraction_v2().asset_preview(kind, document, samples=samples, sample_text=sample_text),
                         quality={"preview_only": True, "write_performed": False})
 
-    def extraction_v2_asset_propose(self, *, kind, document, reason, actor, base_revision=None, idempotency_key=None):
+    def extraction_v2_asset_propose(self, *, kind, document, reason, actor, base_revision=None, idempotency_key=None, assistance=None):
+        from .authoring import assistance_metadata
         from .extraction_v2 import asset_path, validate_asset
+        metadata = {"assistance": assistance_metadata(assistance, document)} if assistance is not None else None
         engine = self._extraction_v2()
         validate_asset(self.registry, kind, document)
         label = {"profile": "抽取配置", "card": "抽取说明卡", "recipe": "抽取方案"}[kind]
@@ -976,7 +996,8 @@ class Service:
         version = document.get("card_version") if kind == "card" else document.get("version")
         return self.propose(actor=actor, target_source=asset_path(kind, document),
                             patch={"op": "extraction_asset", "kind": kind, "document": document}, reason=reason, risk="high",
-                            title=f"{label}：{name} v{version}", base_revision=base_revision, idempotency_key=idempotency_key)
+                            title=f"{label}：{name} v{version}", base_revision=base_revision, idempotency_key=idempotency_key,
+                            proposal_metadata=metadata)
 
     def extraction_v2_feedback(self, concept=None, since=None, until=None):
         from .extraction_feedback import Feedback
