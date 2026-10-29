@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, BookOpen, Check, ChevronDown, Code2, Copy, MoreHorizontal, PanelLeftClose, PanelLeftOpen, FlaskConical, GitBranch, History, LibraryBig, Loader2, Plus, RefreshCw, Search, Send, ShieldCheck, Table2, Trash2, X } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, ChevronDown, Code2, Copy, MoreHorizontal, PanelLeftClose, PanelLeftOpen, FlaskConical, GitBranch, History, LibraryBig, Loader2, Plus, RefreshCw, Search, Send, ShieldCheck, Sparkles, Table2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,8 @@ import { loadStudioSnapshot } from "../knowledgeos-api";
 import type { OntologyDefinition } from "../studio-data";
 import { loadInstances, defaultInstanceFilters, displayDate } from "../instances/instances-api";
 import { LogicBoard } from "./logic-board";
+import { RulesAssistant } from "./rules-assistant";
+import type { Assistance } from "../assistant/assistant-api";
 import { LogicToolHint } from "./logic-tool-hint";
 import { ScenarioForm, LogicCases, BusinessResult } from "./logic-validation";
 import { BusinessData } from "./business-values";
@@ -26,7 +28,7 @@ import { LogicGuideContent, LogicGuideDialog, LogicTypeSummary } from "./logic-g
 import { guideExample, logicGuides } from "./logic-guides";
 import { bumpVersion, filterLogic, loadLogic, loadLogicRuns, logicHref, logicKindLabels, logicStatusLabels, newLogic, object, pretty, previewLogic, proposeLogic, records, replayLogic, runLogic, sampleInput, type EntityBindings, type LogicAsset, type LogicCatalog, type LogicDocument, type LogicKind, type LogicPreview, type LogicRun } from "./logic-api";
 
-type Draft = { kind: LogicKind; document: LogicDocument; baseline: string; originalRef?: string; submittedId?: string; revision: number };
+type Draft = { kind: LogicKind; document: LogicDocument; baseline: string; originalRef?: string; submittedId?: string; revision: number; assistance?: Assistance };
 type InstanceOption = { id: string; label: string };
 const emptyCatalog: LogicCatalog = { assets: [], registry_fingerprint: "", capabilities: {} };
 const kinds = Object.keys(logicKindLabels) as LogicKind[];
@@ -74,7 +76,7 @@ export default function RulesWorkspace({ active }: { active: boolean }) {
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [createOpen, setCreateOpen] = useState(false), [createKind, setCreateKind] = useState<LogicKind>("business_rule"), [createId, setCreateId] = useState("");
-  const [reason, setReason] = useState(""), [submitOpen, setSubmitOpen] = useState(false);
+  const [reason, setReason] = useState(""), [submitOpen, setSubmitOpen] = useState(false), [assistantOpen, setAssistantOpen] = useState(false);
   const [sampleText, setSampleText] = useState("{}"), [inputMode, setInputMode] = useState("scenario");
   const [subjectId, setSubjectId] = useState(""), [candidateText, setCandidateText] = useState(""), [contextIds, setContextIds] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<LogicPreview | null>(null), [runs, setRuns] = useState<LogicRun[]>([]);
@@ -149,7 +151,13 @@ export default function RulesWorkspace({ active }: { active: boolean }) {
   }, [active, session?.principal, tab, asset?.ref, routeSubject, refresh]);
 
   function update(next: LogicDocument) { if (!editable || busy) return; setDrafts(previous => ({ ...previous, [selectedKey]: { ...previous[selectedKey], document: next, revision: previous[selectedKey].revision + 1 } })); setPreview(null); }
-  function addDraft(value: LogicDocument, kind: LogicKind, originalRef?: string) { const key = `draft:${crypto.randomUUID()}`; setDrafts(previous => ({ ...previous, [key]: { kind, document: value, baseline: catalog.registry_fingerprint, originalRef, revision: 0 } })); setSelectedKey(key); setTab("definition"); }
+  function addDraft(value: LogicDocument, kind: LogicKind, originalRef?: string, assistance?: Assistance) { const key = `draft:${crypto.randomUUID()}`; setDrafts(previous => ({ ...previous, [key]: { kind, document: value, baseline: catalog.registry_fingerprint, originalRef, revision: 0, assistance } })); setSelectedKey(key); setTab("definition"); }
+  function adoptSuggestion(kind: LogicKind, value: LogicDocument, assistance: Assistance, refine: boolean) {
+    if (refine && draft && editable && draft.kind === kind) { setDrafts(previous => ({ ...previous, [selectedKey]: { ...previous[selectedKey], document: value, revision: previous[selectedKey].revision + 1, assistance } })); setPreview(null); }
+    else addDraft(value, kind, refine && !draft ? asset?.ref : undefined, assistance);
+    setKind(""); setTab("validation"); setAuxiliaryClosed(false);
+    toast.success("已采纳助手草稿：请在白板中核对，并在“结果验证”中复核案例");
+  }
   function openGuide(value: LogicKind = currentKind ?? (kinds.includes(kind as LogicKind) ? kind as LogicKind : "business_rule")) { setGuideKind(value); setGuideOpen(true); }
   function createExample(value: LogicKind) {
     if (!permissionFor(value) || loading || busy || !catalog.registry_fingerprint) return;
@@ -188,7 +196,7 @@ export default function RulesWorkspace({ active }: { active: boolean }) {
     setPreview(check);
     if (!check.tests.passed) throw new Error("提交前需要至少一个案例，且所有案例通过。请在“验证与试算”维护预期结果。");
     const key = selectedKey;
-    const result = await proposeLogic(currentKind, submittedDefinition, reason.trim(), draft.baseline, `logic:${key}:${draft.revision}`);
+    const result = await proposeLogic(currentKind, submittedDefinition, reason.trim(), draft.baseline, `logic:${key}:${draft.revision}`, draft.assistance);
     setDrafts(previous => ({ ...previous, [key]: { ...previous[key], submittedId: result.id } })); setSubmitOpen(false); setReason(""); toast.success("已提交独立审核"); router.push(`/changesets?${new URLSearchParams({ id: result.id })}`);
   }
   async function recordRun() {
@@ -210,7 +218,7 @@ export default function RulesWorkspace({ active }: { active: boolean }) {
   function closeAuxiliary() { if (hasInvalidInput()) { setError("请先修正尚未完整的配置。"); return; } setAuxiliaryClosed(true); }
   function toggleAuxiliary(value: string) { if (auxiliaryOpen && tab === value) closeAuxiliary(); else openTab(value); }
   const selectedLabel = asset && !draft ? assetLabel(asset) : String(document?.label ?? document?.id ?? "");
-  const selectedStatus = draft ? draft.submittedId ? "已提交审核" : "会话草稿" : logicStatusLabels[asset?.lifecycle ?? "active"];
+  const selectedStatus = draft ? draft.submittedId ? "已提交审核" : draft.assistance ? "助手起草的会话草稿" : "会话草稿" : logicStatusLabels[asset?.lifecycle ?? "active"];
   const panelTitle = { definition: "定义与配置", guide: "说明与样例", validation: "结果验证", relations: "关联与使用", history: "运行记录" }[tab] ?? "业务逻辑";
   const selectedDrafts = Object.entries(drafts).filter(([, value]) => !kind || value.kind === kind);
   const renderPanelBody = (document: LogicDocument, currentKind: LogicKind) => (
@@ -233,8 +241,8 @@ export default function RulesWorkspace({ active }: { active: boolean }) {
       <div className="logic-layout" data-catalog-collapsed={catalogCollapsed} data-detail-open={Boolean(document)}><aside id="logic-directory" className="logic-directory"><div className="logic-directory-head"><div className="directory-heading"><LogicToolHint label="收起规则与决策侧边栏"><Button variant="ghost" size="icon-sm" aria-label="收起规则与决策侧边栏" onClick={() => setCatalogCollapsed(true)}><PanelLeftClose /></Button></LogicToolHint><h1>规则与决策</h1><Button variant="ghost" size="icon-sm" aria-label="刷新业务逻辑目录" disabled={loading || busy} onClick={() => setRefresh(value => value + 1)}><RefreshCw className={loading ? "animate-spin" : ""} /></Button></div><p>维护业务逻辑，连接事实与行动</p><div className="instance-search-input"><Search size={16} /><Input ref={searchRef} aria-label="搜索业务逻辑" placeholder="名称、标识、业务目的…" value={query} onChange={event => setQuery(event.target.value)} /></div>
         <div className="logic-categories"><button aria-pressed={!kind} onClick={() => setKind("")}>全部<span>{catalog.assets.length}</span></button>{kinds.map(value => <button key={value} aria-pressed={kind === value} onClick={() => setKind(value)}>{logicKindLabels[value]}<span>{catalog.assets.filter(item => item.kind === value).length}</span></button>)}</div>
         <div className="logic-two-columns"><select aria-label="逻辑生命周期" value={lifecycle} onChange={event => setLifecycle(event.target.value)}><option value="">全部状态</option>{["active", "draft", "deprecated", "retired"].map(value => <option key={value} value={value}>{logicStatusLabels[value]}</option>)}</select><select aria-label="逻辑关联概念" value={concept} onChange={event => setConcept(event.target.value)}><option value="">全部概念</option>{definitions.filter(item => item.kind === "concept").map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div>
-        <Button size="sm" className="w-full" disabled={loading || busy || !canCreateLogic} onClick={openCreate}><Plus />新建业务逻辑</Button></div>
-        <div className="logic-asset-list">{selectedDrafts.length > 0 && <div className="logic-list-label">当前会话草稿 · {selectedDrafts.length}</div>}{selectedDrafts.map(([key, value]) => <button key={key} aria-pressed={selectedKey === key} onClick={() => { setSelectedKey(key); setTab("definition"); }}><span><i data-kind={value.kind} />{logicKindLabels[value.kind]}<small>{value.submittedId ? "已提交" : "待提交"}</small></span><strong>{String(value.document.label ?? value.document.id)}</strong>{expert && <code>{value.document.id} · {value.document.version}</code>}</button>)}
+        <div className="logic-two-columns"><Button size="sm" disabled={loading || busy || !canCreateLogic} onClick={openCreate}><Plus />新建业务逻辑</Button><Button size="sm" variant="outline" disabled={loading || busy || !canCreateLogic} onClick={() => setAssistantOpen(true)}><Sparkles />助手起草</Button></div></div>
+        <div className="logic-asset-list">{selectedDrafts.length > 0 && <div className="logic-list-label">当前会话草稿 · {selectedDrafts.length}</div>}{selectedDrafts.map(([key, value]) => <button key={key} aria-pressed={selectedKey === key} onClick={() => { setSelectedKey(key); setTab("definition"); }}><span><i data-kind={value.kind} />{logicKindLabels[value.kind]}<small>{value.submittedId ? "已提交" : "待提交"}{value.assistance ? " · 助手起草" : ""}</small></span><strong>{String(value.document.label ?? value.document.id)}</strong>{expert && <code>{value.document.id} · {value.document.version}</code>}</button>)}
           <div className="logic-list-label">已登记资产 · {visible.length}</div>{visible.map(item => <button key={item.ref} aria-pressed={selectedKey === item.ref} onClick={() => { setSelectedKey(item.ref); setTab(routeSubject ? "validation" : "definition"); }}><span><i data-kind={item.kind} />{logicKindLabels[item.kind]}<small>{logicStatusLabels[item.lifecycle] ?? item.lifecycle}</small></span><strong>{assetLabel(item)}</strong>{expert && <code>{item.id} · {item.version}</code>}<span className="logic-asset-meta">{item.used_by.length} 处引用 · {item.definition.test_cases?.length ?? 0} 个案例</span></button>)}{!loading && !visible.length && <p className="logic-list-label">没有匹配的业务逻辑</p>}</div>
         <div className="logic-directory-foot"><button className="logic-help-entry" aria-pressed={expert} onClick={toggleExpert}><Code2 size={15} />{expert ? "返回业务模式" : "开启专家模式"}</button><button className="logic-help-entry" onClick={() => openGuide()}><BookOpen size={15} />工作台说明与样例<ArrowUpRight size={14} /></button><Link href="/changesets"><ShieldCheck size={15} />统一变更审核<ArrowUpRight size={14} /></Link><span>草稿保留在当前页面会话</span></div></aside>
         {document && currentKind ? <main className="logic-detail" data-panel-open={sideOpen} aria-label={selectedLabel}>
@@ -242,6 +250,7 @@ export default function RulesWorkspace({ active }: { active: boolean }) {
           <div className="canvas-dock logic-workspace-tools" role="toolbar" aria-label="规则白板工具" aria-orientation="vertical">
             <LogicToolHint label={catalogCollapsed ? "规则白板 · 展开规则与决策" : "规则白板 · 收起规则与决策"}><Button size="icon-sm" variant={!catalogCollapsed ? "secondary" : "ghost"} aria-label="规则白板" aria-pressed={!catalogCollapsed} aria-expanded={!catalogCollapsed} aria-controls="logic-directory" onClick={() => setCatalogCollapsed(value => !value)}><GitBranch /></Button></LogicToolHint>
             <LogicToolHint label="新建业务逻辑" disabled={loading || busy || !canCreateLogic}><Button size="icon-sm" variant="ghost" aria-label="新建业务逻辑" disabled={loading || busy || !canCreateLogic} onClick={openCreate}><Plus /></Button></LogicToolHint>
+            <LogicToolHint label="助手起草" disabled={loading || busy || !canCreateLogic}><Button size="icon-sm" variant={assistantOpen ? "secondary" : "ghost"} aria-label="助手起草" disabled={loading || busy || !canCreateLogic} onClick={() => setAssistantOpen(true)}><Sparkles /></Button></LogicToolHint>
             <span className="canvas-dock-separator" />
             {auxiliaryViews.map(({ id, label, Icon }) => <LogicToolHint key={id} label={label}><Button size="icon-sm" variant={auxiliaryOpen && tab === id ? "secondary" : "ghost"} aria-label={label} aria-pressed={auxiliaryOpen && tab === id} aria-expanded={auxiliaryOpen && tab === id} aria-controls="logic-auxiliary-content" aria-haspopup="dialog" onClick={() => toggleAuxiliary(id)}><Icon /></Button></LogicToolHint>)}
             <span className="canvas-dock-separator" />
@@ -273,10 +282,11 @@ export default function RulesWorkspace({ active }: { active: boolean }) {
               {renderPanelBody(document, currentKind)}
             </DialogContent>
           </Dialog>
-        </main> : <div className="logic-empty"><div className="canvas-dock" role="toolbar" aria-label="规则目录工具"><LogicToolHint label={catalogCollapsed ? "规则白板 · 展开规则与决策" : "规则白板 · 收起规则与决策"}><Button variant={!catalogCollapsed ? "secondary" : "ghost"} size="icon-sm" aria-label="规则白板" aria-pressed={!catalogCollapsed} aria-expanded={!catalogCollapsed} aria-controls="logic-directory" onClick={() => setCatalogCollapsed(value => !value)}><GitBranch /></Button></LogicToolHint><LogicToolHint label="新建业务逻辑" disabled={loading || busy || !canCreateLogic}><Button variant="ghost" size="icon-sm" aria-label="新建业务逻辑" disabled={loading || busy || !canCreateLogic} onClick={openCreate}><Plus /></Button></LogicToolHint></div><div className="logic-welcome-icons"><GitBranch /><Table2 /><ShieldCheck /></div><h2>{loading ? "正在连接业务逻辑…" : "让每次决策都有依据"}</h2><p>选择一项规则、约束或决策模型，查看适用条件、<br />验证实例差异，并追溯版本和使用关系。</p><div className="logic-empty-chain"><span>本体定义</span><ArrowUpRight /><span>业务逻辑</span><ArrowUpRight /><span>工艺与实例</span></div><Button variant="outline" onClick={() => openGuide("business_rule")}><BookOpen />五类逻辑怎么选</Button><Button variant="outline" disabled={loading || !session.permissions.includes("template_edit")} onClick={() => { const id = `size_selection_${Date.now().toString(36)}`; addDraft(newLogic("decision_table", id, catalog.assets, [], []), "decision_table"); }}>体验不同尺寸选设备</Button><p className="logic-note">示例为虚构场景参数，提交前可自由调整。</p></div>}
+        </main> : <div className="logic-empty"><div className="canvas-dock" role="toolbar" aria-label="规则目录工具"><LogicToolHint label={catalogCollapsed ? "规则白板 · 展开规则与决策" : "规则白板 · 收起规则与决策"}><Button variant={!catalogCollapsed ? "secondary" : "ghost"} size="icon-sm" aria-label="规则白板" aria-pressed={!catalogCollapsed} aria-expanded={!catalogCollapsed} aria-controls="logic-directory" onClick={() => setCatalogCollapsed(value => !value)}><GitBranch /></Button></LogicToolHint><LogicToolHint label="新建业务逻辑" disabled={loading || busy || !canCreateLogic}><Button variant="ghost" size="icon-sm" aria-label="新建业务逻辑" disabled={loading || busy || !canCreateLogic} onClick={openCreate}><Plus /></Button></LogicToolHint><LogicToolHint label="助手起草" disabled={loading || busy || !canCreateLogic}><Button variant="ghost" size="icon-sm" aria-label="助手起草" disabled={loading || busy || !canCreateLogic} onClick={() => setAssistantOpen(true)}><Sparkles /></Button></LogicToolHint></div><div className="logic-welcome-icons"><GitBranch /><Table2 /><ShieldCheck /></div><h2>{loading ? "正在连接业务逻辑…" : "让每次决策都有依据"}</h2><p>选择一项规则、约束或决策模型，查看适用条件、<br />验证实例差异，并追溯版本和使用关系。</p><div className="logic-empty-chain"><span>本体定义</span><ArrowUpRight /><span>业务逻辑</span><ArrowUpRight /><span>工艺与实例</span></div><Button variant="outline" onClick={() => openGuide("business_rule")}><BookOpen />五类逻辑怎么选</Button><Button variant="outline" disabled={loading || !session.permissions.includes("template_edit")} onClick={() => { const id = `size_selection_${Date.now().toString(36)}`; addDraft(newLogic("decision_table", id, catalog.assets, [], []), "decision_table"); }}>体验不同尺寸选设备</Button><p className="logic-note">示例为虚构场景参数，提交前可自由调整。</p></div>}
       </div>
     </>}
     <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="logic-create-dialog sm:max-w-2xl"><DialogHeader><DialogTitle>新建业务逻辑</DialogTitle><DialogDescription>选择要解决的问题，填写业务名称，即可开始可视化编制。</DialogDescription></DialogHeader><div className="business-kind-choices" role="group" aria-label="选择业务逻辑类型">{kinds.filter(permissionFor).map(value => <button key={value} aria-pressed={createKind === value} onClick={() => setCreateKind(value)}><strong>{logicKindLabels[value]}</strong><span>{logicGuides[value].question}</span></button>)}</div><label className="business-value-field"><span>业务名称</span><Input autoFocus aria-label="新建业务逻辑名称" value={createName} onChange={event => setCreateName(event.target.value)} placeholder="例如：按尺寸选择注塑机" /></label>{expert && <label className="logic-field">稳定标识<Input aria-label="新建业务逻辑标识" value={createId} onChange={event => setCreateId(event.target.value)} /></label>}<LogicTypeSummary kind={createKind} onRead={() => { setCreateOpen(false); openGuide(createKind); }} /><Button disabled={!createName.trim() || !/^[a-z][a-z0-9_]{0,63}$/.test(createId) || catalog.assets.some(item => item.kind === createKind && item.id === createId)} onClick={create}>开始编制</Button></DialogContent></Dialog>
+    {session && <RulesAssistant open={assistantOpen} onOpenChange={setAssistantOpen} current={document && currentKind && (editable || !draft) ? { kind: currentKind, definition: document, label: selectedLabel } : null} canAuthor={permissionFor} onAdopt={adoptSuggestion} />}
     <LogicGuideDialog expert={expert} open={guideOpen} onOpenChange={setGuideOpen} kind={guideKind} onKindChange={setGuideKind} assets={catalog.assets} definitions={definitions} canCreate={permissionFor(guideKind) && !loading && !busy} onCreate={() => createExample(guideKind)} />
     <Dialog open={submitOpen} onOpenChange={open => { if (!busy) setSubmitOpen(open); }}><DialogContent><DialogHeader><DialogTitle>提交业务逻辑审核</DialogTitle><DialogDescription>服务端重新校验版本、引用和全部案例。高风险变更需要另一位审核人批准。</DialogDescription></DialogHeader><label className="logic-field">变更原因<Textarea aria-label="业务逻辑变更原因" value={reason} onChange={event => setReason(event.target.value)} /></label><Button disabled={busy || !reason.trim()} onClick={() => void perform(submit)}>{busy ? <Loader2 className="animate-spin" /> : <Send />}校验并提交</Button>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}</DialogContent></Dialog>
   </div>;

@@ -113,6 +113,14 @@ def parser():
     sub = commands.add_parser("extract-v2-instructions", help="extraction protocol v2: print the standard Markdown instructions for a contract_request")
     sub.add_argument("--request", required=True)
     sub.add_argument("--stage", help="print only the sections of one Skill stage")
+    sub = commands.add_parser("authoring-context", help="authoring assistance: context, output schema and standard instructions for one task")
+    sub.add_argument("--task", required=True)
+    sub.add_argument("--input", required=True, help="JSON file with the task input")
+    sub.add_argument("--instructions-only", action="store_true", help="print only the rendered Markdown instructions")
+    sub = commands.add_parser("authoring-check", help="authoring assistance: read-only dry run of a draft")
+    sub.add_argument("--task", required=True)
+    sub.add_argument("--draft", required=True, help="JSON file with the draft")
+    sub.add_argument("--input", help="JSON file with the original task input")
     sub = commands.add_parser("extract-v2-register", help="extraction protocol v2: register a source_document")
     sub.add_argument("--source-document", required=True)
     sub.add_argument("--actor", required=True)
@@ -323,6 +331,13 @@ def run(argv=None):
                 else:
                     print(instructions["markdown"])
                 return 0
+            elif command == "authoring-context":
+                result = service.authoring_context(task=args.task, input=_read_json(args.input))
+                if args.instructions_only:
+                    print(result["data"]["instructions"]["markdown"])
+                    return 0
+            elif command == "authoring-check":
+                result = service.authoring_check(task=args.task, draft=_read_json(args.draft), input=_read_json(args.input) if args.input else None)
             elif command == "extract-v2-register":
                 result = service.extraction_v2_register(_read_json(args.source_document), actor=args.actor)
             elif command == "extract-v2-precheck":

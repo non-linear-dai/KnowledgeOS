@@ -329,8 +329,10 @@ class LogicWorkbench:
             raise ValidationError("standalone logic packages accept decision tables or decision models")
         return {path: document}
 
-    def propose(self, *, actor, kind, definition, reason, base_revision, idempotency_key=None):
+    def propose(self, *, actor, kind, definition, reason, base_revision, idempotency_key=None, assistance=None):
+        from .authoring import assistance_metadata
         definition = self.prepare(kind, definition)
+        assisted = assistance_metadata(assistance, definition) if assistance is not None else None
         tests = self.tests(kind, definition)
         if not tests["passed"]:
             raise ValidationError("logic publication requires at least one passing regression case and no failing cases")
@@ -354,7 +356,7 @@ class LogicWorkbench:
         return self.service.propose(actor=actor, target_source=target, patch=patch, operations=operations,
                                     reason=reason, risk="high", title=f"业务逻辑 · {definition.get('label', definition['id'])} · {definition['version']}",
                                     base_revision=base_revision, idempotency_key=idempotency_key,
-                                    proposal_metadata={"workbench": "business_logic", "tests": tests})
+                                    proposal_metadata={"workbench": "business_logic", "tests": tests, **({"assistance": assisted} if assisted else {})})
 
     def run(self, *, ref, actor, facts=None, entity_bindings=None, as_of=None, idempotency_key=None):
         if not isinstance(idempotency_key, str) or not idempotency_key.strip() or len(idempotency_key) > 200:
