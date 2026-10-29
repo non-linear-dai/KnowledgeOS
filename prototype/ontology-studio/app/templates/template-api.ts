@@ -48,9 +48,9 @@ export async function previewTemplate(template: ExpertTemplate, sample: SampleCa
     method: "POST", body: JSON.stringify({ template, case: sample }),
   })).data;
 }
-export async function submitTemplate(template: ExpertTemplate, reason: string, idempotencyKey: string) {
+export async function submitTemplate(template: ExpertTemplate, reason: string, idempotencyKey: string, assistance?: Record<string, unknown>) {
   return (await request<{ data: { id: string; status: string } }>("/v1/templates/propose", {
-    method: "POST", body: JSON.stringify({ template, reason, idempotency_key: idempotencyKey }),
+    method: "POST", body: JSON.stringify({ template, reason, idempotency_key: idempotencyKey, ...(assistance ? { assistance } : {}) }),
   })).data;
 }
 export async function loadTemplateChangeSets() {

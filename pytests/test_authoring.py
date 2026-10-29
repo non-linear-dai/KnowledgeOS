@@ -253,6 +253,8 @@ def test_assistance_declaration_is_validated_and_recorded_with_the_changeset(ser
         assistance_metadata({**attestation(prepared), "secret": "x"}, prepared)
     created = workbench.propose(actor="expert:a", kind="decision_table", definition=definition, reason="助手起草，专家确认",
                                 base_revision=service.registry.fingerprint, idempotency_key="k1", assistance=attestation(prepared))["data"]
+    listed = next(item for item in service.changesets()["data"] if item["id"] == created["id"])
+    assert listed["proposal_metadata"]["assistance"]["suggestion_id"] == "sugg-1"
     row = service.db.first("SELECT proposal_metadata_json,risk FROM changeset WHERE id=?", (created["id"],))
     recorded = json.loads(row["proposal_metadata_json"])["assistance"]
     assert row["risk"] == "high" and recorded["modified_after_suggestion"] is False and recorded["submitted_hash"] == digest(prepared)

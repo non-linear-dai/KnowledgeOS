@@ -505,7 +505,8 @@ class Service:
         for row in self.db.execute(sql, binds):
             data.append({**{k: v for k, v in row.items() if k not in ("patch_json", "operations_json", "publication_json")},
                          "patch": json.loads(row["patch_json"]), "operations": json.loads(row["operations_json"] or "[]"),
-                         "publication": json.loads(row["publication_json"]) if row["publication_json"] else None})
+                         "publication": json.loads(row["publication_json"]) if row["publication_json"] else None,
+                         "proposal_metadata": json.loads(row["proposal_metadata_json"]) if row.get("proposal_metadata_json") else None})
         return envelope(data)
 
     def propose(self, *, actor, target_source, patch, reason, risk="normal", title=None, operations=None,

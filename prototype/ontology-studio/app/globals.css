@@ -3,6 +3,7 @@
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 @import "@xyflow/react/dist/style.css";
 @import "./rules/rules.css";
+@import "./assistant/assistant.css";
 
 /* KnowledgeOS: reference blue #3983f7, cool white surfaces, compact category accents. */
 :root {
