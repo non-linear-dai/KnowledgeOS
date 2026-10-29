@@ -1,6 +1,7 @@
 import hashlib
 import http.client
 import json
+import os
 import shlex
 import threading
 import sqlite3
@@ -591,16 +592,28 @@ def test_changeset_state_machine_and_outbox_recovery(workspace):
         recovered.close()
 
 
+def test_cli_emits_utf8_json_when_stream_encoding_is_legacy(workspace):
+    # Windows pipes default to the ANSI code page; the CLI must still emit CJK text as UTF-8.
+    repository = Path(__file__).resolve().parents[1]
+    environment = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    completed = subprocess.run([sys.executable, str(repository / "bin/knowledgeos"), "--root", str(workspace), "control"],
+                               cwd=repository, capture_output=True, env=environment, timeout=60)
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    output = completed.stdout.decode("utf-8")
+    assert json.loads(output)["data"]["contract_version"] == "4.0"
+    assert any("一" <= character <= "鿿" for character in output)
+
+
 def test_python_cli_command_surface(workspace):
     repository = Path(__file__).resolve().parents[1]
     entry = repository / "bin/knowledgeos"
     def run(*arguments):
         completed = subprocess.run([sys.executable, str(entry), "--root", str(workspace), *arguments],
-                                   cwd=repository, capture_output=True, text=True, timeout=20)
+                                   cwd=repository, capture_output=True, text=True, encoding="utf-8", timeout=20)
         assert completed.returncode == 0, completed.stderr
         return json.loads(completed.stdout)
     version = subprocess.run([sys.executable, str(entry), "--version"], cwd=repository,
-                             capture_output=True, text=True, timeout=20)
+                             capture_output=True, text=True, encoding="utf-8", timeout=20)
     assert version.returncode == 0 and version.stdout.strip() == "4.0.0"
     assert run("doctor")["healthy"]
     assert run("rebuild")["files"] == 5

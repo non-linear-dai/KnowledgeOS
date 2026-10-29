@@ -322,7 +322,16 @@ def run(argv=None):
     return 0
 
 
+def _use_utf8_streams():
+    # JSON output keeps non-ASCII text (ensure_ascii=False). On Windows, piped or
+    # redirected streams otherwise default to the ANSI code page and fail on CJK text.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(encoding="utf-8")
+
+
 def main():
+    _use_utf8_streams()
     try:
         return run()
     except (KnowledgeError, KeyError, ValueError, OSError, json.JSONDecodeError) as exc:

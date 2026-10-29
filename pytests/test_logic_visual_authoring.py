@@ -11,7 +11,7 @@ from test_logic_workbench import publish
 
 
 EXAMPLES = json.loads((Path(__file__).resolve().parents[1] /
-                       "prototype/ontology-studio/app/rules/logic-examples.json").read_text())
+                       "prototype/ontology-studio/app/rules/logic-examples.json").read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("kind", EXAMPLES)
