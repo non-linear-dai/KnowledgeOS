@@ -1,0 +1,20 @@
+format: knowledgeos.extraction-card.v1
+concept: project
+card_version: 1.0.0
+card:
+  definition:
+    zh: "受治理的项目工作单元。"
+    en: "A governed project work unit."
+  recognition_cues: [项目, 项目编号, 立项]
+  boundary_notes: [项目阶段或里程碑应抽取为任务（task）。]
+terms:
+  alt: [项目]
+identity:
+  keys: [{source: natural_key}]
+  minimum_fields: []
+properties:
+  summary:
+    terms: {pref: {zh: 概述}, alt: [项目简介, 项目目标]}
+  risk_level:
+    terms: {pref: {zh: 风险等级}, alt: [风险, 风险级别]}
+    enum_map: {低: low, 低风险: low, 中: medium, 中等: medium, 中风险: medium, 高: high, 高风险: high, 严重: critical, 极高: critical}

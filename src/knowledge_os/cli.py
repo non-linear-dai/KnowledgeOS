@@ -108,6 +108,20 @@ def parser():
     sub.add_argument("--timeout", type=int, default=120)
     sub.add_argument("--materializer-command")
     sub.add_argument("--materializer-timeout", type=int, default=120)
+    sub = commands.add_parser("extract-v2-contract", help="extraction protocol v2: generate a contract from a contract_request")
+    sub.add_argument("--request", required=True)
+    sub = commands.add_parser("extract-v2-register", help="extraction protocol v2: register a source_document")
+    sub.add_argument("--source-document", required=True)
+    sub.add_argument("--actor", required=True)
+    sub = commands.add_parser("extract-v2-precheck", help="extraction protocol v2: precheck an extraction_submission")
+    sub.add_argument("--submission", required=True)
+    sub = commands.add_parser("extract-v2-submit", help="extraction protocol v2: propose an extraction_submission")
+    sub.add_argument("--submission", required=True)
+    sub.add_argument("--actor", required=True)
+    sub = commands.add_parser("extract-v2-queue", help="extraction protocol v2: list pending verification, draft and rule items")
+    sub.add_argument("--kind")
+    sub.add_argument("--status", default="open")
+    sub.add_argument("--limit", type=int, default=100)
     sub = commands.add_parser("ingest")
     sub.add_argument("--input", required=True)
     sub.add_argument("--mapping", required=True)
@@ -288,6 +302,16 @@ def run(argv=None):
                 request = service.extraction_request(source=_source(args), profile=args.profile)["data"]
                 model_output = _read_json(args.model_response) if args.model_response else _command(args.model_command, request, args.timeout)
                 result = service.extraction_candidates(request=request, model_output=model_output, profile=args.profile)
+            elif command == "extract-v2-contract":
+                result = service.extraction_v2_contract(_read_json(args.request))
+            elif command == "extract-v2-register":
+                result = service.extraction_v2_register(_read_json(args.source_document), actor=args.actor)
+            elif command == "extract-v2-precheck":
+                result = service.extraction_v2_precheck(_read_json(args.submission))
+            elif command == "extract-v2-submit":
+                result = service.extraction_v2_submit(_read_json(args.submission), actor=args.actor)
+            elif command == "extract-v2-queue":
+                result = service.extraction_v2_queue(args.kind, args.status, args.limit)
             elif command == "ingest":
                 from .connector import Connector
                 result = Connector(service).ingest_ndjson(args.input, args.mapping, args.isolate_errors)

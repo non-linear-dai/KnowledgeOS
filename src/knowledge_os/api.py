@@ -85,6 +85,9 @@ PERMISSIONS = {
     "/v1/models/preview": "propose", "/v1/business/preview": "propose", "/v1/business/impact": "propose",
     "/v1/templates/propose": "template_edit", "/v1/review": "review",
     "/v1/logic/run": "agent",
+    "/v2/extraction/contract": "read", "/v2/extraction/sources": "extract",
+    "/v2/extraction/precheck": "extract", "/v2/extraction/submissions": "propose",
+    "/v2/extraction/queue": "read", "/v2/extraction/source": "read",
 }
 POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/extraction/request",
              "/v1/ontology/request", "/v1/ontology/preview", "/v1/ontology/propose", "/v1/semantics/validate", "/v1/semantics/impact", "/v1/semantics/vocabulary/propose",
@@ -92,7 +95,10 @@ POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/
              "/v1/extraction/candidates", "/v1/extraction/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/query",
              "/v1/calculate", "/v1/calculate/entity", "/v1/fx/convert", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/propose",
              "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose",
-             "/v1/logic/preview", "/v1/logic/propose", "/v1/logic/run", "/v1/logic/replay"}
+             "/v1/logic/preview", "/v1/logic/propose", "/v1/logic/run", "/v1/logic/replay",
+             "/v2/extraction/contract", "/v2/extraction/sources", "/v2/extraction/precheck", "/v2/extraction/submissions"}
+LARGE_BODY = {"/v2/extraction/sources": 16 * 1_048_576, "/v2/extraction/precheck": 8 * 1_048_576,
+              "/v2/extraction/submissions": 8 * 1_048_576}
 
 
 class KnowledgeServer(ThreadingHTTPServer):
@@ -143,7 +149,7 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             if path in POST_ONLY and self.command != "POST":
                 self._send(405, {"error": "POST required"}, principal)
                 return
-            body = self._body() if self.command == "POST" else {}
+            body = self._body(LARGE_BODY.get(path, 1_048_576)) if self.command == "POST" else {}
             if path in ("/v1/logic/preview", "/v1/logic/propose"):
                 is_table = body.get("kind") == "decision_table"
                 if path.endswith("propose"):
@@ -156,7 +162,8 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                 service.refresh_registry()
                 self._authorize_governed_mutation(path, body, principal)
                 result = self._dispatch(path, params, body, principal)
-            status = 201 if path in ("/v1/propose", "/v1/templates/propose", "/v1/extraction/propose") else 200
+            status = 201 if path in ("/v1/propose", "/v1/templates/propose", "/v1/extraction/propose") or (
+                path == "/v2/extraction/submissions" and result.get("data", {}).get("changesets")) else 200
             self._send(status, result, principal)
         except AuthenticationError as exc:
             self._send(401, {"error": str(exc)}, extra={"WWW-Authenticate": 'Bearer realm="KnowledgeOS"'})
@@ -178,13 +185,13 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             print(f"KnowledgeOS API error: {type(exc).__name__}: {exc}", file=sys.stderr)
             self._send(500, {"error": "internal server error"}, principal)
 
-    def _body(self):
+    def _body(self, limit=1_048_576):
         raw_length = self.headers.get("Content-Length")
         if raw_length is None:
             raise ValidationError("JSON body required")
         length = int(raw_length)
-        if length > 1_048_576:
-            raise ValidationError("JSON body exceeds 1 MiB")
+        if length > limit:
+            raise ValidationError(f"JSON body exceeds {limit // 1_048_576} MiB")
         if length == 0:
             raise ValidationError("JSON body required")
         try:
@@ -365,6 +372,18 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             if body["operation"] == "propose":
                 arguments = {**arguments, "actor": principal["id"]}
             return s.agent_invoke(domain=body["domain"], operation=body["operation"], arguments=arguments)
+        if path == "/v2/extraction/contract":
+            return s.extraction_v2_contract(body)
+        if path == "/v2/extraction/sources":
+            return s.extraction_v2_register(body, actor=principal["id"])
+        if path == "/v2/extraction/precheck":
+            return s.extraction_v2_precheck(body)
+        if path == "/v2/extraction/submissions":
+            return s.extraction_v2_submit(body, actor=principal["id"])
+        if path == "/v2/extraction/queue":
+            return s.extraction_v2_queue(p.get("kind"), p.get("status", "open"), p.get("limit", 100))
+        if path == "/v2/extraction/source":
+            return s.extraction_v2_source(self._required(p, "id"), p.get("version"))
         if path == "/v1/extraction/request":
             source = body["source"]
             if not source.get("content") and not source.get("segments"):

@@ -834,6 +834,10 @@ class Service:
                          "retrieval_profiles": self.registry.retrieval_profiles, "schemas": self.registry.schemas,
                          "connectors": self.registry._public(self.registry.connectors),
                          "extraction_profiles": self.registry._public(self.registry.extraction_profiles),
+                         "extraction_v2": {"profile": {k: v for k, v in self.registry.extraction_v2["profile"].items() if not k.startswith("_")},
+                                           "cards": self.registry._public(self.registry.extraction_v2["cards"]),
+                                           "recipes": self.registry._public(self.registry.extraction_v2["recipes"]),
+                                           "warnings": list(self.registry.extraction_v2["warnings"])},
                          "extensions": {"constraints": list(self.registry._public(self.registry.constraints).values()),
                                         "rules": list(self.registry._public(self.registry.rules).values()),
                                         "skills": list(self.registry.skills.values())},
@@ -924,6 +928,42 @@ class Service:
         return self.propose(actor=actor, target_source=candidate["target_source"], patch=candidate["operations"],
                             reason=reason, risk="high" if resolved_id else "normal", base_revision=candidate["base_revision"],
                             idempotency_key=idempotency_key, extraction=binding)
+
+    # Extraction protocol v2 (docs/extraction-v2.md). data is the protocol message itself.
+
+    def _extraction_v2(self):
+        self.refresh_registry()
+        from .extraction_v2 import ExtractionV2
+        return ExtractionV2(self)
+
+    def extraction_v2_contract(self, request):
+        data = self._extraction_v2().contract(request)
+        return envelope(data, source={"class": "git_authored", "registry_fingerprint": data["registry_fingerprint"]},
+                        quality={"write_performed": False})
+
+    def extraction_v2_register(self, message, *, actor):
+        data = self._extraction_v2().register_source(message, actor)
+        return envelope(data, source={"class": "extraction_source", "source_id": data["document_id"],
+                                      "content_hash": data["content_hash"]},
+                        quality={"stored": data["stored"], "facts_at_risk": len(data.get("facts_at_risk") or [])})
+
+    def extraction_v2_precheck(self, submission):
+        data = self._extraction_v2().evaluate(submission, propose=False)
+        return envelope(data, quality={"status": data["status"], "write_performed": False},
+                        traces=[submission["source"]["document_id"]])
+
+    def extraction_v2_submit(self, submission, *, actor):
+        data = self._extraction_v2().evaluate(submission, actor=actor, propose=True)
+        return envelope(data, quality={"status": data["status"], "changesets": len(data.get("changesets") or []),
+                                       "write_performed": bool(data.get("changesets"))},
+                        traces=[submission["source"]["document_id"]])
+
+    def extraction_v2_queue(self, kind=None, status="open", limit=100):
+        return envelope(self._extraction_v2().queue(kind, status, limit))
+
+    def extraction_v2_source(self, document_id, version=None):
+        data = self._extraction_v2().source(document_id, version)
+        return envelope(data, source={"class": "extraction_source", "source_id": document_id})
 
     def studio(self):
         from .domain_scope import domain_scope, domain_definition_ids

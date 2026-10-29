@@ -3,7 +3,7 @@
   "message_type": "validation_report",
   "submission_id": "sub-acme-2026q3-001",
   "mode": "precheck",
-  "status": "partially_accepted",
+  "status": "accepted",
   "registry_fingerprint": "214d27ae4a9312c8667505ecdbbe982ecd92a4c8d97895709eef3043f92dbbd0",
   "contract_id": "contract:2026-10-26:supplier-review",
   "evaluated_at": "2026-10-26T13:31:50Z",
@@ -13,14 +13,16 @@
       "outcome": "matched",
       "node_id": "org:acme",
       "resolution": {
-        "reason": "exact_alias",
+        "reason": "exact_label,exact_alias,business_key",
         "candidates": [
           {
             "node_id": "org:acme",
             "label": "Acme Industrial Systems",
-            "rank": 70,
+            "rank": 80,
             "reasons": [
-              "exact_alias"
+              "exact_label",
+              "exact_alias",
+              "business_key"
             ]
           }
         ]
@@ -56,14 +58,14 @@
       "outcome": "matched",
       "node_id": "product:servo-module",
       "resolution": {
-        "reason": "scoped_business_key,exact_label",
+        "reason": "business_key,exact_label",
         "candidates": [
           {
             "node_id": "product:servo-module",
             "label": "Servo Module X1",
-            "rank": 90,
+            "rank": 80,
             "reasons": [
-              "scoped_business_key",
+              "business_key",
               "exact_label"
             ]
           }
@@ -90,8 +92,8 @@
             {
               "code": "VALUE_CONFLICT",
               "severity": "warning",
-              "path": "/instances/1/fields/0",
-              "message": "单值属性与现有取值不同，提案时需审核人确认是否替换。"
+              "message": "单值属性与现有取值不同，提案时需审核人确认是否替换。",
+              "path": "/instances/1/fields/0"
             }
           ]
         },
@@ -116,8 +118,8 @@
             {
               "code": "CONNECTOR_AUTHORITY_REQUIRED",
               "severity": "info",
-              "path": "/instances/1/fields/1",
-              "message": "交期由 ERP 维护（authority: erp_operational），已登记为待核对事项，不写入 Git 真源。"
+              "message": "lead_time_days 由权威业务系统维护（authority: erp_operational），已登记为待核对事项，不写入 Git 真源",
+              "path": "/instances/1/fields/1"
             }
           ]
         }
@@ -137,25 +139,25 @@
       "local_id": "tmp:rule-1",
       "outcome": "differs_from_existing",
       "logic_ref": "constraint:equipment_power_positive@1.0.0",
+      "next_action": "clarify_scope",
       "comparison": {
+        "extracted": {
+          "value": "5",
+          "unit": "kW",
+          "operator": "gte",
+          "scope": "用于 X1 出厂检验的测试台"
+        },
         "existing": {
           "operator": "gt",
           "value": "0",
           "unit": "W",
           "scope": "all equipment"
         },
-        "extracted": {
-          "operator": "gte",
-          "value": "5",
-          "unit": "kW",
-          "scope": "用于 X1 出厂检验的测试台"
-        },
         "differences": [
           "阈值不同：> 0 W 与 ≥ 5 kW",
-          "适用范围更窄：仅 X1 出厂检验测试台"
+          "适用范围更窄：用于 X1 出厂检验的测试台"
         ]
-      },
-      "next_action": "clarify_scope"
+      }
     }
   ],
   "unmapped_recorded": 1,
@@ -163,6 +165,16 @@
     "blocks_total": 13,
     "blocks_with_evidence": 8,
     "uncovered_cue_blocks": [
+      {
+        "block_id": "b6",
+        "cues": [
+          {
+            "type": "recipe",
+            "match": "设备要求",
+            "concept": "equipment"
+          }
+        ]
+      },
       {
         "block_id": "b7",
         "cues": [
@@ -176,6 +188,17 @@
             "match": "额定功率",
             "concept": "equipment",
             "predicate": "rated_power"
+          }
+        ]
+      },
+      {
+        "block_id": "b8",
+        "cues": [
+          {
+            "type": "term",
+            "match": "结论",
+            "concept": "market",
+            "predicate": "finding"
           }
         ]
       }

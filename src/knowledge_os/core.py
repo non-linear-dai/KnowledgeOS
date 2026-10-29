@@ -197,7 +197,8 @@ class Registry:
         for path in sorted((self.config.root / "connectors").glob("**/*.mapping.yaml")):
             name = path.name.removesuffix(".mapping.yaml")
             self.connectors[name] = {**load_yaml(path), "_name": name, "_path": str(path)}
-        self.extraction_profiles = self._keyed("extraction/**/*.yaml")
+        # v1 profiles live directly under control/extraction/; protocol v2 assets live in control/extraction/v2/.
+        self.extraction_profiles = self._keyed("extraction/*.yaml")
         self.skills = {}
         for path in sorted(self.config.control.glob("skills/*/contract.yaml")):
             contract = load_yaml(path)
@@ -264,6 +265,8 @@ class Registry:
         from .logic_workbench import validate_definition
         for model in self.decision_models.values():
             validate_definition("decision_model", model, self)
+        from .extraction_v2 import load_assets
+        self.extraction_v2 = load_assets(self)
         after = self.source_fingerprint()
         if before != after:
             raise ConflictError("control sources changed while loading; retry")

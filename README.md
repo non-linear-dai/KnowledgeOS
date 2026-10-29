@@ -22,6 +22,7 @@ Cost analysis, industry research, project management, and future domains all use
 - Generic NDJSON enterprise connector with canonical mapping (no Markdown copy)
 - Structured source envelopes and compatibility contracts for external Agent/Skill adapters; KnowledgeOS itself does not provide multimodal extraction UI or media extraction
 - Ontology-derived validation for externally proposed structured candidates, with evidence checks and no implicit writes
+- Extraction protocol v2 server side: registry-generated extraction contracts, versioned source registration with block diffs and facts-at-risk, deterministic Chinese-aware value normalization, field-level evidence acceptance, governed ChangeSet proposals, and pending-verification/draft/rule-signal queues (`/v2/extraction/*`)
 - Authenticated, role-authorized domain-independent Knowledge API and HTTP server
 - Agent/LLM facade for capability discovery, grounded task packets, governed tool calls, and cited output validation
 - C-R-L-T-P context-plan output
@@ -107,6 +108,7 @@ prototype/    KnowledgeOS structure and governance control panel
 
 See [docs/architecture-v3.md](docs/architecture-v3.md) for the frozen design-to-code mapping and [docs/contracts.md](docs/contracts.md) for authoring and API contracts.
 See [docs/extraction.md](docs/extraction.md) for the compatibility protocol used by external extraction Agents and Skills; it is not a KnowledgeOS Studio product page.
+See [docs/extraction-v2.md](docs/extraction-v2.md) for extraction protocol v2: contract, source registration, acceptance rules, normalization, proposals and queues, with a worked example in `docs/examples/extraction-v2/`.
 See [docs/agent-service.md](docs/agent-service.md) for the Agent/LLM request, tool, grounding, and response protocol.
 See [docs/python-backend.md](docs/python-backend.md) for migration and validation commands.
 See [docs/knowledgeos-v3.5-guide.html](docs/knowledgeos-v3.5-guide.html) for a Chinese, diagram-rich V3.5 architecture and Ontology Studio user guide.

@@ -133,10 +133,30 @@ CREATE TABLE IF NOT EXISTS durable.source_entity_binding(source_id TEXT NOT NULL
  locator TEXT NOT NULL,evidence_json TEXT NOT NULL,changeset_id TEXT NOT NULL,confirmed_by TEXT NOT NULL,
  confirmed_at TEXT NOT NULL,PRIMARY KEY(source_id,entity_type,mention,context_json));
 CREATE INDEX IF NOT EXISTS durable.idx_source_entity_binding_node ON source_entity_binding(node_id);
+CREATE TABLE IF NOT EXISTS durable.extraction_contract(id TEXT PRIMARY KEY,registry_fingerprint TEXT NOT NULL,
+ scope_json TEXT NOT NULL,issued_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS durable.extraction_source(document_id TEXT NOT NULL,document_version TEXT NOT NULL,
+ content_hash TEXT NOT NULL,snapshot_hash TEXT NOT NULL,document_json TEXT NOT NULL,original_json TEXT NOT NULL,
+ parser_json TEXT NOT NULL,pages_json TEXT NOT NULL DEFAULT '[]',blocks_json TEXT NOT NULL,previous_version TEXT,
+ registered_by TEXT NOT NULL,registered_at TEXT NOT NULL,receipt_json TEXT NOT NULL,PRIMARY KEY(document_id,document_version));
+CREATE TABLE IF NOT EXISTS durable.extraction_original(sha256 TEXT PRIMARY KEY,media_type TEXT NOT NULL,size INTEGER NOT NULL,
+ content BLOB,uri TEXT,stored_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS durable.extraction_submission(actor TEXT NOT NULL,submission_id TEXT NOT NULL,submission_hash TEXT NOT NULL,
+ document_id TEXT NOT NULL,document_version TEXT NOT NULL,contract_id TEXT NOT NULL,registry_fingerprint TEXT NOT NULL,
+ status TEXT NOT NULL,run_json TEXT NOT NULL,submission_json TEXT NOT NULL,report_json TEXT NOT NULL,recorded_at TEXT NOT NULL,
+ PRIMARY KEY(actor,submission_id));
+CREATE TABLE IF NOT EXISTS durable.extraction_fact_evidence(document_id TEXT NOT NULL,document_version TEXT NOT NULL,
+ block_id TEXT NOT NULL,target TEXT NOT NULL,submission_id TEXT NOT NULL,changeset_id TEXT,recorded_at TEXT NOT NULL,
+ PRIMARY KEY(document_id,document_version,block_id,target,submission_id));
+CREATE TABLE IF NOT EXISTS durable.extraction_queue_item(id TEXT PRIMARY KEY,kind TEXT NOT NULL,status TEXT NOT NULL,
+ actor TEXT NOT NULL,submission_id TEXT NOT NULL,document_id TEXT NOT NULL,document_version TEXT NOT NULL,local_id TEXT NOT NULL,
+ target_id TEXT,predicate TEXT,payload_json TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS durable.idx_extraction_queue_kind ON extraction_queue_item(kind,status,created_at);
 CREATE TABLE IF NOT EXISTS durable.schema_migration(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);
 INSERT OR IGNORE INTO durable.schema_migration VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 INSERT OR IGNORE INTO durable.schema_migration VALUES(4,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 INSERT OR IGNORE INTO durable.schema_migration VALUES(5,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO durable.schema_migration VALUES(6,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 """
 
 LEDGER_DDL = """
