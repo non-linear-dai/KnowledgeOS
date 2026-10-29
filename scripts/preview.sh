@@ -108,6 +108,10 @@ KOS="$ROOT/.venv/bin/knowledgeos"
 say "编译知识库"
 "$KOS" --root "$ROOT" rebuild > "$LOGS/rebuild.log" 2>&1 || { tail -n 30 "$LOGS/rebuild.log"; fail "编译失败，详见 $LOGS/rebuild.log"; }
 
+say "准备抽取演示数据（仅首次）"
+"$ROOT/.venv/bin/python" "$ROOT/scripts/seed_extraction_demo.py" --root "$ROOT" > "$LOGS/seed.log" 2>&1 \
+  && tail -n 1 "$LOGS/seed.log" || echo "演示数据未写入（不影响使用），详见 $LOGS/seed.log"
+
 say "启动后端 API：http://127.0.0.1:$API_PORT"
 "$KOS" --root "$ROOT" dev-serve --port "$API_PORT" > "$LOGS/api.log" 2>&1 &
 API_PID=$!
