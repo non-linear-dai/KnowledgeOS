@@ -1,0 +1,409 @@
+{
+  "protocol_version": "knowledgeos.extraction.v2",
+  "message_type": "extraction_contract",
+  "contract_id": "contract:2026-10-26:supplier-review",
+  "registry_fingerprint": "214d27ae4a9312c8667505ecdbbe982ecd92a4c8d97895709eef3043f92dbbd0",
+  "issued_at": "2026-10-26T13:30:00Z",
+  "scope": {
+    "domains": [
+      "cost",
+      "industry"
+    ],
+    "concepts": [
+      "organization",
+      "product",
+      "equipment"
+    ]
+  },
+  "limits": {
+    "max_blocks": 20000,
+    "max_instances": 500,
+    "max_fields_per_instance": 200,
+    "max_anchors_per_field": 12,
+    "max_quote_chars": 2000
+  },
+  "acceptance": {
+    "quote_match": "exact",
+    "evidence_level": "field",
+    "draft_instances": true,
+    "relations_between_new_instances": true,
+    "min_confidence": 0.5
+  },
+  "concepts": [
+    {
+      "id": "organization",
+      "labels": {
+        "zh": "企业",
+        "en": "Organization"
+      },
+      "terms": {
+        "pref": {
+          "zh": "企业"
+        },
+        "alt": [
+          "组织",
+          "供应商",
+          "合作伙伴"
+        ]
+      },
+      "card": {
+        "card_version": "1.0.0",
+        "definition": {
+          "zh": "企业、供应商或合作伙伴的法人身份。"
+        },
+        "recognition_cues": [
+          "公司全称或简称后跟“有限公司”“Ltd.”等后缀",
+          "作为供应方、客户或合作方被提及"
+        ],
+        "positive_examples": [
+          {
+            "text": "Acme（Acme Industrial Systems Ltd.）表示……",
+            "note": "简称与全称同时出现"
+          }
+        ],
+        "negative_examples": [
+          {
+            "text": "华东工厂",
+            "note": "工厂/产线是企业的设施，不是企业实例"
+          }
+        ],
+        "boundary_notes": [
+          "品牌名不等于企业，除非原文明确指向法人主体"
+        ],
+        "typical_locations": [
+          "纪要标题",
+          "合同首部",
+          "供应商名录表"
+        ]
+      },
+      "identity": {
+        "keys": [
+          {
+            "source": "natural_key"
+          },
+          {
+            "source": "predicate",
+            "predicate": "legal_name"
+          }
+        ],
+        "minimum_fields": []
+      },
+      "properties": [
+        {
+          "predicate": "legal_name",
+          "labels": {
+            "zh": "法定名称",
+            "en": "Legal name"
+          },
+          "terms": {
+            "pref": {
+              "zh": "法定名称"
+            },
+            "alt": [
+              "公司全称",
+              "注册名称"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "cardinality": "one"
+          },
+          "storage": "attr",
+          "required_for_publish": true,
+          "publication_route": "governed_changeset"
+        },
+        {
+          "predicate": "finding",
+          "labels": {
+            "zh": "研究发现",
+            "en": "Finding"
+          },
+          "value": {
+            "type": "text",
+            "cardinality": "temporal_many"
+          },
+          "storage": "assertion",
+          "temporal_required": false,
+          "evidence_required": true,
+          "publication_route": "governed_changeset",
+          "card": {
+            "recognition_cues": [
+              "关于企业战略、产能、布局的事实性陈述"
+            ],
+            "boundary_notes": [
+              "评级、结论类主观判断不作为 finding，除非原文给出依据"
+            ]
+          }
+        }
+      ],
+      "relation_ids": [
+        "supplies",
+        "participates_in"
+      ]
+    },
+    {
+      "id": "product",
+      "labels": {
+        "zh": "产品",
+        "en": "Product"
+      },
+      "terms": {
+        "pref": {
+          "zh": "产品"
+        },
+        "alt": [
+          "物料",
+          "型号"
+        ]
+      },
+      "card": {
+        "definition": {
+          "zh": "可被分析、供应或使用的产品或物料。"
+        },
+        "recognition_cues": [
+          "型号、物料号",
+          "“定位为……”“用于……”的产品描述"
+        ],
+        "typical_locations": [
+          "规格表",
+          "BOM",
+          "评审纪要的产品章节"
+        ]
+      },
+      "identity": {
+        "keys": [
+          {
+            "source": "natural_key",
+            "patterns": [
+              {
+                "id": "material_code",
+                "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)+$",
+                "description": "物料号，例如 SERVO-MODULE-X1"
+              }
+            ]
+          }
+        ],
+        "minimum_fields": []
+      },
+      "properties": [
+        {
+          "predicate": "summary",
+          "labels": {
+            "zh": "概述",
+            "en": "Summary"
+          },
+          "value": {
+            "type": "text",
+            "cardinality": "one"
+          },
+          "storage": "attr",
+          "publication_route": "governed_changeset"
+        },
+        {
+          "predicate": "lead_time_days",
+          "labels": {
+            "zh": "交期",
+            "en": "Lead time"
+          },
+          "terms": {
+            "pref": {
+              "zh": "交期"
+            },
+            "alt": [
+              "标准交期",
+              "交货周期",
+              "Lead time"
+            ]
+          },
+          "value": {
+            "type": "quantity",
+            "cardinality": "temporal_many",
+            "units": [
+              "calendar_days"
+            ],
+            "default_unit": "calendar_days",
+            "unit_aliases": {
+              "天": "calendar_days",
+              "日": "calendar_days",
+              "days": "calendar_days"
+            }
+          },
+          "storage": "assertion",
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "upstream_source_system"
+        }
+      ],
+      "relation_ids": [
+        "supplies",
+        "uses",
+        "participates_in"
+      ]
+    },
+    {
+      "id": "equipment",
+      "labels": {
+        "zh": "设备",
+        "en": "Equipment"
+      },
+      "terms": {
+        "pref": {
+          "zh": "设备"
+        },
+        "alt": [
+          "测试台",
+          "机台"
+        ]
+      },
+      "identity": {
+        "keys": [
+          {
+            "source": "natural_key"
+          }
+        ],
+        "minimum_fields": []
+      },
+      "properties": [
+        {
+          "predicate": "rated_power",
+          "labels": {
+            "zh": "额定功率",
+            "en": "Rated power"
+          },
+          "terms": {
+            "pref": {
+              "zh": "额定功率"
+            },
+            "alt": [
+              "标称功率",
+              "Rated Power"
+            ]
+          },
+          "value": {
+            "type": "quantity",
+            "cardinality": "temporal_many",
+            "dimension": "power",
+            "units": [
+              "W",
+              "kW",
+              "MW"
+            ],
+            "unit_aliases": {
+              "千瓦": "kW",
+              "瓦": "W",
+              "兆瓦": "MW"
+            }
+          },
+          "storage": "assertion",
+          "temporal_required": true,
+          "evidence_required": true,
+          "publication_route": "upstream_source_system"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "supplies",
+      "labels": {
+        "zh": "供应",
+        "en": "Supplies"
+      },
+      "mode": "simple",
+      "endpoints": [
+        {
+          "source_type": "organization",
+          "target_type": "product"
+        }
+      ],
+      "card": {
+        "recognition_cues": [
+          "“由 X 供应”“X 提供”"
+        ],
+        "negative_examples": [
+          {
+            "text": "X 采购了 Y",
+            "note": "采购方向相反"
+          }
+        ]
+      }
+    }
+  ],
+  "recipes": [
+    {
+      "id": "supplier_review_minutes",
+      "version": "1.0.0",
+      "document_types": [
+        "supplier_review_minutes"
+      ],
+      "match": {
+        "title_patterns": [
+          "供应商评审纪要"
+        ],
+        "source_kinds": [
+          "meeting_minutes",
+          "file"
+        ]
+      },
+      "mappings": [
+        {
+          "selector": {
+            "kind": "table_header",
+            "pattern": "^(标准交期|交期)$"
+          },
+          "concept": "product",
+          "role": "field",
+          "predicate": "lead_time_days"
+        },
+        {
+          "selector": {
+            "kind": "heading",
+            "pattern": "产品"
+          },
+          "concept": "product",
+          "role": "instance_label"
+        }
+      ]
+    }
+  ],
+  "lexicon": {
+    "entries": [
+      {
+        "node_id": "org:acme",
+        "concept": "organization",
+        "names": [
+          "Acme Industrial Systems",
+          "Acme"
+        ],
+        "keys": [
+          "ACME"
+        ]
+      },
+      {
+        "node_id": "product:servo-module",
+        "concept": "product",
+        "names": [
+          "Servo Module X1"
+        ],
+        "keys": [
+          "SERVO-MODULE-X1"
+        ]
+      }
+    ],
+    "next_cursor": null
+  },
+  "rule_slots": [
+    {
+      "logic_ref": "constraint:equipment_power_positive@1.0.0",
+      "kind": "business_constraint",
+      "label": {
+        "zh": "设备额定功率应为正值"
+      },
+      "subject_concept": "equipment",
+      "predicates": [
+        "rated_power"
+      ],
+      "summary": "rated_power > 0 W"
+    }
+  ]
+}

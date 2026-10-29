@@ -1,0 +1,81 @@
+format: knowledgeos.skill-contract.v1
+id: document-instance-extraction
+label: 异构文档实例抽取
+kind: extraction
+version: 1.0.0
+entrypoint: SKILL.md
+
+# 本 Skill 由 Agent 执行，KnowledgeOS 只提供契约并负责验收。
+# 本文件只声明与模型、解析器、平台无关的内容；模型选择、解析器、密钥与提示词调优属于 Agent 侧适配层，不写在这里。
+protocol:
+  name: knowledgeos.extraction.v2
+  schema: control/schemas/extraction-v2.schema.json
+  produces: [contract_request, source_document, extraction_submission]
+  consumes: [extraction_contract, source_receipt, validation_report]
+  offsets: unicode_code_points
+
+inputs:
+  required: [source_material]
+  optional: [source_locator, origin_metadata, domains, concepts, document_type_hint, previous_document_version, reason]
+
+# 抽象的 KnowledgeOS 操作，由适配层绑定到具体端点和凭证。
+knowledgeos_operations:
+  - {id: get_extraction_contract, message: contract_request, permission: read}
+  - {id: register_source, message: source_document, permission: extract}
+  - {id: precheck_submission, message: extraction_submission, mode: precheck, permission: extract}
+  - {id: propose_submission, message: extraction_submission, mode: propose, permission: propose}
+  - {id: resolve, permission: read}
+  - {id: get, permission: read}
+
+# 抽象能力，由适配层绑定到具体工具或模型。
+required_capabilities:
+  - {id: document_parsing, required: true, note: 输出块结构，保留阅读顺序、标题路径、表格单元格；能提供页码和坐标时必须提供}
+  - {id: ocr, required: conditional, when: 扫描件或图片}
+  - {id: speech_to_text, required: conditional, when: 音频或视频，需保留发言人和时间戳}
+  - {id: structured_output_llm, required: true, note: 支持按 JSON Schema 约束输出，或在校验失败时重试}
+  - {id: deterministic_text_matching, required: true, note: 多模式词典匹配与正则匹配，用于锚点预抽取和偏移计算}
+  - {id: verification_llm, required: false, note: 推荐；用于逐字段核验，结果只作参考元数据}
+
+stages:
+  - {id: contract, kind: deterministic, output: extraction_contract}
+  - {id: parse, kind: deterministic_or_ocr_asr, output: source_document}
+  - {id: register, kind: deterministic, output: source_receipt}
+  - {id: route, kind: deterministic_then_llm, output: document_type_and_scope}
+  - {id: anchor, kind: deterministic, output: cue_anchors}
+  - {id: mentions, kind: llm, output: mentions}
+  - {id: consolidate, kind: llm_with_deterministic_checks, output: instances_with_local_ids}
+  - {id: fill_fields, kind: llm, output: fields}
+  - {id: relations, kind: llm, output: relations}
+  - {id: rule_signals, kind: llm, output: rule_signals}
+  - {id: verify, kind: llm, optional: true, output: verification_metadata}
+  - {id: precheck_and_repair, kind: deterministic_loop, output: validation_report, max_rounds: 3}
+  - {id: propose, kind: deterministic, optional: true, output: changesets}
+
+# Agent 侧在 propose 前的自检门槛；服务端验收仍是唯一的放行依据。
+self_check:
+  require_precheck_before_propose: true
+  block_propose_on_severity: [error]
+  max_precheck_rounds: 3
+  recompute_offsets_deterministically: true
+  drop_fields_with_verification_verdict: [unsupported]
+
+# 评测口径：标注集和评分逻辑放在 KnowledgeOS；新 Agent 平台或新版本须先达标再开启 propose。
+# 以下阈值为示例值，需要用企业自己的标注集校准。
+evaluation:
+  gold_set: knowledge/research/extraction-gold/
+  metrics:
+    instance_precision: {min: 0.95}
+    instance_recall: {min: 0.85}
+    field_precision: {min: 0.97}
+    field_recall: {min: 0.80}
+    entity_link_accuracy: {min: 0.95}
+    evidence_localization_accuracy: {min: 0.98}
+    rule_signal_precision: {min: 0.90}
+  record_run_manifest: true
+
+output:
+  messages: [source_document, extraction_submission]
+  writes_durable_knowledge: false
+  citations_required: true
+
+success_criteria: {}

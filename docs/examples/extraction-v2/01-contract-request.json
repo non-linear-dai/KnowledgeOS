@@ -1,0 +1,26 @@
+{
+  "protocol_version": "knowledgeos.extraction.v2",
+  "message_type": "contract_request",
+  "request_id": "req-20261026-001",
+  "scope": {
+    "domains": [
+      "cost",
+      "industry"
+    ],
+    "document_type": "supplier_review_minutes"
+  },
+  "include": [
+    "concepts",
+    "relations",
+    "recipes",
+    "lexicon",
+    "rule_slots"
+  ],
+  "lexicon": {
+    "limit": 1000
+  },
+  "languages": [
+    "zh",
+    "en"
+  ]
+}

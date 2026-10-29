@@ -1,0 +1,1096 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knowledgeos.local/schemas/extraction-v2.schema.json",
+  "title": "KnowledgeOS Extraction Protocol v2",
+  "description": "KnowledgeOS 与外部抽取 Agent 之间的模型无关协议。KnowledgeOS 负责契约、验收与沉淀；Agent 负责解析与抽取执行。本 Schema 只约束消息结构，锚点与原文一致、值与证据一致、身份判定、规范化和权威路由等语义规则由 KnowledgeOS 服务端执行，见 docs/extraction-v2.md。",
+  "type": "object",
+  "required": ["protocol_version", "message_type"],
+  "oneOf": [
+    { "$ref": "#/$defs/ContractRequest" },
+    { "$ref": "#/$defs/ExtractionContract" },
+    { "$ref": "#/$defs/SourceDocument" },
+    { "$ref": "#/$defs/SourceReceipt" },
+    { "$ref": "#/$defs/ExtractionSubmission" },
+    { "$ref": "#/$defs/ValidationReport" }
+  ],
+  "$defs": {
+    "ProtocolVersion": { "const": "knowledgeos.extraction.v2" },
+    "Sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "Timestamp": { "type": "string", "format": "date-time" },
+    "Identifier": {
+      "description": "注册表中的概念、属性（谓词）或关系类型 ID。",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 128
+    },
+    "NodeId": {
+      "description": "KnowledgeOS 已有实例的全局 ID，例如 org:acme。",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*:[^\\s]+$",
+      "maxLength": 256
+    },
+    "LocalId": {
+      "description": "Agent 在一次提交内分配的临时 ID，只在该提交内有效。",
+      "type": "string",
+      "pattern": "^tmp:[A-Za-z0-9_.-]{1,64}$"
+    },
+    "BlockId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "DocumentId": {
+      "description": "稳定的来源 ID。同一份材料的不同版本共用同一个 document.id。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "LogicRef": {
+      "description": "业务逻辑资产引用，格式为 kind:id@version，例如 constraint:equipment_power_positive@1.0.0。",
+      "type": "string",
+      "pattern": "^(constraint|rule|decision_table|decision_model|model):[a-z0-9_.-]+@[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "LocalizedText": {
+      "description": "按语言代码给出的文本，例如 {\"zh\": \"产品\", \"en\": \"Product\"}。",
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "Confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "AnchorRole": {
+      "description": "锚点在证据中的作用：value 为取值本身，label/header 为字段名或表头，unit 为单位，key 为业务编码，subject/object 为关系两端，condition/threshold 为规则条款，context 为其他上下文。",
+      "enum": ["value", "label", "header", "unit", "key", "subject", "object", "condition", "threshold", "context"]
+    },
+    "Anchor": {
+      "description": "证据锚点。start/end 是 block.text 内的字符偏移（Unicode 码点，左闭右开）；quote 必须等于 block.text[start:end]。",
+      "type": "object",
+      "required": ["block_id", "start", "end", "quote"],
+      "properties": {
+        "block_id": { "$ref": "#/$defs/BlockId" },
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "role": { "$ref": "#/$defs/AnchorRole" }
+      },
+      "additionalProperties": false
+    },
+    "Evidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": { "$ref": "#/$defs/Anchor" }
+    },
+    "EntityRef": {
+      "description": "指向本次提交中的新实例（local_id）或已有实例（node_id）。",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["local_id"],
+          "properties": { "local_id": { "$ref": "#/$defs/LocalId" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["node_id"],
+          "properties": { "node_id": { "$ref": "#/$defs/NodeId" } },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RawText": {
+      "description": "原文表达及其证据。",
+      "type": "object",
+      "required": ["raw", "evidence"],
+      "properties": {
+        "raw": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "evidence": { "$ref": "#/$defs/Evidence" }
+      },
+      "additionalProperties": false
+    },
+    "RawValue": {
+      "description": "Agent 只提交原文中的取值表达；数值、单位、币种、日期、枚举的规范化一律由 KnowledgeOS 完成。agent_hint 仅用于比对提示，不参与验收。",
+      "type": "object",
+      "required": ["raw"],
+      "properties": {
+        "raw": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "unit_raw": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "ref": { "$ref": "#/$defs/EntityRef" },
+        "agent_hint": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "Verification": {
+      "description": "Agent 侧的核验结论，作为参考元数据记录，不作为放行依据。",
+      "type": "object",
+      "required": ["method", "verdict"],
+      "properties": {
+        "method": { "enum": ["none", "self_check", "second_model", "rule_check", "human"] },
+        "verdict": { "enum": ["supported", "unsupported", "uncertain"] },
+        "score": { "$ref": "#/$defs/Confidence" },
+        "note": { "type": "string", "maxLength": 1000 }
+      },
+      "additionalProperties": false
+    },
+    "Issue": {
+      "type": "object",
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": {
+          "enum": [
+            "PROTOCOL_UNSUPPORTED", "CONTRACT_STALE", "LIMIT_EXCEEDED", "DUPLICATE_LOCAL_ID", "UNKNOWN_LOCAL_REF",
+            "SOURCE_UNKNOWN", "SOURCE_HASH_MISMATCH", "BLOCK_INVALID",
+            "ANCHOR_BLOCK_UNKNOWN", "ANCHOR_OUT_OF_RANGE", "QUOTE_MISMATCH", "QUOTE_NORMALIZED_MATCH",
+            "CONCEPT_UNKNOWN", "PREDICATE_NOT_BOUND", "RELATION_ENDPOINT_INVALID",
+            "VALUE_NOT_IN_EVIDENCE", "VALUE_UNPARSEABLE", "UNIT_NOT_ALLOWED", "ENUM_NOT_ALLOWED", "AGENT_HINT_MISMATCH",
+            "REQUIRED_MISSING", "IDENTITY_AMBIGUOUS", "IDENTITY_NOT_IN_EVIDENCE",
+            "CONNECTOR_AUTHORITY_REQUIRED", "AUTHORITY_UNVERIFIED", "CONSTRAINT_VIOLATION", "VALUE_CONFLICT",
+            "CONFIDENCE_BELOW_THRESHOLD", "OTHER"
+          ]
+        },
+        "severity": { "enum": ["error", "warning", "info"] },
+        "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "path": { "description": "指向被检查消息内位置的 JSON Pointer。", "type": "string", "maxLength": 512 },
+        "block_id": { "$ref": "#/$defs/BlockId" },
+        "details": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "RunManifest": {
+      "description": "运行清单，用于复现：记录 Agent、Skill、解析器以及每个阶段使用的模型和提示词版本。",
+      "type": "object",
+      "required": ["run_id", "agent", "skill", "stages"],
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "agent": {
+          "type": "object",
+          "required": ["platform", "name", "version"],
+          "properties": {
+            "platform": { "type": "string", "minLength": 1 },
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "skill": {
+          "type": "object",
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "package_hash": { "$ref": "#/$defs/Sha256" }
+          },
+          "additionalProperties": false
+        },
+        "parser": {
+          "type": "object",
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "settings_hash": { "$ref": "#/$defs/Sha256" }
+          },
+          "additionalProperties": false
+        },
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "required": ["id", "kind"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "kind": { "enum": ["deterministic", "llm", "ocr", "asr", "human"] },
+              "model": {
+                "type": "object",
+                "required": ["provider", "name"],
+                "properties": {
+                  "provider": { "type": "string", "minLength": 1 },
+                  "name": { "type": "string", "minLength": 1 },
+                  "version": { "type": "string" }
+                },
+                "additionalProperties": false
+              },
+              "prompt_hash": { "$ref": "#/$defs/Sha256" },
+              "parameters_hash": { "$ref": "#/$defs/Sha256" },
+              "started_at": { "$ref": "#/$defs/Timestamp" },
+              "finished_at": { "$ref": "#/$defs/Timestamp" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "started_at": { "$ref": "#/$defs/Timestamp" },
+        "finished_at": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+
+    "ContractRequest": {
+      "title": "contract_request (Agent → KnowledgeOS)",
+      "description": "请求抽取契约。可按领域、概念或文档类型取子集。",
+      "type": "object",
+      "required": ["protocol_version", "message_type"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "message_type": { "const": "contract_request" },
+        "request_id": { "type": "string", "maxLength": 128 },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "domains": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/Identifier" } },
+            "concepts": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/Identifier" } },
+            "document_type": { "type": "string", "maxLength": 128 },
+            "source_kind": { "$ref": "#/$defs/Identifier" }
+          },
+          "additionalProperties": false
+        },
+        "include": {
+          "description": "需要返回的部分；省略时返回 concepts、relations、recipes、rule_slots，不含 lexicon。",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["concepts", "relations", "recipes", "lexicon", "rule_slots"] }
+        },
+        "lexicon": {
+          "type": "object",
+          "properties": {
+            "limit": { "type": "integer", "minimum": 1, "maximum": 10000 },
+            "cursor": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "languages": { "type": "array", "items": { "type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$" } }
+      },
+      "additionalProperties": false
+    },
+
+    "ExtractionCard": {
+      "description": "抽取说明卡：给 AI 看的识别知识，由白板维护并经审核发布。",
+      "type": "object",
+      "properties": {
+        "card_version": { "type": "string" },
+        "definition": { "$ref": "#/$defs/LocalizedText" },
+        "recognition_cues": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "positive_examples": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text"],
+            "properties": { "text": { "type": "string", "minLength": 1 }, "note": { "type": "string" } },
+            "additionalProperties": false
+          }
+        },
+        "negative_examples": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text"],
+            "properties": { "text": { "type": "string", "minLength": 1 }, "note": { "type": "string" } },
+            "additionalProperties": false
+          }
+        },
+        "boundary_notes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "typical_locations": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "ValuePattern": {
+      "type": "object",
+      "required": ["id", "pattern"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "pattern": { "description": "ECMAScript 兼容的正则表达式。", "type": "string", "minLength": 1 },
+        "description": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "PropertyContract": {
+      "type": "object",
+      "required": ["predicate", "value", "storage", "publication_route"],
+      "properties": {
+        "predicate": { "$ref": "#/$defs/Identifier" },
+        "labels": { "$ref": "#/$defs/LocalizedText" },
+        "terms": {
+          "description": "属性的首选名称与其他叫法，用于识别字段名或表头。",
+          "type": "object",
+          "properties": {
+            "pref": { "$ref": "#/$defs/LocalizedText" },
+            "alt": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        "value": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "enum": ["string", "text", "enum", "number", "decimal", "boolean", "date", "datetime", "quantity", "currency", "node_ref", "object"] },
+            "cardinality": { "type": "string" },
+            "dimension": { "type": "string" },
+            "units": { "type": "array", "items": { "type": "string" } },
+            "default_unit": { "type": "string" },
+            "unit_aliases": {
+              "description": "原文单位写法到注册单位的映射，例如 {\"千瓦\": \"kW\"}。",
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "allowed": { "type": "array", "items": { "type": "string" } },
+            "enum_map": {
+              "description": "原文写法到枚举值的映射，例如 {\"在建\": \"in_progress\"}。",
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "target_types": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } }
+          },
+          "additionalProperties": false
+        },
+        "storage": { "enum": ["attr", "assertion", "external"] },
+        "required_for_publish": { "type": "boolean" },
+        "temporal_required": { "type": "boolean" },
+        "evidence_required": { "type": "boolean" },
+        "publication_route": {
+          "description": "governed_changeset：经 ChangeSet 写入 Git 真源；upstream_source_system：只能由权威业务系统维护，抽取结果只作为待办返回。",
+          "enum": ["governed_changeset", "upstream_source_system"]
+        },
+        "value_patterns": { "type": "array", "items": { "$ref": "#/$defs/ValuePattern" } },
+        "card": { "$ref": "#/$defs/ExtractionCard" }
+      },
+      "additionalProperties": false
+    },
+    "ConceptContract": {
+      "type": "object",
+      "required": ["id", "labels", "properties"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "iri": { "type": "string", "format": "uri" },
+        "labels": { "$ref": "#/$defs/LocalizedText" },
+        "terms": {
+          "type": "object",
+          "properties": {
+            "pref": { "$ref": "#/$defs/LocalizedText" },
+            "alt": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        "card": { "$ref": "#/$defs/ExtractionCard" },
+        "identity": {
+          "description": "身份识别规则：哪些编码或属性能唯一标识实例，以及建草稿实例所需的最少字段。",
+          "type": "object",
+          "properties": {
+            "keys": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["source"],
+                "properties": {
+                  "source": { "enum": ["natural_key", "predicate"] },
+                  "predicate": { "$ref": "#/$defs/Identifier" },
+                  "namespace": { "type": "string" },
+                  "patterns": { "type": "array", "items": { "$ref": "#/$defs/ValuePattern" } }
+                },
+                "additionalProperties": false
+              }
+            },
+            "minimum_fields": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } }
+          },
+          "additionalProperties": false
+        },
+        "properties": { "type": "array", "items": { "$ref": "#/$defs/PropertyContract" } },
+        "relation_ids": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } }
+      },
+      "additionalProperties": false
+    },
+    "RelationContract": {
+      "type": "object",
+      "required": ["id", "endpoints"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "labels": { "$ref": "#/$defs/LocalizedText" },
+        "mode": { "enum": ["simple", "reified"] },
+        "endpoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["source_type", "target_type"],
+            "properties": {
+              "source_type": { "$ref": "#/$defs/Identifier" },
+              "target_type": { "$ref": "#/$defs/Identifier" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "card": { "$ref": "#/$defs/ExtractionCard" }
+      },
+      "additionalProperties": false
+    },
+    "Recipe": {
+      "description": "文档类型抽取方案：以语义级选择器声明“章节/表头/键值标签 → 概念/属性”，不绑定具体解析器。",
+      "type": "object",
+      "required": ["id", "version", "document_types", "mappings"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "version": { "type": "string" },
+        "document_types": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "match": {
+          "type": "object",
+          "properties": {
+            "title_patterns": { "type": "array", "items": { "type": "string" } },
+            "mime_types": { "type": "array", "items": { "type": "string" } },
+            "source_kinds": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } }
+          },
+          "additionalProperties": false
+        },
+        "mappings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["selector", "concept", "role"],
+            "properties": {
+              "selector": {
+                "type": "object",
+                "required": ["kind", "pattern"],
+                "properties": {
+                  "kind": { "enum": ["heading", "section_path", "table_header", "key_value_label", "speaker"] },
+                  "pattern": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              },
+              "concept": { "$ref": "#/$defs/Identifier" },
+              "role": { "enum": ["instance_label", "instance_key", "field", "relation"] },
+              "predicate": { "$ref": "#/$defs/Identifier" },
+              "relation": { "$ref": "#/$defs/Identifier" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "LexiconEntry": {
+      "type": "object",
+      "required": ["node_id", "concept", "names"],
+      "properties": {
+        "node_id": { "$ref": "#/$defs/NodeId" },
+        "concept": { "$ref": "#/$defs/Identifier" },
+        "names": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "keys": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "RuleSlot": {
+      "description": "已发布业务逻辑的可比对摘要，供 Agent 识别规则条款并给出 rule_signals。",
+      "type": "object",
+      "required": ["logic_ref", "kind", "subject_concept", "predicates"],
+      "properties": {
+        "logic_ref": { "$ref": "#/$defs/LogicRef" },
+        "kind": { "enum": ["business_constraint", "business_rule", "decision_table", "model"] },
+        "label": { "$ref": "#/$defs/LocalizedText" },
+        "subject_concept": { "$ref": "#/$defs/Identifier" },
+        "predicates": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Identifier" } },
+        "summary": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "ExtractionContract": {
+      "title": "extraction_contract (KnowledgeOS → Agent)",
+      "description": "从当前注册表生成的抽取契约。registry_fingerprint 变化后，基于旧契约的提交会被拒绝（CONTRACT_STALE）。",
+      "type": "object",
+      "required": ["protocol_version", "message_type", "contract_id", "registry_fingerprint", "issued_at", "concepts"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "message_type": { "const": "extraction_contract" },
+        "contract_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "registry_fingerprint": { "$ref": "#/$defs/Sha256" },
+        "issued_at": { "$ref": "#/$defs/Timestamp" },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "domains": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } },
+            "concepts": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } }
+          },
+          "additionalProperties": false
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "max_blocks": { "type": "integer", "minimum": 1 },
+            "max_instances": { "type": "integer", "minimum": 1 },
+            "max_fields_per_instance": { "type": "integer", "minimum": 1 },
+            "max_anchors_per_field": { "type": "integer", "minimum": 1 },
+            "max_quote_chars": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "acceptance": {
+          "description": "服务端验收口径摘要，供 Agent 自检对齐。",
+          "type": "object",
+          "properties": {
+            "quote_match": { "enum": ["exact", "normalized_exact"] },
+            "evidence_level": { "const": "field" },
+            "draft_instances": { "type": "boolean" },
+            "relations_between_new_instances": { "type": "boolean" },
+            "min_confidence": { "$ref": "#/$defs/Confidence" }
+          },
+          "additionalProperties": false
+        },
+        "concepts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ConceptContract" } },
+        "relations": { "type": "array", "items": { "$ref": "#/$defs/RelationContract" } },
+        "recipes": { "type": "array", "items": { "$ref": "#/$defs/Recipe" } },
+        "lexicon": {
+          "type": "object",
+          "required": ["entries"],
+          "properties": {
+            "entries": { "type": "array", "items": { "$ref": "#/$defs/LexiconEntry" } },
+            "next_cursor": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "rule_slots": { "type": "array", "items": { "$ref": "#/$defs/RuleSlot" } }
+      },
+      "additionalProperties": false
+    },
+
+    "Block": {
+      "description": "文档中间表示的最小单元。表格以 table 块为容器，单元格为 table_cell 块并通过 parent_id 归属。",
+      "type": "object",
+      "required": ["id", "type", "text", "order"],
+      "properties": {
+        "id": { "$ref": "#/$defs/BlockId" },
+        "type": {
+          "enum": ["title", "heading", "paragraph", "list_item", "table", "table_cell", "key_value", "caption", "figure",
+                   "footnote", "header_footer", "speaker_turn", "email_header", "code", "other"]
+        },
+        "text": { "type": "string", "maxLength": 100000 },
+        "order": { "description": "阅读顺序，从 0 开始。", "type": "integer", "minimum": 0 },
+        "parent_id": { "$ref": "#/$defs/BlockId" },
+        "heading_path": { "type": "array", "items": { "type": "string" } },
+        "page": { "type": "integer", "minimum": 1 },
+        "bbox": {
+          "description": "[x0, y0, x1, y1]，坐标单位见 pages[].unit，原点为页面左上角。",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "type": "number", "minimum": 0 }
+        },
+        "table": {
+          "type": "object",
+          "required": ["table_id", "row", "col"],
+          "properties": {
+            "table_id": { "$ref": "#/$defs/BlockId" },
+            "row": { "type": "integer", "minimum": 0 },
+            "col": { "type": "integer", "minimum": 0 },
+            "row_span": { "type": "integer", "minimum": 1 },
+            "col_span": { "type": "integer", "minimum": 1 },
+            "header": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "time": {
+          "description": "音视频块的时间范围（毫秒）。",
+          "type": "object",
+          "required": ["start_ms", "end_ms"],
+          "properties": {
+            "start_ms": { "type": "integer", "minimum": 0 },
+            "end_ms": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "speaker": { "type": "string", "maxLength": 256 },
+        "lang": { "type": "string", "maxLength": 16 },
+        "recognition_confidence": {
+          "description": "OCR 或语音识别置信度；文本层直接读取时省略。",
+          "$ref": "#/$defs/Confidence"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SourceDocument": {
+      "title": "source_document (Agent → KnowledgeOS)",
+      "description": "解析后的文档中间表示。KnowledgeOS 保存原件（按哈希）与本快照，作为后续所有锚点的唯一基准。",
+      "type": "object",
+      "required": ["protocol_version", "message_type", "document", "original", "parser", "blocks"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "message_type": { "const": "source_document" },
+        "document": {
+          "type": "object",
+          "required": ["id", "version", "locator", "kind", "content_hash", "captured_at"],
+          "properties": {
+            "id": { "$ref": "#/$defs/DocumentId" },
+            "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "previous_version": { "type": "string", "maxLength": 128 },
+            "locator": { "description": "稳定定位，例如文档管理系统 URI。", "type": "string", "minLength": 1, "maxLength": 2048 },
+            "kind": { "$ref": "#/$defs/Identifier" },
+            "mime_type": { "type": "string" },
+            "content_hash": { "description": "原件字节的 SHA-256，必须等于 original.sha256。", "$ref": "#/$defs/Sha256" },
+            "captured_at": { "$ref": "#/$defs/Timestamp" },
+            "title": { "type": "string", "maxLength": 1000 },
+            "language": { "type": "string", "maxLength": 16 },
+            "document_type": { "description": "Agent 判断的文档类型；权威等级仍以 origin 中可信系统元数据为准。", "type": "string", "maxLength": 128 },
+            "document_dates": {
+              "description": "文档自身的日期（ISO 8601 日期或时间），用于相对时间换算与默认观测时间。",
+              "type": "object",
+              "properties": {
+                "issued_at": { "type": "string" },
+                "effective_from": { "type": "string" },
+                "effective_to": { "type": "string" },
+                "evidence": { "$ref": "#/$defs/Evidence" }
+              },
+              "additionalProperties": false
+            },
+            "issuer": { "type": "string", "maxLength": 512 },
+            "origin": {
+              "description": "来源系统元数据（文档管理、邮件、会议系统等），由接入方填写，可被 KnowledgeOS 回查核验。",
+              "type": "object",
+              "required": ["system"],
+              "properties": {
+                "system": { "type": "string", "minLength": 1 },
+                "record_id": { "type": "string" },
+                "record_version": { "type": "string" },
+                "approval_status": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "original": {
+          "description": "原件引用。uri 与 inline_base64 至少提供一个，供 KnowledgeOS 按哈希归档。",
+          "type": "object",
+          "required": ["sha256", "media_type"],
+          "anyOf": [ { "required": ["uri"] }, { "required": ["inline_base64"] } ],
+          "properties": {
+            "sha256": { "$ref": "#/$defs/Sha256" },
+            "media_type": { "type": "string", "minLength": 1 },
+            "bytes": { "type": "integer", "minimum": 0 },
+            "uri": { "type": "string", "format": "uri" },
+            "inline_base64": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "parser": {
+          "type": "object",
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "settings_hash": { "$ref": "#/$defs/Sha256" }
+          },
+          "additionalProperties": false
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["number", "width", "height", "unit"],
+            "properties": {
+              "number": { "type": "integer", "minimum": 1 },
+              "width": { "type": "number", "minimum": 0 },
+              "height": { "type": "number", "minimum": 0 },
+              "unit": { "enum": ["pt", "px", "mm"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "blocks": { "type": "array", "minItems": 1, "maxItems": 20000, "items": { "$ref": "#/$defs/Block" } }
+      },
+      "additionalProperties": false
+    },
+    "SourceReceipt": {
+      "title": "source_receipt (KnowledgeOS → Agent)",
+      "description": "来源登记回执。包含与上一版本的块级差异，以及证据所在块已删除或修改、需要复核的事实。",
+      "type": "object",
+      "required": ["protocol_version", "message_type", "document_id", "document_version", "content_hash", "stored", "block_count"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "message_type": { "const": "source_receipt" },
+        "document_id": { "$ref": "#/$defs/DocumentId" },
+        "document_version": { "type": "string" },
+        "content_hash": { "$ref": "#/$defs/Sha256" },
+        "stored": { "type": "boolean" },
+        "evidence_ref": { "description": "证据库中的稳定引用。", "type": "string" },
+        "block_count": { "type": "integer", "minimum": 0 },
+        "diff": {
+          "type": "object",
+          "required": ["previous_version"],
+          "properties": {
+            "previous_version": { "type": "string" },
+            "added": { "type": "array", "items": { "$ref": "#/$defs/BlockId" } },
+            "removed": { "type": "array", "items": { "$ref": "#/$defs/BlockId" } },
+            "changed": { "type": "array", "items": { "$ref": "#/$defs/BlockId" } },
+            "unchanged_count": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "facts_at_risk": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["target", "block_id", "change"],
+            "properties": {
+              "target": { "description": "受影响的断言 ID 或实例 ID。", "type": "string" },
+              "block_id": { "$ref": "#/$defs/BlockId" },
+              "change": { "enum": ["removed", "changed"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "additionalProperties": false
+    },
+
+    "Field": {
+      "description": "一个属性取值。每个字段必须有自己的证据；表格取值建议同时给出表头/字段名锚点（role=label 或 header）和取值锚点（role=value）。",
+      "type": "object",
+      "required": ["predicate", "value", "evidence"],
+      "properties": {
+        "predicate": { "$ref": "#/$defs/Identifier" },
+        "value": { "$ref": "#/$defs/RawValue" },
+        "evidence": { "$ref": "#/$defs/Evidence" },
+        "qualifiers": {
+          "description": "限定条件的原文表达，例如 {\"cost_basis\": \"标准成本\"}。",
+          "type": "object",
+          "additionalProperties": { "type": "string", "maxLength": 1000 }
+        },
+        "temporal": {
+          "description": "时间的原文表达；省略时由 KnowledgeOS 按文档日期、再按采集时间补齐。",
+          "type": "object",
+          "properties": {
+            "observed_at_raw": { "type": "string", "maxLength": 128 },
+            "valid_from_raw": { "type": "string", "maxLength": 128 },
+            "valid_to_raw": { "type": "string", "maxLength": 128 },
+            "evidence": { "$ref": "#/$defs/Evidence" }
+          },
+          "additionalProperties": false
+        },
+        "supersedes_hint": { "description": "Agent 认为被替代的已有断言 ID，仅供参考。", "type": "string" },
+        "confidence": { "$ref": "#/$defs/Confidence" },
+        "verification": { "$ref": "#/$defs/Verification" }
+      },
+      "additionalProperties": false
+    },
+    "Instance": {
+      "type": "object",
+      "required": ["local_id", "concept", "label", "fields"],
+      "properties": {
+        "local_id": { "$ref": "#/$defs/LocalId" },
+        "concept": { "$ref": "#/$defs/Identifier" },
+        "label": { "$ref": "#/$defs/RawText" },
+        "aliases": { "type": "array", "items": { "$ref": "#/$defs/RawText" } },
+        "identity": {
+          "description": "身份线索。最终匹配由 KnowledgeOS 判定，node_hint 仅为建议。",
+          "type": "object",
+          "properties": {
+            "key": { "$ref": "#/$defs/RawText" },
+            "key_namespace": { "type": "string", "minLength": 1 },
+            "node_hint": { "$ref": "#/$defs/NodeId" },
+            "context": { "type": "array", "items": { "$ref": "#/$defs/EntityRef" } }
+          },
+          "additionalProperties": false
+        },
+        "mentions": {
+          "description": "该实例在文档中的全部提及（含指代消解后的“该公司”等），用于覆盖率统计与审核高亮。",
+          "type": "array",
+          "maxItems": 500,
+          "items": { "$ref": "#/$defs/Anchor" }
+        },
+        "fields": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/Field" } },
+        "completeness": {
+          "description": "draft 表示缺少发布所需字段，KnowledgeOS 将建草稿实例并进入补全队列。",
+          "enum": ["complete", "draft"]
+        },
+        "confidence": { "$ref": "#/$defs/Confidence" },
+        "verification": { "$ref": "#/$defs/Verification" }
+      },
+      "additionalProperties": false
+    },
+    "RelationCandidate": {
+      "type": "object",
+      "required": ["local_id", "predicate", "source", "target", "evidence"],
+      "properties": {
+        "local_id": { "$ref": "#/$defs/LocalId" },
+        "predicate": { "$ref": "#/$defs/Identifier" },
+        "source": { "$ref": "#/$defs/EntityRef" },
+        "target": { "$ref": "#/$defs/EntityRef" },
+        "evidence": { "$ref": "#/$defs/Evidence" },
+        "qualifiers": { "type": "object", "additionalProperties": { "type": "string", "maxLength": 1000 } },
+        "temporal": {
+          "type": "object",
+          "properties": {
+            "valid_from_raw": { "type": "string", "maxLength": 128 },
+            "valid_to_raw": { "type": "string", "maxLength": 128 }
+          },
+          "additionalProperties": false
+        },
+        "confidence": { "$ref": "#/$defs/Confidence" },
+        "verification": { "$ref": "#/$defs/Verification" }
+      },
+      "additionalProperties": false
+    },
+    "RuleSignal": {
+      "description": "材料中出现的规则性条款（阈值、条件、决策行等）。KnowledgeOS 将其与已发布逻辑比对，不会直接修改逻辑资产。",
+      "type": "object",
+      "required": ["local_id", "kind", "statement"],
+      "properties": {
+        "local_id": { "$ref": "#/$defs/LocalId" },
+        "kind": { "enum": ["threshold", "condition", "decision_row", "constraint", "formula"] },
+        "statement": { "$ref": "#/$defs/RawText" },
+        "subject_concept": { "$ref": "#/$defs/Identifier" },
+        "predicate": { "$ref": "#/$defs/Identifier" },
+        "operator_raw": { "type": "string", "maxLength": 64 },
+        "value": { "$ref": "#/$defs/RawValue" },
+        "applies_to": { "type": "array", "items": { "$ref": "#/$defs/EntityRef" } },
+        "scope_raw": { "description": "适用范围的原文表达。", "type": "string", "maxLength": 1000 },
+        "logic_ref_hint": { "$ref": "#/$defs/LogicRef" },
+        "confidence": { "$ref": "#/$defs/Confidence" }
+      },
+      "additionalProperties": false
+    },
+    "UnmappedFact": {
+      "type": "object",
+      "required": ["text", "reason", "evidence"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "reason": { "enum": ["no_matching_concept", "no_matching_predicate", "no_matching_relation", "ambiguous", "out_of_scope", "other"] },
+        "suggested_concept": { "type": "string", "maxLength": 128 },
+        "suggested_property_label": { "type": "string", "maxLength": 128 },
+        "evidence": { "$ref": "#/$defs/Evidence" }
+      },
+      "additionalProperties": false
+    },
+    "ExtractionSubmission": {
+      "title": "extraction_submission (Agent → KnowledgeOS)",
+      "description": "抽取结果提交。mode=precheck 只做验收预检、不写入；mode=propose 在验收通过的部分上生成 ChangeSet，需要提案权限并填写 reason。submission_id 作为幂等键。",
+      "type": "object",
+      "required": ["protocol_version", "message_type", "submission_id", "mode", "contract", "source", "run", "instances"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "message_type": { "const": "extraction_submission" },
+        "submission_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "mode": { "enum": ["precheck", "propose"] },
+        "reason": { "type": "string", "maxLength": 2000 },
+        "contract": {
+          "type": "object",
+          "required": ["contract_id", "registry_fingerprint"],
+          "properties": {
+            "contract_id": { "type": "string", "minLength": 1 },
+            "registry_fingerprint": { "$ref": "#/$defs/Sha256" }
+          },
+          "additionalProperties": false
+        },
+        "source": {
+          "type": "object",
+          "required": ["document_id", "document_version", "content_hash"],
+          "properties": {
+            "document_id": { "$ref": "#/$defs/DocumentId" },
+            "document_version": { "type": "string", "minLength": 1 },
+            "content_hash": { "$ref": "#/$defs/Sha256" }
+          },
+          "additionalProperties": false
+        },
+        "run": { "$ref": "#/$defs/RunManifest" },
+        "instances": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/Instance" } },
+        "relations": { "type": "array", "maxItems": 2000, "items": { "$ref": "#/$defs/RelationCandidate" } },
+        "rule_signals": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/RuleSignal" } },
+        "unmapped_facts": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/UnmappedFact" } }
+      },
+      "additionalProperties": false
+    },
+
+    "NormalizedValue": {
+      "description": "KnowledgeOS 规范化后的取值，结构与规范节点中的 value 对象一致。",
+      "type": "object",
+      "required": ["type", "literal"],
+      "properties": {
+        "type": { "type": "string" },
+        "literal": {},
+        "unit": { "type": "string" },
+        "qualifiers": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "FieldResult": {
+      "type": "object",
+      "required": ["predicate", "field_index", "outcome"],
+      "properties": {
+        "predicate": { "$ref": "#/$defs/Identifier" },
+        "field_index": { "type": "integer", "minimum": 0 },
+        "outcome": {
+          "description": "accepted：可进入提案；already_present：与现有值一致；conflict：与现有值冲突，需审核；upstream_required：须由权威业务系统维护；rejected：未通过验收。",
+          "enum": ["accepted", "already_present", "conflict", "upstream_required", "rejected"]
+        },
+        "normalized": { "$ref": "#/$defs/NormalizedValue" },
+        "temporal": {
+          "type": "object",
+          "properties": {
+            "observed_at": { "type": ["string", "null"] },
+            "valid_from": { "type": ["string", "null"] },
+            "valid_to": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "conflict": {
+          "type": "object",
+          "properties": {
+            "existing": { "$ref": "#/$defs/NormalizedValue" },
+            "existing_source": { "type": "string" },
+            "authority_strategy": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "additionalProperties": false
+    },
+    "InstanceResult": {
+      "type": "object",
+      "required": ["local_id", "outcome"],
+      "properties": {
+        "local_id": { "$ref": "#/$defs/LocalId" },
+        "outcome": { "enum": ["matched", "new", "draft", "needs_resolution", "upstream_required", "rejected"] },
+        "node_id": { "$ref": "#/$defs/NodeId" },
+        "resolution": {
+          "type": "object",
+          "required": ["reason"],
+          "properties": {
+            "reason": { "type": "string" },
+            "candidates": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "required": ["node_id", "rank"],
+                "properties": {
+                  "node_id": { "$ref": "#/$defs/NodeId" },
+                  "label": { "type": "string" },
+                  "rank": { "type": "integer" },
+                  "reasons": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/FieldResult" } },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "additionalProperties": false
+    },
+    "RelationResult": {
+      "type": "object",
+      "required": ["local_id", "outcome"],
+      "properties": {
+        "local_id": { "$ref": "#/$defs/LocalId" },
+        "outcome": { "enum": ["accepted", "already_present", "deferred", "rejected"] },
+        "source_node_id": { "$ref": "#/$defs/NodeId" },
+        "target_node_id": { "$ref": "#/$defs/NodeId" },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "additionalProperties": false
+    },
+    "RuleSignalResult": {
+      "type": "object",
+      "required": ["local_id", "outcome"],
+      "properties": {
+        "local_id": { "$ref": "#/$defs/LocalId" },
+        "outcome": { "enum": ["matches_existing", "differs_from_existing", "no_existing_logic", "rejected"] },
+        "logic_ref": { "$ref": "#/$defs/LogicRef" },
+        "comparison": {
+          "type": "object",
+          "properties": {
+            "existing": { "type": "object" },
+            "extracted": { "type": "object" },
+            "differences": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "next_action": { "enum": ["none", "review_logic_version", "draft_new_logic", "clarify_scope"] },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "additionalProperties": false
+    },
+    "Coverage": {
+      "description": "KnowledgeOS 按术语、值模式、单位、实体词典和抽取方案确定性计算的覆盖率报告，供 Agent 定向补抽。",
+      "type": "object",
+      "required": ["blocks_total", "blocks_with_evidence"],
+      "properties": {
+        "blocks_total": { "type": "integer", "minimum": 0 },
+        "blocks_with_evidence": { "type": "integer", "minimum": 0 },
+        "uncovered_cue_blocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["block_id", "cues"],
+            "properties": {
+              "block_id": { "$ref": "#/$defs/BlockId" },
+              "cues": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["type", "match"],
+                  "properties": {
+                    "type": { "enum": ["term", "value_pattern", "unit", "lexicon", "recipe"] },
+                    "match": { "type": "string" },
+                    "concept": { "$ref": "#/$defs/Identifier" },
+                    "predicate": { "$ref": "#/$defs/Identifier" },
+                    "node_id": { "$ref": "#/$defs/NodeId" }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "missing_required": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["local_id", "predicates"],
+            "properties": {
+              "local_id": { "$ref": "#/$defs/LocalId" },
+              "predicates": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Identifier" } }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ValidationReport": {
+      "title": "validation_report (KnowledgeOS → Agent)",
+      "description": "服务端验收结果。precheck 与 propose 使用同一套规则；propose 时附带生成的 ChangeSet。",
+      "type": "object",
+      "required": ["protocol_version", "message_type", "submission_id", "mode", "status", "registry_fingerprint", "evaluated_at", "instances", "coverage"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "message_type": { "const": "validation_report" },
+        "submission_id": { "type": "string" },
+        "mode": { "enum": ["precheck", "propose"] },
+        "status": { "enum": ["accepted", "partially_accepted", "rejected"] },
+        "registry_fingerprint": { "$ref": "#/$defs/Sha256" },
+        "contract_id": { "type": "string" },
+        "evaluated_at": { "$ref": "#/$defs/Timestamp" },
+        "instances": { "type": "array", "items": { "$ref": "#/$defs/InstanceResult" } },
+        "relations": { "type": "array", "items": { "$ref": "#/$defs/RelationResult" } },
+        "rule_signals": { "type": "array", "items": { "$ref": "#/$defs/RuleSignalResult" } },
+        "unmapped_recorded": { "type": "integer", "minimum": 0 },
+        "coverage": { "$ref": "#/$defs/Coverage" },
+        "changesets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "status", "target_source"],
+            "properties": {
+              "id": { "type": "string" },
+              "status": { "type": "string" },
+              "target_source": { "type": "string" },
+              "local_ids": { "type": "array", "items": { "$ref": "#/$defs/LocalId" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/Issue" } }
+      },
+      "additionalProperties": false
+    }
+  }
+}

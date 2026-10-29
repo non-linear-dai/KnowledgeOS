@@ -1,0 +1,367 @@
+{
+  "protocol_version": "knowledgeos.extraction.v2",
+  "message_type": "extraction_submission",
+  "submission_id": "sub-acme-2026q3-001",
+  "mode": "precheck",
+  "contract": {
+    "contract_id": "contract:2026-10-26:supplier-review",
+    "registry_fingerprint": "214d27ae4a9312c8667505ecdbbe982ecd92a4c8d97895709eef3043f92dbbd0"
+  },
+  "source": {
+    "document_id": "source:dms:supplier-review:acme-2026q3",
+    "document_version": "v1",
+    "content_hash": "3620494291923118cfba1ff5d4ff0352b41557b182ec5cf5006a1d9494bbadc5"
+  },
+  "run": {
+    "run_id": "run-20261026-0042",
+    "agent": {
+      "platform": "example-agent-platform",
+      "name": "kos-extractor",
+      "version": "0.1.0"
+    },
+    "skill": {
+      "id": "document-instance-extraction",
+      "version": "1.0.0"
+    },
+    "parser": {
+      "name": "example-structured-parser",
+      "version": "1.0.0"
+    },
+    "stages": [
+      {
+        "id": "parse",
+        "kind": "deterministic"
+      },
+      {
+        "id": "anchor",
+        "kind": "deterministic"
+      },
+      {
+        "id": "mentions",
+        "kind": "llm",
+        "model": {
+          "provider": "example-provider",
+          "name": "example-small-model"
+        },
+        "prompt_hash": "ab51c0ecde368cf5ace5a65c3d83f2505e3d3dc5e7afa5f90fda69ff44e10d84"
+      },
+      {
+        "id": "fill_fields",
+        "kind": "llm",
+        "model": {
+          "provider": "example-provider",
+          "name": "example-large-model"
+        },
+        "prompt_hash": "f92c50916af3e940489b48f5151dcb3ca5c39364a2265a181c2c06c6c9493abb"
+      },
+      {
+        "id": "verify",
+        "kind": "llm",
+        "model": {
+          "provider": "example-provider",
+          "name": "example-verifier-model"
+        }
+      }
+    ],
+    "started_at": "2026-10-26T13:31:05Z",
+    "finished_at": "2026-10-26T13:31:48Z"
+  },
+  "instances": [
+    {
+      "local_id": "tmp:org-1",
+      "concept": "organization",
+      "label": {
+        "raw": "Acme",
+        "evidence": [
+          {
+            "block_id": "b4",
+            "start": 0,
+            "end": 4,
+            "quote": "Acme",
+            "role": "subject"
+          }
+        ]
+      },
+      "aliases": [
+        {
+          "raw": "Acme Industrial Systems",
+          "evidence": [
+            {
+              "block_id": "b1",
+              "start": 0,
+              "end": 23,
+              "quote": "Acme Industrial Systems"
+            }
+          ]
+        }
+      ],
+      "identity": {
+        "node_hint": "org:acme"
+      },
+      "mentions": [
+        {
+          "block_id": "b1",
+          "start": 0,
+          "end": 23,
+          "quote": "Acme Industrial Systems"
+        },
+        {
+          "block_id": "b4",
+          "start": 0,
+          "end": 4,
+          "quote": "Acme",
+          "role": "subject"
+        },
+        {
+          "block_id": "b5",
+          "start": 38,
+          "end": 42,
+          "quote": "Acme"
+        },
+        {
+          "block_id": "b8",
+          "start": 8,
+          "end": 12,
+          "quote": "Acme"
+        }
+      ],
+      "fields": [
+        {
+          "predicate": "legal_name",
+          "value": {
+            "raw": "Acme Industrial Systems Ltd."
+          },
+          "evidence": [
+            {
+              "block_id": "b4",
+              "start": 5,
+              "end": 33,
+              "quote": "Acme Industrial Systems Ltd.",
+              "role": "value"
+            }
+          ],
+          "confidence": 0.97,
+          "verification": {
+            "method": "second_model",
+            "verdict": "supported",
+            "score": 0.98
+          }
+        },
+        {
+          "predicate": "finding",
+          "value": {
+            "raw": "2026年三季度已在华东新增两条伺服模块装配线"
+          },
+          "evidence": [
+            {
+              "block_id": "b4",
+              "start": 37,
+              "end": 60,
+              "quote": "2026年三季度已在华东新增两条伺服模块装配线",
+              "role": "value"
+            }
+          ],
+          "temporal": {
+            "observed_at_raw": "2026年10月15日",
+            "evidence": [
+              {
+                "block_id": "b2",
+                "start": 5,
+                "end": 16,
+                "quote": "2026年10月15日",
+                "role": "value"
+              }
+            ]
+          },
+          "confidence": 0.9,
+          "verification": {
+            "method": "second_model",
+            "verdict": "supported",
+            "score": 0.93
+          }
+        }
+      ],
+      "completeness": "complete",
+      "confidence": 0.95
+    },
+    {
+      "local_id": "tmp:prod-1",
+      "concept": "product",
+      "label": {
+        "raw": "Servo Module X1",
+        "evidence": [
+          {
+            "block_id": "b5",
+            "start": 0,
+            "end": 15,
+            "quote": "Servo Module X1",
+            "role": "subject"
+          }
+        ]
+      },
+      "identity": {
+        "key": {
+          "raw": "SERVO-MODULE-X1",
+          "evidence": [
+            {
+              "block_id": "b5",
+              "start": 20,
+              "end": 35,
+              "quote": "SERVO-MODULE-X1",
+              "role": "key"
+            }
+          ]
+        },
+        "node_hint": "product:servo-module"
+      },
+      "mentions": [
+        {
+          "block_id": "b5",
+          "start": 0,
+          "end": 15,
+          "quote": "Servo Module X1"
+        },
+        {
+          "block_id": "b7",
+          "start": 3,
+          "end": 5,
+          "quote": "X1"
+        }
+      ],
+      "fields": [
+        {
+          "predicate": "summary",
+          "value": {
+            "raw": "定位为中端伺服模块，用于标准装配单元"
+          },
+          "evidence": [
+            {
+              "block_id": "b5",
+              "start": 46,
+              "end": 64,
+              "quote": "定位为中端伺服模块，用于标准装配单元",
+              "role": "value"
+            }
+          ],
+          "confidence": 0.85
+        },
+        {
+          "predicate": "lead_time_days",
+          "value": {
+            "raw": "约30天",
+            "unit_raw": "天",
+            "agent_hint": {
+              "literal": 30,
+              "unit": "calendar_days"
+            }
+          },
+          "evidence": [
+            {
+              "block_id": "t1.r1c0",
+              "start": 0,
+              "end": 4,
+              "quote": "标准交期",
+              "role": "label"
+            },
+            {
+              "block_id": "t1.r1c1",
+              "start": 0,
+              "end": 4,
+              "quote": "约30天",
+              "role": "value"
+            }
+          ],
+          "temporal": {
+            "observed_at_raw": "2026年10月15日",
+            "evidence": [
+              {
+                "block_id": "b2",
+                "start": 5,
+                "end": 16,
+                "quote": "2026年10月15日",
+                "role": "value"
+              }
+            ]
+          },
+          "confidence": 0.88
+        }
+      ],
+      "completeness": "complete",
+      "confidence": 0.93
+    }
+  ],
+  "relations": [
+    {
+      "local_id": "tmp:rel-1",
+      "predicate": "supplies",
+      "source": {
+        "local_id": "tmp:org-1"
+      },
+      "target": {
+        "local_id": "tmp:prod-1"
+      },
+      "evidence": [
+        {
+          "block_id": "b5",
+          "start": 0,
+          "end": 15,
+          "quote": "Servo Module X1",
+          "role": "object"
+        },
+        {
+          "block_id": "b5",
+          "start": 36,
+          "end": 45,
+          "quote": "由 Acme 供应",
+          "role": "context"
+        }
+      ],
+      "confidence": 0.9
+    }
+  ],
+  "rule_signals": [
+    {
+      "local_id": "tmp:rule-1",
+      "kind": "threshold",
+      "statement": {
+        "raw": "用于 X1 出厂检验的测试台额定功率不得低于5kW",
+        "evidence": [
+          {
+            "block_id": "b7",
+            "start": 0,
+            "end": 25,
+            "quote": "用于 X1 出厂检验的测试台额定功率不得低于5kW",
+            "role": "threshold"
+          }
+        ]
+      },
+      "subject_concept": "equipment",
+      "predicate": "rated_power",
+      "operator_raw": "不得低于",
+      "value": {
+        "raw": "5kW",
+        "unit_raw": "kW"
+      },
+      "scope_raw": "用于 X1 出厂检验的测试台",
+      "logic_ref_hint": "constraint:equipment_power_positive@1.0.0",
+      "confidence": 0.86
+    }
+  ],
+  "unmapped_facts": [
+    {
+      "text": "维持 Acme 的 A 级供应商评级",
+      "reason": "no_matching_predicate",
+      "suggested_concept": "organization",
+      "suggested_property_label": "供应商评级",
+      "evidence": [
+        {
+          "block_id": "b8",
+          "start": 5,
+          "end": 23,
+          "quote": "维持 Acme 的 A 级供应商评级",
+          "role": "value"
+        }
+      ]
+    }
+  ]
+}
