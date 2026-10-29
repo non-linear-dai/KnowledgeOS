@@ -21,6 +21,9 @@ export function TemplateInterview({ open, onOpenChange, current, editable, onApp
   const controller = useRef<AbortController | null>(null);
   const transcript = useRef<HTMLOListElement>(null);
   useEffect(() => () => controller.current?.abort(), []);
+  // Opening a fresh interview defaults to continuing whatever is on the board.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (open && !turns.length) setContinueCurrent(current.steps.length > 0); }, [open]);
   useEffect(() => { transcript.current?.lastElementChild?.scrollIntoView({ block: "nearest" }); }, [turns.length]);
 
   async function send() {
