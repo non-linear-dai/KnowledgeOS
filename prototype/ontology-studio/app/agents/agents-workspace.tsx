@@ -148,7 +148,7 @@ export default function AgentsWorkspace({ active }: { active: boolean }) {
       <section className="agent-card" aria-label="MCP 服务"><h3><Bot aria-hidden="true" />MCP 服务</h3>{info ? <><p>本机 HTTP：<code>{info.http_url}</code></p><p>stdio：<code>{[info.stdio.command, ...info.stdio.args].join(" ")}</code></p></> : <p className="assistant-notice" data-tone="warning">{infoError || "正在读取…"}</p>}
         <small>只在本机可用（第一期）。ChatGPT 桌面版与 Grok Bot 需公网 HTTPS，计划第二期支持。</small></section>
       <section className="agent-card" aria-label="审批策略"><h3><ShieldCheck aria-hidden="true" />审批策略 · {policy?.mode === "organization" ? "组织模式" : "个人模式"}</h3>
-        <p>Agent 的提案由你审批，天然独立。你名下的 Agent 之间、Agent 与你之间不算相互独立。</p>
+        <p>{policy?.mode === "organization" ? "组织模式：Agent 与其负责人视为同一责任方，高风险变更须由另一位成员批准。" : "个人模式：你审核本人名下 Agent 的提案即为独立审核；Agent 之间不相互独立，也不能批准。"}</p>
         <label className="agent-toggle"><input type="checkbox" checked={policy?.human_final_approval ?? true} disabled readOnly /><span>最终批准与发布须由人完成</span></label>
         <label className="agent-toggle"><input type="checkbox" checked={policy?.self_review_high_risk ?? false} disabled={!policy || policy.mode !== "personal"} onChange={event => void setSelfReview(event.target.checked)} /><span>允许自审你本人提交的高风险变更（批准记录标注“个人模式自审”；批量审核不适用）</span></label></section>
       <section className="agent-card" aria-label="人员"><h3><UserRound aria-hidden="true" />人员</h3><ul>{people.map(item => <li key={item.id}>{item.label} <code>{item.id}</code>{item.id === session.principal && <span className="neutral-badge">当前</span>}</li>)}</ul></section>

@@ -138,9 +138,9 @@ def test_writes_are_changesets_and_permissions_come_from_the_credential(stack):
     events = tool(stack, "list_events", {"after": 0}, agent="observer")["structuredContent"]["data"]
     assert any(item["type"] == "agent_proposal" and item["target_id"] == changeset and item["actor"] == "agent:modeler" for item in events["events"])
     assert tool(stack, "list_events", {"after": events["cursor"]}, agent="observer")["structuredContent"]["data"]["events"] == []
-    # The owner may not approve an agent's high-risk change without the self-review policy.
-    governance = stack["service"].participants.review_decision("user:ricky", "agent:modeler", "high")
-    assert governance["allowed"] is False
+    # In personal mode the owner reviews their agent's work; the agent itself can never approve.
+    assert stack["service"].participants.review_decision("user:ricky", "agent:modeler", "high")["basis"] == "owner_of_agent"
+    assert stack["service"].participants.review_decision("agent:observer", "agent:modeler", "normal")["allowed"] is False
 
 
 def test_prompts_resources_and_protocol_errors(stack):

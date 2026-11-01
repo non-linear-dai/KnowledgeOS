@@ -634,6 +634,7 @@ class Service:
             self.audit.stage(event_type="changeset_" + decision, actor=reviewer, target_id=id,
                              source_ref=row["target_source"], reason="review decision", payload={"reviewer": reviewer, "note": review_note,
                                                                                                   "self_review": governed["self_review"],
+                                                                                                  "approval_basis": governed.get("basis"),
                                                                                                   "accountable_reviewer": self.participants.accountable(reviewer),
                                                                                                   "accountable_actor": self.participants.accountable(row["actor"])})
         self.audit.flush()

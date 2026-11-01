@@ -39,6 +39,7 @@ test('review and publication permissions stay separate for templates and ordinar
   assert.equal(blocked.canApprove,false); assert.equal(blocked.approvalNote,'高风险变更需由另一独立责任方批准');
   const selfReview = api.reviewAccess(governed(true,'个人模式自审',true),session('review'));
   assert.equal(selfReview.canApprove,true); assert.match(selfReview.approvalNote,/个人模式自审/);
+  assert.match(api.reviewAccess({...governed(true,'个人模式：负责人审核本人名下 Agent 的提案'),governance:{allowed:true,reason:null,self_review:false,basis:'owner_of_agent'}},session('review')).approvalNote,/负责人/);
   assert.equal(api.reviewAccess({...ordinary,risk:'high',actor:'reviewer'},session('review')).approvalNote,'此高风险提案需要另一位审核人批准。');
   assert.equal(api.actorText({actor:'agent:researcher',actor_info:{kind:'agent',label:'研究员',owner:'user:ricky'}}),'Agent · 研究员（负责人 ricky）');
   assert.equal(api.actorText({actor:'user:ricky',actor_info:{kind:'human',label:'Ricky',owner:null}}),'Ricky（user:ricky）');

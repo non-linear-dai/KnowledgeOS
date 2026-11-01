@@ -13,7 +13,7 @@ export type ChangeRecord = {
   /** Who proposed it: a person or an agent and the person accountable for it. */
   actor_info?: ActorInfo;
   /** How an approval by the current reviewer is governed (server decision). */
-  governance?: { allowed: boolean; reason: string | null; self_review: boolean };
+  governance?: { allowed: boolean; reason: string | null; self_review: boolean; basis?: "independent" | "owner_of_agent" | "self_review" | null };
 };
 export type ActorInfo = { kind: "human" | "agent" | null; label: string; owner: string | null; accountable: string; host: string | null; model: string | null };
 export function actorText(change: Pick<ChangeRecord, "actor" | "actor_info">) {
@@ -49,6 +49,7 @@ export function reviewAccess(change: ChangeRecord, session: UserSession | null) 
   const canApprove = pending && reviewer && (governed ? governed.allowed : !(change.risk === "high" && change.actor === session?.principal));
   const approvalNote = !pending || !reviewer ? ""
     : governed?.self_review ? "按个人模式审批策略，你可以自审此高风险变更；批准记录将标注“个人模式自审”。"
+    : governed?.basis === "owner_of_agent" && change.risk === "high" ? "个人模式：你是提交此提案的 Agent 的负责人，你的批准即为独立审核。"
     : canApprove ? "" : (governed?.reason ?? "").replace(/（.*）$/, "") || "此高风险提案需要另一位审核人批准。";
   return {
     canReview: pending && reviewer, canApprove, approvalNote,

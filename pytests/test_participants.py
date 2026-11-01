@@ -75,20 +75,39 @@ def test_independence_follows_the_accountability_chain(service, people):
     p = service.participants
     assert not p.independent(owner["id"], agent["id"]) and not p.independent(sibling["id"], agent["id"])
     assert p.independent(other["id"], agent["id"])
-    # The owner reviewing their own agent's high-risk change is not independent.
     proposal = high_risk(service, agent["id"], "agent")
+    # Personal mode: the owner is the human check on their own agents' work.
+    assert p.review_decision(owner["id"], agent["id"], "high")["basis"] == "owner_of_agent"
+    # Organization mode: the owner and their agent are one responsible party.
+    p.set_policy({"mode": "organization"}, owner["id"])
     with pytest.raises(ValidationError, match="independent reviewer"):
         service.review_changeset(id=proposal["id"], reviewer=owner["id"], decision="approved", note="ok")
     preview = service.review_batch_preview(ids=[proposal["id"]], reviewer=owner["id"], decision="approved")["data"]
     assert preview["can_review"] is False and "独立责任方" in preview["items"][0]["blockers"][0]
-    # Rejection never needs independence; another person may approve.
+    # Another person may approve.
     assert service.review_changeset(id=proposal["id"], reviewer=other["id"], decision="approved", note="ok")["data"]["status"] == "approved"
+    event = service.ledger.events(target_id=proposal["id"], event_type="changeset_approved")[0]
+    assert event["payload_json"]["approval_basis"] == "independent"
+
+
+def test_personal_owner_approves_own_agents_without_self_review(service, people):
+    owner, _, agent, sibling = people
+    proposal = high_risk(service, agent["id"], "owner")
+    preview = service.review_batch_preview(ids=[proposal["id"]], reviewer=owner["id"], decision="approved")["data"]
+    assert preview["can_review"] is True
+    service.review_changeset(id=proposal["id"], reviewer=owner["id"], decision="approved", note="已核对来源")
+    event = service.ledger.events(target_id=proposal["id"], event_type="changeset_approved")[0]
+    assert event["payload_json"]["approval_basis"] == "owner_of_agent" and event["payload_json"]["self_review"] is False
+    # The owner's own high-risk change still needs another party unless self review is enabled.
+    own = high_risk(service, owner["id"], "own")
+    with pytest.raises(ValidationError, match="independent reviewer"):
+        service.review_changeset(id=own["id"], reviewer=owner["id"], decision="approved", note="ok")
 
 
 def test_personal_self_review_policy_is_explicit_and_marked(service, people):
     owner, _, agent, _ = people
     p = service.participants
-    proposal = high_risk(service, agent["id"], "self")
+    proposal = high_risk(service, owner["id"], "self")
     p.set_policy({"self_review_high_risk": True}, owner["id"])
     preview = service.review_batch_preview(ids=[proposal["id"]], reviewer=owner["id"], decision="approved")["data"]
     assert preview["items"][0]["blockers"] == ["批量审核不支持自审，请逐条审核"]
@@ -129,12 +148,14 @@ def test_event_cursor_returns_only_governance_events_in_order(service, people):
 
 def test_inbox_puts_what_i_may_approve_first(service, people):
     owner, other, agent, _ = people
-    mine = high_risk(service, agent["id"], "inbox-mine")
+    mine = high_risk(service, owner["id"], "inbox-mine")
+    from_agent = high_risk(service, agent["id"], "inbox-agent")
     theirs = high_risk(service, other["id"], "inbox-theirs")
     inbox = service.inbox(owner["id"])["data"]
-    assert [item["id"] for item in inbox["items"][:2]] == [theirs["id"], mine["id"]]
-    assert inbox["items"][1]["governance"]["allowed"] is False and inbox["items"][1]["actor_info"]["owner"] == "user:ricky"
-    assert inbox["counts"] == {"total": 2, "can_approve": 1, "from_my_agents_or_me": 1}
+    assert [item["id"] for item in inbox["items"]] == [from_agent["id"], theirs["id"], mine["id"]]
+    assert inbox["items"][0]["actor_info"]["owner"] == "user:ricky" and inbox["items"][0]["governance"]["basis"] == "owner_of_agent"
+    assert inbox["items"][2]["governance"]["allowed"] is False
+    assert inbox["counts"] == {"total": 3, "can_approve": 2, "from_my_agents_or_me": 2}
     assert inbox["items"][0]["patch"] == {"op": "replace"} and "operations" not in inbox["items"][0]
 
 
@@ -180,7 +201,7 @@ def test_account_and_agent_lifecycle_over_http(service):
         assert status == 201
         status, body = call(port, "GET", "/v1/changesets", session)
         item = body["data"][0]
-        assert item["actor_info"]["kind"] == "agent" and item["governance"]["allowed"] is False
+        assert item["actor_info"]["kind"] == "agent" and item["governance"]["basis"] == "owner_of_agent"
         status, body = call(port, "GET", "/v1/events?after=0", agent_token)
         assert status == 200 and any(event["type"] == "agent_proposal" and event["actor"] == "agent:researcher" for event in body["data"]["events"])
         status, body = call(port, "GET", "/v1/participants", session)

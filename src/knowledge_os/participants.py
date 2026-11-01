@@ -135,16 +135,24 @@ class Participants:
         return merged
 
     def review_decision(self, reviewer, actor, risk):
-        """How an approval by `reviewer` of a change proposed by `actor` is governed."""
+        """How an approval by `reviewer` of a change proposed by `actor` is governed.
+
+        `basis` records why an approval is allowed: an independent responsible party,
+        the person reviewing their own agent's work (personal mode), or explicit self review.
+        """
         policy = self.policy()
         reviewer_kind = self.kind(reviewer)
         if policy["human_final_approval"] and reviewer_kind == "agent":
-            return {"allowed": False, "reason": "最终批准须由人完成（审批策略）", "self_review": False}
+            return {"allowed": False, "reason": "最终批准须由人完成（审批策略）", "self_review": False, "basis": None}
         if risk != "high" or self.independent(reviewer, actor):
-            return {"allowed": True, "reason": None, "self_review": False}
-        if policy["mode"] == "personal" and policy["self_review_high_risk"] and reviewer_kind == "human":
-            return {"allowed": True, "reason": "个人模式自审", "self_review": True}
-        return {"allowed": False, "reason": "高风险变更需由另一独立责任方批准（high-risk changes require an independent reviewer）", "self_review": False}
+            return {"allowed": True, "reason": None, "self_review": False, "basis": "independent"}
+        personal = policy["mode"] == "personal" and reviewer_kind == "human"
+        if personal and self.kind(actor) == "agent" and self.accountable(actor) == reviewer:
+            # Personal mode: the owner is the human check on their agents' work.
+            return {"allowed": True, "reason": "个人模式：负责人审核本人名下 Agent 的提案", "self_review": False, "basis": "owner_of_agent"}
+        if personal and policy["self_review_high_risk"]:
+            return {"allowed": True, "reason": "个人模式自审", "self_review": True, "basis": "self_review"}
+        return {"allowed": False, "reason": "高风险变更需由另一独立责任方批准（high-risk changes require an independent reviewer）", "self_review": False, "basis": None}
 
     def assert_may_publish(self, publisher):
         if self.policy()["human_final_approval"] and self.kind(publisher) == "agent":

@@ -59,7 +59,7 @@ export default function InboxWorkspace({ active }: { active: boolean }) {
     {error && <div role="alert" className="instance-error"><p>{error}</p></div>}
     <section className="inbox-section" aria-label="可以由我批准"><h2>可以由我批准 <small>高风险在前；打开后在变更审核中查看差异并决定</small></h2>
       {groups.mine.length ? <ul>{groups.mine.map(item => <Row key={item.id} item={item} />)}</ul> : <p className="assistant-caption">{loading ? "正在加载…" : "没有需要你批准的提案。"}</p>}</section>
-    {groups.others.length > 0 && <section className="inbox-section" aria-label="需要另一独立责任方批准"><h2><ShieldAlert aria-hidden="true" size={16} />需要另一独立责任方批准 <small>你或你名下 Agent 提交的高风险变更；可驳回或要求修改，批准需另一位成员{data?.policy.mode === "personal" ? "，或在「Agent 管理」开启个人模式自审" : ""}</small></h2>
+    {groups.others.length > 0 && <section className="inbox-section" aria-label="需要另一独立责任方批准"><h2><ShieldAlert aria-hidden="true" size={16} />需要另一独立责任方批准 <small>{data?.policy.mode === "organization" ? "你或你名下 Agent 提交的高风险变更" : "你本人提交的高风险变更"}；可驳回或要求修改，批准需另一位成员{data?.policy.mode === "personal" ? "，或在「Agent 管理」开启个人模式自审" : ""}</small></h2>
       <ul>{groups.others.map(item => <Row key={item.id} item={item} />)}</ul></section>}
   </div>;
 }
