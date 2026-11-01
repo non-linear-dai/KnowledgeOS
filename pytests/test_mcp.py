@@ -180,7 +180,7 @@ def test_stdio_transport(stack):
 
 def test_adapter_is_isolated_from_the_kernel():
     for path in (REPO / "src/knowledgeos_mcp").glob("*.py"):
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         assert "knowledge_os" not in source.replace("knowledgeos_mcp", ""), path
         assert not re.search(r"anthropic|openai|/chat/completions|/v1/messages", source, re.I), path
 

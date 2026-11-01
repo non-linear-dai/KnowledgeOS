@@ -247,6 +247,10 @@ def main(argv=None):
         if not token:
             print("KNOWLEDGEOS_TOKEN is required for --stdio (issue one in Studio「Agent 管理」)", file=sys.stderr)
             return 2
+        # MCP messages are UTF-8 JSON lines regardless of the console code page (Windows).
+        for stream in (sys.stdin, sys.stdout):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8")
         serve_stdio(mcp, token)
         return 0
     if not is_loopback(args.host):
