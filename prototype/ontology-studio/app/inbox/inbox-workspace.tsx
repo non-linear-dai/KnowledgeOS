@@ -10,6 +10,7 @@ import { NavigationToggle } from "../workspace-navigation-context";
 import { displayDate } from "../instances/instances-api";
 import { actorText, assistanceOf, changeCategory, changeStatusLabels, type ChangeRecord } from "../changesets/changesets-api";
 
+/** Queue entries carry only the patch kind (`patch.op`); full content opens in change review. */
 type InboxItem = ChangeRecord & Required<Pick<ChangeRecord, "governance" | "actor_info">>;
 type InboxData = { items: InboxItem[]; counts: { total: number; can_approve: number; from_my_agents_or_me: number }; policy: ApprovalPolicy };
 

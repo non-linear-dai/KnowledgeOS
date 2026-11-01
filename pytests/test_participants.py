@@ -135,7 +135,7 @@ def test_inbox_puts_what_i_may_approve_first(service, people):
     assert [item["id"] for item in inbox["items"][:2]] == [theirs["id"], mine["id"]]
     assert inbox["items"][1]["governance"]["allowed"] is False and inbox["items"][1]["actor_info"]["owner"] == "user:ricky"
     assert inbox["counts"] == {"total": 2, "can_approve": 1, "from_my_agents_or_me": 1}
-    assert "patch" not in inbox["items"][0]
+    assert inbox["items"][0]["patch"] == {"op": "replace"} and "operations" not in inbox["items"][0]
 
 
 def call(port, method, path, token=None, body=None, headers=None):

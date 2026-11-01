@@ -43,6 +43,8 @@ test('review and publication permissions stay separate for templates and ordinar
   assert.equal(api.actorText({actor:'agent:researcher',actor_info:{kind:'agent',label:'研究员',owner:'user:ricky'}}),'Agent · 研究员（负责人 ricky）');
   assert.equal(api.actorText({actor:'user:ricky',actor_info:{kind:'human',label:'Ricky',owner:null}}),'Ricky（user:ricky）');
   assert.equal(api.actorText({actor:'local:admin'}),'local:admin');
+  // Queue summaries (inbox) may omit the full patch.
+  assert.equal(api.changeCategory({target_source:'control/ontology/core.yaml'}),'本体与定义');
 });
 test('high risk self approval is unavailable while a returned or published record has no review action', () => {
   assert.equal(api.reviewAccess({...template,actor:'reviewer'},session('template_review')).canApprove,false);

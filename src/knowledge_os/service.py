@@ -555,7 +555,12 @@ class Service:
         order = {"high": 0, "normal": 1, "low": 2}
         items.sort(key=lambda item: (not item["governance"]["allowed"], order.get(item["risk"], 3), item["created_at"]))
         mine = [item for item in items if self.participants.accountable(item["actor"]) == self.participants.accountable(principal_id)]
-        return envelope({"items": [{key: value for key, value in item.items() if key not in ("patch", "operations", "expected_json")} for item in items],
+        def summary(item):
+            # Keep the queue light: the patch kind is enough to categorize; details open in change review.
+            patch = item["patch"]
+            return {**{key: value for key, value in item.items() if key not in ("patch", "operations", "expected_json")},
+                    "patch": {"op": patch.get("op")} if isinstance(patch, dict) else {}, "operation_count": len(item["operations"])}
+        return envelope({"items": [summary(item) for item in items],
                          "counts": {"total": len(items), "can_approve": sum(1 for item in items if item["governance"]["allowed"]),
                                     "from_my_agents_or_me": len(mine)},
                          "policy": self.participants.policy()})

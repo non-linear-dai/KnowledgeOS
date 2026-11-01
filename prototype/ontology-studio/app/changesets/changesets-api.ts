@@ -34,11 +34,11 @@ export function isTemplateChange(change: ChangeRecord) {
   return change.target_source.split(",").some(path => /^(knowledge\/(templates|operations|decisions)\/)/.test(path.trim()));
 }
 export function isExtractionChange(change: ChangeRecord) {
-  return change.patch.op === "extraction_asset" || change.target_source.split(",").every(path => path.trim().startsWith("control/extraction/"));
+  return change.patch?.op === "extraction_asset" || change.target_source.split(",").every(path => path.trim().startsWith("control/extraction/"));
 }
 export function changeCategory(change: ChangeRecord) {
   if (isExtractionChange(change)) return "抽取配置";
-  if (change.patch.op === "logic_asset" || change.target_source.split(",").every(path => /^control\/(models|rules\/business|constraints\/business|decision-models)\//.test(path.trim()))) return "业务逻辑";
+  if (change.patch?.op === "logic_asset" || change.target_source.split(",").every(path => /^control\/(models|rules\/business|constraints\/business|decision-models)\//.test(path.trim()))) return "业务逻辑";
   return isTemplateChange(change) ? "专家模板" : change.target_source.split(",").every(path => path.trim().startsWith("control/")) ? "本体与定义" : "知识变更";
 }
 export function reviewAccess(change: ChangeRecord, session: UserSession | null) {
