@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "knowledgeos"
-version = "4.0.0"
+version = "4.5.0"
 description = "KnowledgeOS Python backend"
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6,<7", "jsonschema>=4,<5", "rdflib>=7.6,<8", "pyshacl>=0.40,<0.41"]

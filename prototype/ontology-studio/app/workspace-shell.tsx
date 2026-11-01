@@ -109,7 +109,7 @@ function Shell({ children }: { children: ReactNode }) {
           <span className="account-avatar" aria-hidden="true">{session ? (session.label ?? session.principal.replace(/^.*:/, "")).slice(0, 1).toUpperCase() : "K"}</span>
           <span className="navigation-account-copy"><strong>{session ? session.label ?? session.principal : "尚未登录"}</strong><span>{session ? session.principal : "登录或创建本机账号"}</span></span>
         </button></NavigationHint>
-        <div className="navigation-version"><span>KnowledgeOS · 4.0</span><span>{navigation.pinned ? "已固定展开" : "图标导航"}</span></div>
+        <div className="navigation-version"><span>KnowledgeOS · 4.5</span><span>{navigation.pinned ? "已固定展开" : "图标导航"}</span></div>
       </div>
     </aside>
     <button className="navigation-backdrop" hidden={collapsed} aria-label="关闭工作区导航" onClick={() => dispatchNavigation({ type: "close" })} />

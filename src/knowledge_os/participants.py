@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS durable.credential(id TEXT PRIMARY KEY,participant_id
  expires_at TEXT,last_used_at TEXT,last_client TEXT,revoked_at TEXT);
 CREATE INDEX IF NOT EXISTS durable.idx_credential_participant ON credential(participant_id);
 CREATE TABLE IF NOT EXISTS durable.participant_setting(key TEXT PRIMARY KEY,value_json TEXT NOT NULL,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL);
+INSERT OR IGNORE INTO durable.schema_migration VALUES(7,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 """
 
 

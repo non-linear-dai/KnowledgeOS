@@ -1,6 +1,6 @@
 # KnowledgeOS
 
-KnowledgeOS is an executable foundation for the V4.0 enterprise knowledge and AI-agent architecture. It keeps one domain-independent knowledge language while separating authored truth, enterprise operational truth, immutable audit history, and rebuildable runtime indexes.
+KnowledgeOS is an executable foundation for the V4.x enterprise knowledge and AI-agent architecture. It keeps one domain-independent knowledge language while separating authored truth, enterprise operational truth, immutable audit history, and rebuildable runtime indexes.
 
 The core contract is:
 
@@ -97,7 +97,7 @@ For an offline, checksummed backup, stop API/CLI writers and run `knowledgeos ba
 
 In PowerShell, set server credentials with `$env:KNOWLEDGEOS_AUTH_MODE = 'required'` and `$env:KNOWLEDGEOS_AUTH_TOKENS = '{"replace-with-a-long-random-token":{"principal":"local:admin","roles":["admin"]}}'` before running `knowledgeos serve`. The repository-local `bin/knowledgeos` file remains available on Unix; Windows uses the installed `knowledgeos` entry point.
 
-The current control/API contract is **4.0**, with backend and Studio releases **4.0.0**. See [the 4.0 delivery and rollback guide](docs/knowledgeos-4.0.md) for the semantic application profile, assisted modeling, terminology and upgrade procedure. [docs/iteration-3.5.md](docs/iteration-3.5.md) remains the preceding accepted review baseline; CI validates the Python backend and TypeScript Studio separately.
+The current control/API contract is **4.5**, with backend, MCP adapter and Studio releases **4.5.0** (durable state schema 7). See [the 4.5 release notes and upgrade guide](docs/knowledgeos-4.5.md) for extraction protocol v2, the authoring assistant and multi-agent access; [the 4.0 delivery and rollback guide](docs/knowledgeos-4.0.md) covers the semantic application profile, assisted modeling and terminology. [docs/iteration-3.5.md](docs/iteration-3.5.md) remains the preceding accepted review baseline; CI validates the Python backend and TypeScript Studio separately.
 
 ## Repository map
 

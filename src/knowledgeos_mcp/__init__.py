@@ -7,4 +7,4 @@ KnowledgeOS HTTP API with the calling participant's own credential, so the
 kernel's permissions, ChangeSet governance and audit apply unchanged.
 """
 
-__version__ = "0.1.0"
+__version__ = "4.5.0"

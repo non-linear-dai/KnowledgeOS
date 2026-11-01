@@ -36,7 +36,7 @@ def unchanged_files(root):
 
 
 def test_versions_iri_roundtrip_and_legacy_registry(workspace):
-    assert (__version__, __contract_version__) == ('4.0.0', '4.0')
+    assert (__version__, __contract_version__) == ('4.5.0', '4.5')
     registry = Registry(Config(workspace)); contract = SemanticContract(registry)
     for kind in ('concept', 'predicate', 'relation', 'entity', 'assertion', 'source'):
         identifier = '组织:a/b #1%'
@@ -210,7 +210,7 @@ def test_competency_regression_and_skill_acceptance(service, workspace):
 
 def test_backup_manifest_revision_retained_and_future_rejected(service, workspace, tmp_path):
     service.close(); folder = tmp_path / 'backup'; manifest = backup(Config(workspace), folder)
-    assert manifest['application_version'] == '4.0.0' and manifest['durable_schema_version'] == 6
+    assert manifest['application_version'] == '4.5.0' and manifest['durable_schema_version'] == 7
     manifest['durable_schema_version'] = 99; (folder / 'manifest.json').write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValidationError, match='newer'):
         restore(Config(workspace), folder)
@@ -225,7 +225,7 @@ def test_semantic_api_permissions_identity_and_version(service):
         conn.request(method, path, json.dumps(body) if body else None, {'Authorization': 'Bearer '+token, 'Content-Type': 'application/json'})
         result = conn.getresponse(); payload = json.loads(result.read()); status = result.status; conn.close(); return status, payload
     try:
-        assert call('GET', '/health')[1]['version'] == '4.0.0'
+        assert call('GET', '/health')[1]['version'] == '4.5.0'
         assert call('GET', '/v1/semantics')[0] == 200
         assert call('POST', '/v1/ontology/request', body={'goal': 'model', 'material': 'material'})[0] == 403
         request, output = ontology_packet(service)
