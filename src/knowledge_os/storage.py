@@ -331,6 +331,15 @@ class Ledger:
         sql = "SELECT * FROM event" + (" WHERE " + " AND ".join(conditions) if conditions else "") + " ORDER BY sequence DESC LIMIT ?"
         return [self._clean(row) for row in self.connection.execute(sql, (*binds, int(limit))).fetchall()]
 
+    def since(self, after, *, event_types, limit=100):
+        """Events after a sequence cursor, oldest first (for incremental consumers)."""
+        marks = ",".join("?" for _ in event_types)
+        with self.lock:
+            rows = self.connection.execute(f"SELECT * FROM event WHERE sequence>? AND event_type IN ({marks}) ORDER BY sequence LIMIT ?",
+                                           (int(after), *event_types, int(limit))).fetchall()
+            head = self.connection.execute("SELECT coalesce(max(sequence),0) FROM event").fetchone()[0]
+        return [self._clean(row) for row in rows], head
+
     def close(self):
         self.connection.close()
         self.lease.close()

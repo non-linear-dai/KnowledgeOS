@@ -18,8 +18,36 @@ export class ApiError extends Error {
   constructor(message: string, public status: number, public code?: string) { super(message); }
   get connectionState() { return connectionFailure(this.status, this.code); }
 }
-export type UserSession = { principal: string; roles: string[]; permissions: string[] };
+export type ApprovalPolicy = { mode: "personal" | "organization"; self_review_high_risk: boolean; human_final_approval: boolean };
+export type UserSession = {
+  principal: string; roles: string[]; permissions: string[];
+  /** Registered participants only; configured development tokens leave these empty. */
+  kind?: "human" | "agent" | null; label?: string; owner?: string | null; credential_kind?: string | null; policy?: ApprovalPolicy;
+};
 export function loadSession() { return request<UserSession>("/v1/session"); }
+
+export type SignIn = { token: string; expires_at: string | null; participant: { id: string; label: string } };
+export async function loadAuthStatus(signal?: AbortSignal) {
+  return (await request<{ data: { setup_required: boolean } }>("/v1/auth/status", { signal })).data;
+}
+/** Exchange a local account password for a 12-hour session credential held only in page memory. */
+export async function signIn(username: string, password: string) {
+  const session = (await request<{ data: SignIn }>("/v1/auth/login", { method: "POST", body: JSON.stringify({ username, password }) })).data;
+  setSessionToken(session.token);
+  return session;
+}
+export async function setupOwner(username: string, label: string, password: string) {
+  const session = (await request<{ data: SignIn }>("/v1/auth/setup", { method: "POST", body: JSON.stringify({ username, label, password }) })).data;
+  setSessionToken(session.token);
+  return session;
+}
+export async function signOut() {
+  try { await request("/v1/auth/logout", { method: "POST", body: "{}" }); }
+  finally { setSessionToken(""); }
+}
+export async function changePassword(current: string, next: string) {
+  await request("/v1/auth/password", { method: "POST", body: JSON.stringify({ current, new: next }) });
+}
 
 const API_ROOT = "/api/knowledgeos";
 const definitionKinds: DefinitionKind[] = ["schema", "domain", "concept", "relation", "predicate", "model", "unit", "currency", "policy", "connector", "business_constraint", "business_rule"];

@@ -32,7 +32,17 @@ test('review and publication permissions stay separate for templates and ordinar
   assert.equal(api.reviewAccess({...template,status:'approved'},session('template_review')).canPublish,false);
   assert.equal(api.reviewAccess({...template,status:'approved'},session('template_publish')).canPublish,true);
   assert.equal(api.reviewAccess({...ordinary,status:'approved'},session('publish')).canPublish,true);
-  assert.deepEqual(api.reviewAccess(template,null),{canReview:false,canApprove:false,canPublish:false});
+  assert.deepEqual(api.reviewAccess(template,null),{canReview:false,canApprove:false,approvalNote:'',canPublish:false});
+  // Server governance decides approval: the accountability chain and the personal self-review policy.
+  const governed = (allowed, reason, self_review = false) => ({...ordinary, risk:'high', actor:'agent:researcher', governance:{allowed, reason, self_review}});
+  const blocked = api.reviewAccess(governed(false,'高风险变更需由另一独立责任方批准（high-risk changes require an independent reviewer）'),session('review'));
+  assert.equal(blocked.canApprove,false); assert.equal(blocked.approvalNote,'高风险变更需由另一独立责任方批准');
+  const selfReview = api.reviewAccess(governed(true,'个人模式自审',true),session('review'));
+  assert.equal(selfReview.canApprove,true); assert.match(selfReview.approvalNote,/个人模式自审/);
+  assert.equal(api.reviewAccess({...ordinary,risk:'high',actor:'reviewer'},session('review')).approvalNote,'此高风险提案需要另一位审核人批准。');
+  assert.equal(api.actorText({actor:'agent:researcher',actor_info:{kind:'agent',label:'研究员',owner:'user:ricky'}}),'Agent · 研究员（负责人 ricky）');
+  assert.equal(api.actorText({actor:'user:ricky',actor_info:{kind:'human',label:'Ricky',owner:null}}),'Ricky（user:ricky）');
+  assert.equal(api.actorText({actor:'local:admin'}),'local:admin');
 });
 test('high risk self approval is unavailable while a returned or published record has no review action', () => {
   assert.equal(api.reviewAccess({...template,actor:'reviewer'},session('template_review')).canApprove,false);
@@ -60,7 +70,7 @@ test('overview has its own route while retaining the same editor surface as the 
   const {workspaces,workspaceForPath,workspaceSurface}=load('../app/workspace-navigation.ts');
   assert.equal(workspaceForPath('/overview/'),'overview'); assert.equal(workspaceForPath('/changesets'),'changesets');
   assert.equal(workspaceSurface('overview'),workspaceSurface('ontology'));
-  assert.equal(new Set(workspaces.map(item=>item.href)).size,7); assert.equal(workspaceForPath('/extraction'),'extraction');
+  assert.equal(new Set(workspaces.map(item=>item.href)).size,9); assert.equal(workspaceForPath('/agents'),'agents'); assert.equal(workspaceForPath('/inbox'),'inbox'); assert.equal(workspaceForPath('/extraction'),'extraction');
   assert.equal(workspaceForPath('/rules'),'rules');
   assert.notEqual(workspaceSurface('changesets'),workspaceSurface('templates'));
 });

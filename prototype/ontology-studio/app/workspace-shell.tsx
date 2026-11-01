@@ -3,25 +3,25 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { lazy, Suspense, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
-import { BookOpen, Database, FileText, GitBranch, GitPullRequestArrow, Network, PanelLeftClose, Pin, PinOff, Workflow } from "lucide-react";
+import { BookOpen, Bot, Database, FileText, GitBranch, GitPullRequestArrow, Inbox, Network, PanelLeftClose, Pin, PinOff, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WorkspaceSession, useWorkspaceSession } from "./workspace-session";
 import { workspaces, workspaceForPath, workspaceSurface, type WorkspaceId } from "./workspace-navigation";
 import { NavigationContext } from "./workspace-navigation-context";
 import { initialNavigationState, navigationPinPreferenceKey, navigationReducer } from "./navigation-state";
-import { loadSession, setSessionToken } from "./knowledgeos-api";
+import { AccountDialog } from "./account-dialog";
 
-const icons = { ontology: Network, instances: Database, rules: GitBranch, templates: Workflow, extraction: FileText, changesets: GitPullRequestArrow, overview: BookOpen };
+const icons = { ontology: Network, instances: Database, rules: GitBranch, templates: Workflow, extraction: FileText, changesets: GitPullRequestArrow, inbox: Inbox, agents: Bot, overview: BookOpen };
 const OntologyWorkspace = lazy(() => import("./ontology-workspace"));
 const ExpertTemplateWorkspace = lazy(() => import("./templates/template-workspace"));
 const InstancesWorkspace = lazy(() => import("./instances/instances-workspace"));
 const ChangesetsWorkspace = lazy(() => import("./changesets/changesets-workspace"));
 const RulesWorkspace = lazy(() => import("./rules/rules-workspace"));
 const ExtractionWorkspace = lazy(() => import("./extraction/extraction-workspace"));
+const InboxWorkspace = lazy(() => import("./inbox/inbox-workspace"));
+const AgentsWorkspace = lazy(() => import("./agents/agents-workspace"));
 
 function NavigationHint({ children, label, enabled }: { children: ReactNode; label: string; enabled: boolean }) {
   return <Tooltip><TooltipTrigger asChild>{children}</TooltipTrigger>{enabled && <TooltipContent side="right" sideOffset={12} className="navigation-tooltip">{label}</TooltipContent>}</Tooltip>;
@@ -38,9 +38,6 @@ function Shell({ children }: { children: ReactNode }) {
   const collapsed = !navigation.expanded;
   const { session, setSession } = useWorkspaceSession();
   const [accountOpen, setAccountOpen] = useState(false);
-  const [token, setToken] = useState("");
-  const [accountBusy, setAccountBusy] = useState(false);
-  const [accountError, setAccountError] = useState("");
 
   function focusNavigationControl() {
     const controls = document.querySelectorAll<HTMLButtonElement>(".workspace-surface:not([hidden]) .workspace-navigation-toggle");
@@ -77,13 +74,6 @@ function Shell({ children }: { children: ReactNode }) {
     return () => { media.removeEventListener("change", sync); window.removeEventListener("storage", storage); };
   }, []);
 
-  async function connectAccount() {
-    setAccountBusy(true); setAccountError("");
-    try { setSessionToken(token); const identity = await loadSession(); setSession(identity); setToken(""); setAccountOpen(false); }
-    catch (cause) { setSessionToken(""); setSession(null); setAccountError(cause instanceof Error ? cause.message : "无法连接账户"); }
-    finally { setAccountBusy(false); }
-  }
-
   useEffect(() => {
     // Retain each workspace after its first visit through external route navigation.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -106,7 +96,7 @@ function Shell({ children }: { children: ReactNode }) {
       <nav className="workspace-links" aria-label="切换工作区">
         {workspaces.map((workspace, index) => {
           const Icon = icons[workspace.id];
-          return <div key={workspace.id} className="navigation-entry">{(index === 0 || workspace.id === "changesets") && <div className="navigation-section-label">{index === 0 ? "工作区" : "知识管理"}</div>}<NavigationHint label={workspace.label} enabled={collapsed}><Link href={workspace.href} aria-label={workspace.title} onClick={() => dispatchNavigation({ type: "close" })}
+          return <div key={workspace.id} className="navigation-entry">{(index === 0 || workspace.id === "changesets" || workspace.id === "inbox") && <div className="navigation-section-label">{index === 0 ? "工作区" : workspace.id === "inbox" ? "协作" : "知识管理"}</div>}<NavigationHint label={workspace.label} enabled={collapsed}><Link href={workspace.href} aria-label={workspace.title} onClick={() => dispatchNavigation({ type: "close" })}
             aria-current={active === workspace.id ? "page" : undefined} className="workspace-link">
             <Icon aria-hidden="true" size={19} strokeWidth={1.65} />
             <span className="workspace-link-copy"><strong>{workspace.label}</strong><span>{workspace.description}</span></span>
@@ -115,9 +105,9 @@ function Shell({ children }: { children: ReactNode }) {
         })}
       </nav>
       <div className="navigation-footer">
-        <NavigationHint label="账户与连接" enabled={collapsed}><button className="navigation-account" aria-label="账户与连接" onClick={() => { setAccountError(""); setAccountOpen(true); }}>
-          <span className="account-avatar" aria-hidden="true">{session ? session.principal.replace(/^.*:/, "").slice(0, 1).toUpperCase() : "K"}</span>
-          <span className="navigation-account-copy"><strong>{session?.principal ?? "尚未登录"}</strong><span>{session ? "当前会话" : "在工作区中连接账户"}</span></span>
+        <NavigationHint label="账户与连接" enabled={collapsed}><button className="navigation-account" aria-label="账户与连接" onClick={() => setAccountOpen(true)}>
+          <span className="account-avatar" aria-hidden="true">{session ? (session.label ?? session.principal.replace(/^.*:/, "")).slice(0, 1).toUpperCase() : "K"}</span>
+          <span className="navigation-account-copy"><strong>{session ? session.label ?? session.principal : "尚未登录"}</strong><span>{session ? session.principal : "登录或创建本机账号"}</span></span>
         </button></NavigationHint>
         <div className="navigation-version"><span>KnowledgeOS · 4.0</span><span>{navigation.pinned ? "已固定展开" : "图标导航"}</span></div>
       </div>
@@ -127,16 +117,13 @@ function Shell({ children }: { children: ReactNode }) {
       {workspaces.filter(({ id }) => id !== "overview" && (id === activeSurface || visited.includes(id))).map(({ id, title }) =>
         <section key={id} id={`${id}-surface`} hidden={activeSurface !== id} aria-label={id === "ontology" && active === "overview" ? "定义总览" : title} tabIndex={-1} className="workspace-surface">
           <Suspense fallback={<div className="workspace-loading" role="status">正在打开工作区…</div>}>
-            {id === "ontology" ? <OntologyWorkspace active={activeSurface === id} view={active === "overview" ? "control" : "studio"} /> : id === "instances" ? <InstancesWorkspace active={active === id} /> : id === "rules" ? <RulesWorkspace active={active === id} /> : id === "changesets" ? <ChangesetsWorkspace active={active === id} /> : id === "extraction" ? <ExtractionWorkspace active={active === id} /> : <ExpertTemplateWorkspace active={active === id} />}
+            {id === "ontology" ? <OntologyWorkspace active={activeSurface === id} view={active === "overview" ? "control" : "studio"} /> : id === "instances" ? <InstancesWorkspace active={active === id} /> : id === "rules" ? <RulesWorkspace active={active === id} /> : id === "changesets" ? <ChangesetsWorkspace active={active === id} /> : id === "extraction" ? <ExtractionWorkspace active={active === id} /> : id === "inbox" ? <InboxWorkspace active={active === id} /> : id === "agents" ? <AgentsWorkspace active={active === id} /> : <ExpertTemplateWorkspace active={active === id} />}
           </Suspense>
         </section>)}
       {children}
       <Toaster />
     </div>
-    <Dialog open={accountOpen} onOpenChange={(open) => { setAccountOpen(open); if (!open) setToken(""); }}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>账户与连接</DialogTitle><DialogDescription>所有工作区共享登录会话，访问凭证仅保留在当前浏览器页面的内存中。</DialogDescription></DialogHeader>
-      {session ? <><p className="rounded-md border border-border bg-muted px-3 py-2 text-sm">{session.principal}</p><Button variant="outline" onClick={() => { setSessionToken(""); setSession(null); setAccountOpen(false); }}>退出登录</Button></> : <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void connectAccount(); }}><Input type="password" aria-label="个人访问凭证" autoComplete="off" placeholder="输入个人访问凭证" disabled={accountBusy} value={token} onChange={(event) => setToken(event.target.value)} /><Button type="submit" className="w-full" disabled={accountBusy || !token.trim()}>{accountBusy ? "正在连接…" : "连接知识库"}</Button></form>}
-      {accountError && <p role="alert" className="text-sm text-destructive">{accountError}</p>}
-    </DialogContent></Dialog>
+    <AccountDialog open={accountOpen} onOpenChange={setAccountOpen} session={session} onSession={setSession} />
   </div></NavigationContext.Provider>;
 }
 

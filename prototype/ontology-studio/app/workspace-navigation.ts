@@ -5,6 +5,8 @@ export const workspaces = [
   { id: "templates", href: "/templates", label: "专家模板", description: "编排流程与沉淀经验", title: "专家流程模板工作台" },
   { id: "extraction", href: "/extraction", label: "抽取配置", description: "说明卡、术语与抽取方案", title: "抽取配置工作台" },
   { id: "changesets", href: "/changesets", label: "变更审核", description: "审批、应用与发布", title: "变更审核工作区" },
+  { id: "inbox", href: "/inbox", label: "我的待审", description: "按风险排列待我处理的提案", title: "我的待审" },
+  { id: "agents", href: "/agents", label: "Agent 管理", description: "登记 Agent、凭证与接入配置", title: "Agent 管理" },
   { id: "overview", href: "/overview", label: "定义总览", description: "注册目录与使用说明", title: "定义总览" },
 ] as const;
 

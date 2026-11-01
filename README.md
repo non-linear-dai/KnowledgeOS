@@ -118,6 +118,8 @@ See [docs/extraction.md](docs/extraction.md) for the compatibility protocol used
 See [docs/extraction-v2.md](docs/extraction-v2.md) for extraction protocol v2: contract, source registration, acceptance rules, normalization, proposals and queues, with a worked example in `docs/examples/extraction-v2/`.
 See [docs/agent-service.md](docs/agent-service.md) for the Agent/LLM request, tool, grounding, and response protocol.
 See [docs/authoring-assistant.md](docs/authoring-assistant.md) for model-assisted authoring in Studio: the deterministic `/v1/authoring` contract (context, standard instructions, dry-run checks), the optional `knowledgeos-assistant` gateway, and how assistant-written drafts stay inside ChangeSet review. The kernel itself never calls a model.
+
+See [docs/agent-collaboration-mcp.md](docs/agent-collaboration-mcp.md) for multi-agent access: local accounts and registered agents with scoped credentials, accountability-chain review independence and the personal self-review policy, the governance event cursor, and the `knowledgeos-mcp` adapter (loopback HTTP and stdio) with ready-made configuration for Claude Code, Claude Desktop, Cursor, Kimi Code and Codex.
 See [docs/python-backend.md](docs/python-backend.md) for migration and validation commands.
 See [docs/knowledgeos-v3.5-guide.html](docs/knowledgeos-v3.5-guide.html) for a Chinese, diagram-rich V3.5 architecture and Ontology Studio user guide.
 See [docs/units-formulas-fx.md](docs/units-formulas-fx.md) for physical units, currencies, source-backed FX, bound empirical formulas, and Studio review behavior.

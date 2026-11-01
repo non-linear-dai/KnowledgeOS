@@ -4,5 +4,6 @@ declare namespace Cloudflare {
     BUCKET?: R2Bucket;
     KNOWLEDGEOS_API_BASE_URL?: string;
     KNOWLEDGEOS_ASSISTANT_BASE_URL?: string;
+    KNOWLEDGEOS_MCP_BASE_URL?: string;
   }
 }

@@ -6,9 +6,12 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ path?: string[] }> };
 
 const allowedRoutes: Record<string, Set<string>> = {
-  GET: new Set(["/v1/logic", "/v1/logic/runs", "/v1/instances/get", "/v1/instances", "/v1/get", "/v1/history", "/v1/neighbors", "/v1/semantics", "/v1/semantics/export", "/v1/semantics/evaluate", "/v1/semantics/history", "/health", "/v1/session", "/v1/studio", "/v1/changesets", "/v1/models/history", "/v1/templates", "/v1/templates/get", "/v2/extraction/assets", "/v2/extraction/feedback", "/v1/authoring/tasks", "/v1/authoring/feedback"]),
-  POST: new Set(["/v1/logic/preview", "/v1/logic/propose", "/v1/logic/run", "/v1/logic/replay", "/v1/ontology/request", "/v1/ontology/preview", "/v1/ontology/propose", "/v1/semantics/impact", "/v1/semantics/vocabulary/propose", "/v1/changesets/review-batch/preview", "/v1/changesets/review-batch", "/v1/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose", "/v2/extraction/assets/preview", "/v2/extraction/assets/propose", "/v1/authoring/context", "/v1/authoring/check"]),
+  GET: new Set(["/v1/logic", "/v1/logic/runs", "/v1/instances/get", "/v1/instances", "/v1/get", "/v1/history", "/v1/neighbors", "/v1/semantics", "/v1/semantics/export", "/v1/semantics/evaluate", "/v1/semantics/history", "/health", "/v1/session", "/v1/studio", "/v1/changesets", "/v1/models/history", "/v1/templates", "/v1/templates/get", "/v2/extraction/assets", "/v2/extraction/feedback", "/v1/authoring/tasks", "/v1/authoring/feedback", "/v1/auth/status", "/v1/events", "/v1/inbox", "/v1/participants", "/v1/participants/policy"]),
+  POST: new Set(["/v1/logic/preview", "/v1/logic/propose", "/v1/logic/run", "/v1/logic/replay", "/v1/ontology/request", "/v1/ontology/preview", "/v1/ontology/propose", "/v1/semantics/impact", "/v1/semantics/vocabulary/propose", "/v1/changesets/review-batch/preview", "/v1/changesets/review-batch", "/v1/propose", "/v1/changesets/review", "/v1/changesets/apply", "/v1/changesets/publish", "/v1/models/preview", "/v1/business/preview", "/v1/business/impact", "/v1/business/evaluate", "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose", "/v2/extraction/assets/preview", "/v2/extraction/assets/propose", "/v1/authoring/context", "/v1/authoring/check", "/v1/auth/login", "/v1/auth/setup", "/v1/auth/logout", "/v1/auth/password", "/v1/participants/agents", "/v1/participants/update", "/v1/participants/credentials", "/v1/participants/credentials/revoke", "/v1/participants/policy"]),
 };
+
+// Sign-in endpoints are reached before a session token exists.
+const publicRoutes = new Set(["/health", "/v1/auth/status", "/v1/auth/login", "/v1/auth/setup"]);
 
 function json(status: number, body: Record<string, unknown>) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -30,7 +33,7 @@ async function forward(request: NextRequest, context: RouteContext) {
   }
   target.search = request.nextUrl.search;
   const authorization = request.headers.get("authorization");
-  if (!authorization?.match(/^Bearer\s+\S+$/i)) return json(401, { error: "请使用个人访问凭证登录", code: "AUTHENTICATION_REQUIRED" });
+  if (!publicRoutes.has(path) && !authorization?.match(/^Bearer\s+\S+$/i)) return json(401, { error: "请使用个人访问凭证登录", code: "AUTHENTICATION_REQUIRED" });
   if (request.method === "POST") {
     const origin = request.headers.get("origin");
     if (origin && origin !== request.nextUrl.origin) return json(403, { error: "不允许跨站写入" });
@@ -42,7 +45,8 @@ async function forward(request: NextRequest, context: RouteContext) {
     if (body && new TextEncoder().encode(body).byteLength > 1_048_576) return json(413, { error: "请求超过 1 MiB" });
     const upstream = await fetch(target, {
       method: request.method,
-      headers: { Accept: "application/json", Authorization: authorization,
+      headers: { Accept: "application/json", "X-KnowledgeOS-Client": "Studio",
+        ...(authorization ? { Authorization: authorization } : {}),
         ...(request.headers.get("content-type") ? { "Content-Type": request.headers.get("content-type")! } : {}) },
       body,
       signal: AbortSignal.timeout(30_000),
