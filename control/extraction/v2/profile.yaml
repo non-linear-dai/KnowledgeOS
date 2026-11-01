@@ -1,0 +1,88 @@
+# 抽取协议 v2 的服务端配置。KnowledgeOS 依据本文件生成契约、执行规范化与验收。
+# 本文件属于控制真源，修改后注册表指纹变化，基于旧契约的提交会被拒绝（CONTRACT_STALE）。
+format: knowledgeos.extraction-v2-profile.v1
+id: extraction_v2
+version: 1.0.0
+protocol_version: knowledgeos.extraction.v2
+
+# 只有日期、没有时区的原文时间按此偏移解释。
+default_utc_offset: "+08:00"
+
+# 这些概念由专门的工作台维护，不开放给文档抽取。
+excluded_concepts: [route_template, route_group, route_step, operation_template, decision_table, relation]
+
+limits:
+  max_blocks: 20000
+  max_instances: 500
+  max_fields_per_instance: 200
+  max_anchors_per_field: 12
+  max_quote_chars: 2000
+
+acceptance:
+  quote_match: normalized_exact
+  evidence_level: field
+  draft_instances: true
+  relations_between_new_instances: true
+  min_confidence: 0.5
+
+lexicon:
+  default_limit: 1000
+  max_limit: 10000
+
+# 新实例的 ID 前缀。
+identity_prefixes:
+  organization: org
+  market: market
+  product: product
+  project: project
+  task: task
+  decision: decision
+  equipment: equipment
+  exchange_quote: fx
+
+# 来源权威等级只由 document.origin.system 决定；Agent 声明的 document_type、issuer 不提升等级。
+source_authority:
+  default: research
+  systems:
+    dms: research
+    meeting: research
+    mail: research
+    web: web
+    erp: erp
+    pm: pm
+
+# 全局单位写法 → 注册单位。属性级 unit_aliases（见抽取说明卡）优先。
+unit_aliases:
+  瓦: W
+  瓦特: W
+  千瓦: kW
+  兆瓦: MW
+  千瓦时: kWh
+  度: kWh
+  小时: hour
+  h: hour
+  hr: hour
+  分钟: minute
+  min: minute
+  秒: second
+  s: second
+  焦耳: J
+
+# 币种写法 → 注册币种。¥ 可能是人民币或日元，故不登记，需写明币种。
+currency_aliases:
+  元: CNY
+  人民币: CNY
+  人民币元: CNY
+  RMB: CNY
+  CNY: CNY
+  "￥": CNY
+  美元: USD
+  美金: USD
+  USD: USD
+  "US$": USD
+  "$": USD
+  欧元: EUR
+  EUR: EUR
+  "€": EUR
+  日元: JPY
+  JPY: JPY

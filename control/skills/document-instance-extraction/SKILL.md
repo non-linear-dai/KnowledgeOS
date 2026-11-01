@@ -29,7 +29,14 @@ metadata:
 
 ### 1. 获取契约（contract）
 
-用 `contract_request` 获取契约。已知文档类型时带上 `document_type`，否则按调用方给出的领域取子集。记住 `contract_id` 和 `registry_fingerprint`；后续任何一步收到 `CONTRACT_STALE`，都要重新获取契约并从第 4 步重来。
+用 `contract_request` 获取契约，`include` 中带上 `instructions`。已知文档类型时带上 `document_type`，否则按调用方给出的领域取子集。记住 `contract_id` 和 `registry_fingerprint`；后续任何一步收到 `CONTRACT_STALE`，都要重新获取契约并从第 4 步重来。
+
+契约中的 `instructions` 是 KnowledgeOS 按本 Skill 的阶段渲染好的标准说明（Markdown），内容来自已发布的本体与抽取说明卡：
+
+- 每个阶段的提示词使用 `instructions.sections` 中 `stage` 对应的段落：`all`（总要求，所有阶段都带上）、`route`、`mentions`、`consolidate`、`fill_fields`、`relations`、`rule_signals`、`precheck_and_repair`。
+- 分批处理时，用 `instructions.concepts.<概念>.mentions / consolidate / fill_fields` 只放入本批涉及的概念。
+- 不要自行改写这些段落或把结构化契约重新转写成提示词；需要确定性匹配（锚点、值模式、单位写法）时直接读结构化字段。
+- 把 `instructions.content_hash` 和 `renderer_version` 记入运行清单（`run.stages[].parameters_hash` 或适配层自己的记录），便于复现。
 
 ### 2. 解析为文档中间表示（parse）
 
@@ -60,7 +67,7 @@ metadata:
 
 ### 6. 识别提及（mentions）
 
-按章节（相同 `heading_path`）或单张表格分批，让 LLM 只做一件事：找出属于契约中概念的提及，输出概念 ID、原文片段和所在块。参考说明卡中的识别线索、正例、反例和边界说明。批次要小，不要把全文和全部概念一次交给模型。
+按章节（相同 `heading_path`）或单张表格分批，让 LLM 只做一件事：找出属于契约中概念的提及，输出概念 ID、原文片段和所在块。提示词中放入 `instructions` 的总要求与 `mentions` 段落（或本批概念的 `concepts.<概念>.mentions`），其中已包含说明卡的识别线索、正例、反例和边界说明。批次要小，不要把全文和全部概念一次交给模型。
 
 ### 7. 合并实例（consolidate）
 
@@ -71,7 +78,7 @@ metadata:
 
 ### 8. 填写字段（fill_fields）
 
-对每个实例，逐个属性检索最相关的块（该实例的提及附近、抽取方案映射到的表格、属性术语命中的位置），再让 LLM 提取取值。规则如下：
+对每个实例，逐个属性检索最相关的块（该实例的提及附近、抽取方案映射到的表格、属性术语命中的位置），再让 LLM 提取取值。提示词中放入该概念的 `concepts.<概念>.fill_fields` 段落。规则如下：
 
 - `value.raw` 必须**逐字复制**自原文，并且包含在某个 `role=value` 的锚点引文中；单位原文放 `unit_raw`。
 - **不做任何换算或规范化**：不换单位，不把“约 5 万元”改写成 50000，不推算相对日期。规范化由 KnowledgeOS 完成。可以用 `agent_hint` 给出自己的理解，但它不参与验收。

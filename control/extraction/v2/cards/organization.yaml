@@ -1,0 +1,31 @@
+format: knowledgeos.extraction-card.v1
+concept: organization
+card_version: 1.0.0
+card:
+  definition:
+    zh: "企业、供应商或合作伙伴等具有独立身份的组织。"
+    en: "An enterprise, supplier or partner with its own identity."
+  recognition_cues: [供应商, 厂商, 公司, 集团, 有限公司, Ltd., Inc.]
+  positive_examples:
+    - {text: Acme（Acme Industrial Systems Ltd.）表示……, note: 简称与法定名称同时出现时合并为一个实例}
+  negative_examples:
+    - {text: 采购部, note: 企业内部部门不是独立组织实例}
+  boundary_notes: [“该公司”“上述供应商”等指代需合并到被指代的实例，记入 mentions。]
+  typical_locations: [会议纪要参会方, 合同首部, 评审结论]
+terms:
+  alt: [供应商, 厂商, 公司, 合作伙伴]
+identity:
+  keys:
+    - source: natural_key
+      patterns: [{id: organization_code, pattern: "^[A-Z][A-Z0-9-]{2,63}$", description: 大写字母开头的组织编码}]
+  minimum_fields: []
+properties:
+  legal_name:
+    terms: {pref: {zh: 法定名称}, alt: [公司全称, 注册名称, 全称]}
+  country:
+    terms: {pref: {zh: 国家或地区}, alt: [国家, 地区, 所在地]}
+  finding:
+    terms: {pref: {zh: 研究发现}, alt: [发现]}
+  lead_time_days:
+    terms: {pref: {zh: 交期}, alt: [交货期, 标准交期, 供货周期, 交付周期]}
+    unit_aliases: {天: calendar_days, 日: calendar_days, 自然日: calendar_days, 个自然日: calendar_days}

@@ -218,7 +218,7 @@ def test_decision_records_are_in_paired_backup_and_replay_after_index_rebuild(wo
     service.close()
     destination = tmp_path / "paired-backup"
     manifest = backup(config, destination)
-    assert manifest["durable_schema_version"] == 5
+    assert manifest["durable_schema_version"] == 6
     for path in config.runtime.glob("knowledge.*.db*"):
         path.unlink()
     restore(config, destination)

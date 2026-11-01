@@ -1,0 +1,13 @@
+format: knowledgeos.extraction-recipe.v1
+id: supplier_review_minutes
+version: 1.0.0
+document_types: [supplier_review_minutes]
+match:
+  title_patterns: ["供应商.*评审", "[Ss]upplier [Rr]eview"]
+  source_kinds: [meeting_minutes]
+mappings:
+  - {selector: {kind: key_value_label, pattern: "^(物料号|料号)$"}, concept: product, role: instance_key}
+  - {selector: {kind: table_header, pattern: "^(标准)?交期$"}, concept: product, role: field, predicate: lead_time_days}
+  - {selector: {kind: table_header, pattern: "^(单价|标准成本)$"}, concept: product, role: field, predicate: unit_cost}
+  - {selector: {kind: heading, pattern: "设备要求"}, concept: equipment, role: instance_label}
+  - {selector: {kind: key_value_label, pattern: "^供应商$"}, concept: organization, role: instance_label}

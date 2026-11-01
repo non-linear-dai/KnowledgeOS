@@ -1,0 +1,33 @@
+format: knowledgeos.extraction-card.v1
+concept: equipment
+card_version: 1.0.0
+card:
+  definition:
+    zh: "具有可计量参数的具体设备、测试台或机台。"
+    en: "A concrete piece of equipment, test bench or machine with measured parameters."
+  recognition_cues: [设备, 测试台, 机台, 设备编号, 铭牌]
+  positive_examples:
+    - {text: 3号测试台（设备编号 EQ-TB-03）额定功率 7.5kW, note: 有编号或名称的具体设备}
+  negative_examples:
+    - {text: 用于 X1 出厂检验的测试台额定功率不得低于5kW, note: 泛指一类设备的要求是规则信号，不是设备实例}
+  boundary_notes: [“不得低于”“必须”等规范性表述记为 rule_signals，不要建设备实例。]
+  typical_locations: [设备台账, 验收报告, 技术协议设备要求]
+terms:
+  pref: {zh: 设备}
+  alt: [设备, 测试台, 机台]
+identity:
+  keys:
+    - source: natural_key
+      patterns: [{id: equipment_code, pattern: "^EQ-[A-Z0-9-]{2,60}$", description: 设备编号}]
+  minimum_fields: []
+properties:
+  rated_power:
+    terms: {pref: {zh: 额定功率}, alt: [功率, 铭牌功率]}
+  acquisition_cost:
+    terms: {pref: {zh: 购置成本}, alt: [购置价, 采购价格, 原值]}
+  residual_value:
+    terms: {pref: {zh: 残值}, alt: [预计残值]}
+  useful_life_hours:
+    terms: {pref: {zh: 使用寿命}, alt: [设计寿命, 寿命工时]}
+  utilization_factor:
+    terms: {pref: {zh: 利用率}, alt: [稼动率, 开动率]}

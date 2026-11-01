@@ -1,0 +1,22 @@
+format: knowledgeos.extraction-card.v1
+concept: decision
+card_version: 1.0.0
+card:
+  definition:
+    zh: "受治理的业务或研究决策。"
+    en: "A governed business or research decision."
+  recognition_cues: [决定, 决议, 评审结论, 批准]
+terms:
+  pref: {zh: 决策}
+  alt: [决定, 决议]
+identity:
+  keys: [{source: natural_key}]
+  minimum_fields: []
+properties:
+  summary:
+    terms: {pref: {zh: 概述}, alt: [决策内容]}
+  finding:
+    terms: {pref: {zh: 研究发现}, alt: [依据, 结论]}
+  risk_level:
+    terms: {pref: {zh: 风险等级}, alt: [风险]}
+    enum_map: {低: low, 中: medium, 中等: medium, 高: high, 严重: critical}

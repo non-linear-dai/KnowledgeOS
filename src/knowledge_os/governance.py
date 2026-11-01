@@ -120,6 +120,24 @@ class ChangePlan:
             if previous and tuple(map(int, vocabulary["version"].split("."))) <= tuple(map(int, previous["data"]["version"].split("."))):
                 raise ValidationError("vocabulary updates require a higher semantic version")
             documents[name] = {"data": copy.deepcopy(vocabulary), "body": ""}
+        elif isinstance(patch, dict) and patch.get("op") == "extraction_asset":
+            from .extraction_v2 import asset_path, asset_version, validate_asset, _version_key
+            kind, document = patch.get("kind"), patch.get("document")
+            if operations:
+                raise ValidationError("extraction assets cannot include Studio operations")
+            validate_asset(self.service.registry, kind, document)
+            name = asset_path(kind, document)
+            if set(documents) != {name}:
+                raise ValidationError("extraction asset path must match its kind and id")
+            previous = documents[name]
+            if previous:
+                try:
+                    newer = _version_key(asset_version(kind, document)) > _version_key(asset_version(kind, previous["data"]))
+                except ValueError:
+                    newer = True
+                if not newer:
+                    raise ValidationError("extraction asset updates require a higher semantic version")
+            documents[name] = {"data": copy.deepcopy(document), "body": ""}
         elif isinstance(patch, dict) and patch.get("op") == "studio_batch":
             if not operations:
                 raise ValidationError("studio batch requires operations")
@@ -198,7 +216,7 @@ class ChangePlan:
 
     def apply_approved_control(self, target_source, patch, operations, expected):
         """Materialize reviewed Studio control definitions into the Git checkout."""
-        semantic = isinstance(patch, dict) and patch.get("op") == "semantic_control"
+        semantic = isinstance(patch, dict) and patch.get("op") in ("semantic_control", "extraction_asset")
         if not semantic and (not isinstance(patch, dict) or patch.get("op") != "studio_batch" or not operations):
             raise ValidationError("direct source application requires a Studio ChangeSet")
         allowed = {"concept": "ontology", "relation": "ontology", "predicate": "predicates",

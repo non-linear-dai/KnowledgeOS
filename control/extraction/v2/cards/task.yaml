@@ -1,0 +1,22 @@
+format: knowledgeos.extraction-card.v1
+concept: task
+card_version: 1.0.0
+card:
+  definition:
+    zh: "项目中可跟踪的任务或里程碑。"
+    en: "A trackable task or milestone within a project."
+  recognition_cues: [任务, 里程碑, 节点, 交付物]
+terms:
+  alt: [里程碑, 节点]
+identity:
+  keys: [{source: natural_key}]
+  minimum_fields: []
+properties:
+  summary:
+    terms: {pref: {zh: 概述}, alt: [任务说明]}
+  task_status:
+    terms: {pref: {zh: 任务状态}, alt: [状态, 进展]}
+    enum_map: {未开始: not_started, 进行中: in_progress, 推进中: in_progress, 阻塞: blocked, 受阻: blocked, 已完成: completed, 完成: completed, 已取消: cancelled, 取消: cancelled}
+  risk_level:
+    terms: {pref: {zh: 风险等级}, alt: [风险, 风险级别]}
+    enum_map: {低: low, 低风险: low, 中: medium, 中等: medium, 中风险: medium, 高: high, 高风险: high, 严重: critical, 极高: critical}

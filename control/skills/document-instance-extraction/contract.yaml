@@ -13,6 +13,8 @@ protocol:
   produces: [contract_request, source_document, extraction_submission]
   consumes: [extraction_contract, source_receipt, validation_report]
   offsets: unicode_code_points
+  # 契约请求带 include: [instructions] 时，KnowledgeOS 返回按下列阶段渲染的标准说明，各平台直接放入提示词。
+  instructions: {format: knowledgeos.extraction-instructions.v1, request_include: instructions, sections_by_stage: true}
 
 inputs:
   required: [source_material]

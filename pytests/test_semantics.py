@@ -210,7 +210,7 @@ def test_competency_regression_and_skill_acceptance(service, workspace):
 
 def test_backup_manifest_revision_retained_and_future_rejected(service, workspace, tmp_path):
     service.close(); folder = tmp_path / 'backup'; manifest = backup(Config(workspace), folder)
-    assert manifest['application_version'] == '4.0.0' and manifest['durable_schema_version'] == 5
+    assert manifest['application_version'] == '4.0.0' and manifest['durable_schema_version'] == 6
     manifest['durable_schema_version'] = 99; (folder / 'manifest.json').write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValidationError, match='newer'):
         restore(Config(workspace), folder)

@@ -504,7 +504,7 @@ class Service:
             risk = "high"
         operations = operations or []
         if any((operation.get("targetKind") or operation.get("target_kind")) in ("schema", "model", "unit", "currency", "business_constraint", "business_rule") for operation in operations) or any(
-            path.strip().startswith(("control/schemas/", "control/models/", "control/units/", "control/currencies/", "control/constraints/business/", "control/rules/business/", "control/vocabularies/", "control/semantics/")) for path in target_source.split(",")
+            path.strip().startswith(("control/schemas/", "control/models/", "control/units/", "control/currencies/", "control/constraints/business/", "control/rules/business/", "control/vocabularies/", "control/semantics/", "control/extraction/")) for path in target_source.split(",")
         ):
             risk = "high"
         plan = ChangePlan(self)
@@ -834,6 +834,10 @@ class Service:
                          "retrieval_profiles": self.registry.retrieval_profiles, "schemas": self.registry.schemas,
                          "connectors": self.registry._public(self.registry.connectors),
                          "extraction_profiles": self.registry._public(self.registry.extraction_profiles),
+                         "extraction_v2": {"profile": {k: v for k, v in self.registry.extraction_v2["profile"].items() if not k.startswith("_")},
+                                           "cards": self.registry._public(self.registry.extraction_v2["cards"]),
+                                           "recipes": self.registry._public(self.registry.extraction_v2["recipes"]),
+                                           "warnings": list(self.registry.extraction_v2["warnings"])},
                          "extensions": {"constraints": list(self.registry._public(self.registry.constraints).values()),
                                         "rules": list(self.registry._public(self.registry.rules).values()),
                                         "skills": list(self.registry.skills.values())},
@@ -924,6 +928,67 @@ class Service:
         return self.propose(actor=actor, target_source=candidate["target_source"], patch=candidate["operations"],
                             reason=reason, risk="high" if resolved_id else "normal", base_revision=candidate["base_revision"],
                             idempotency_key=idempotency_key, extraction=binding)
+
+    # Extraction protocol v2 (docs/extraction-v2.md). data is the protocol message itself.
+
+    def _extraction_v2(self):
+        self.refresh_registry()
+        from .extraction_v2 import ExtractionV2
+        return ExtractionV2(self)
+
+    def extraction_v2_contract(self, request):
+        data = self._extraction_v2().contract(request)
+        return envelope(data, source={"class": "git_authored", "registry_fingerprint": data["registry_fingerprint"]},
+                        quality={"write_performed": False})
+
+    def extraction_v2_register(self, message, *, actor):
+        data = self._extraction_v2().register_source(message, actor)
+        return envelope(data, source={"class": "extraction_source", "source_id": data["document_id"],
+                                      "content_hash": data["content_hash"]},
+                        quality={"stored": data["stored"], "facts_at_risk": len(data.get("facts_at_risk") or [])})
+
+    def extraction_v2_precheck(self, submission):
+        data = self._extraction_v2().evaluate(submission, propose=False)
+        return envelope(data, quality={"status": data["status"], "write_performed": False},
+                        traces=[submission["source"]["document_id"]])
+
+    def extraction_v2_submit(self, submission, *, actor):
+        data = self._extraction_v2().evaluate(submission, actor=actor, propose=True)
+        return envelope(data, quality={"status": data["status"], "changesets": len(data.get("changesets") or []),
+                                       "write_performed": bool(data.get("changesets"))},
+                        traces=[submission["source"]["document_id"]])
+
+    def extraction_v2_assets(self):
+        return envelope(self._extraction_v2().assets(), source={"class": "git_authored", "roots": ["control/extraction/v2"]})
+
+    def extraction_v2_asset_preview(self, *, kind, document, samples=None, sample_text=None):
+        return envelope(self._extraction_v2().asset_preview(kind, document, samples=samples, sample_text=sample_text),
+                        quality={"preview_only": True, "write_performed": False})
+
+    def extraction_v2_asset_propose(self, *, kind, document, reason, actor, base_revision=None, idempotency_key=None):
+        from .extraction_v2 import asset_path, validate_asset
+        engine = self._extraction_v2()
+        validate_asset(self.registry, kind, document)
+        label = {"profile": "抽取配置", "card": "抽取说明卡", "recipe": "抽取方案"}[kind]
+        name = document.get("concept") or document.get("id") or "profile"
+        if kind == "card" and name in engine.concepts:
+            name = f"{engine.concepts[name].get('label') or name}（{name}）"
+        version = document.get("card_version") if kind == "card" else document.get("version")
+        return self.propose(actor=actor, target_source=asset_path(kind, document),
+                            patch={"op": "extraction_asset", "kind": kind, "document": document}, reason=reason, risk="high",
+                            title=f"{label}：{name} v{version}", base_revision=base_revision, idempotency_key=idempotency_key)
+
+    def extraction_v2_feedback(self, concept=None, since=None, until=None):
+        from .extraction_feedback import Feedback
+        data = Feedback(self._extraction_v2()).build(concept=concept or None, since=since or None, until=until or None)
+        return envelope(data, quality={"write_performed": False, "open_suggestions": data["totals"]["open_suggestions"]})
+
+    def extraction_v2_queue(self, kind=None, status="open", limit=100):
+        return envelope(self._extraction_v2().queue(kind, status, limit))
+
+    def extraction_v2_source(self, document_id, version=None):
+        data = self._extraction_v2().source(document_id, version)
+        return envelope(data, source={"class": "extraction_source", "source_id": document_id})
 
     def studio(self):
         from .domain_scope import domain_scope, domain_definition_ids
