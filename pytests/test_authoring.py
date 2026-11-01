@@ -345,3 +345,21 @@ def test_instruction_examples_are_valid_and_pass_their_cases(service):
     template = EXAMPLES["template.interview"]["template"]
     from knowledge_os.templates import TemplateWorkbench
     assert TemplateWorkbench(service).preview(template, template["cases"][0])["matches_expected"] is True
+
+
+def test_workbench_catalogs_tolerate_entity_changesets_from_extraction(service, workspace):
+    """Extraction proposals store JSON Patch lists; logic, template and authoring views must still load."""
+    seed_feedback(service, workspace)
+    from knowledge_os.core import Config
+    from knowledge_os.logic_workbench import LogicWorkbench
+    from knowledge_os.service import Service
+    fresh = Service(Config(workspace))
+    try:
+        assert any(isinstance(json.loads(row["patch_json"]), list) for row in fresh.db.execute("SELECT patch_json FROM changeset"))
+        assert "assets" in LogicWorkbench(fresh).catalog()
+        assert "templates" in fresh.template_catalog()["data"]
+        assert fresh.changesets()["data"]
+        assert Authoring(fresh).context("template.interview", {"conversation": [{"role": "expert", "content": "先蚀刻再压合"}]})["context"]["published_operations"] is not None
+        assert Authoring(fresh).feedback()["tasks"] == []
+    finally:
+        fresh.close()

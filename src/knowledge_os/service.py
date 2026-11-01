@@ -752,7 +752,8 @@ class Service:
         templates, operations, published_templates, published_operations = set(), set(), set(), set()
         for row in self.db.execute("SELECT status,patch_json FROM changeset"):
             patch = json.loads(row["patch_json"])
-            if patch.get("op") != "template_package":
+            # Entity ChangeSets (e.g. extraction proposals) carry a JSON Patch list.
+            if not isinstance(patch, dict) or patch.get("op") != "template_package":
                 continue
             spec = patch["template"]
             template_id = f"route:{spec['id']}:{spec['version']}"
@@ -785,6 +786,8 @@ class Service:
         pending, published = set(), set()
         for row in self.db.execute("SELECT status,patch_json FROM changeset"):
             patch = json.loads(row["patch_json"])
+            if not isinstance(patch, dict):
+                continue  # entity ChangeSets carry a JSON Patch list
             if patch.get("op") == "template_package":
                 refs = {f"decision:{d['id']}:{d['version']}" for d in patch["template"].get("decisions", [])}
                 (published if row["status"] == "published" else pending).update(refs)
@@ -818,7 +821,7 @@ class Service:
                                      (actor, idempotency_key))
             if existing:
                 patch = json.loads(existing["patch_json"])
-                if patch.get("op") != "template_package" or patch.get("template") != template or existing["reason"] != reason:
+                if not isinstance(patch, dict) or patch.get("op") != "template_package" or patch.get("template") != template or existing["reason"] != reason:
                     raise ConflictError("idempotency key was already used with different content")
                 return envelope({"id": existing["id"], "status": existing["status"],
                                  "target_source": existing["target_source"], "base_revision": existing["base_revision"]})
