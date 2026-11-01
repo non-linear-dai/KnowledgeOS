@@ -33,7 +33,7 @@ from .logic_workbench import LogicWorkbench, contains_expected, public
 from .similarity import similar_concepts, similar_predicates
 
 PROTOCOL = "knowledgeos.authoring.v1"
-RENDERER_VERSION = "1.0.0"
+RENDERER_VERSION = "1.1.0"
 TASKS = {
     "logic.draft": "业务逻辑起草（决策表、匹配规则、业务约束）",
     "ontology.model": "本体建模起草（概念、属性、关系）",
@@ -640,6 +640,8 @@ TASK_RULES = {
     "ontology.model": [
         "优先复用已有概念和属性：列表中 names 是业务人员和抽取说明卡使用的中文叫法。含义相同就复用，不要新建近义属性。",
         "model_output 必须符合 knowledgeos.ontology-assist.v1：request_id 使用输入中给出的值；每个操作的 evidence 引用 segment_id \"material:1\" 中的原文。",
+        "operations 每项写成 {\"operation\": {\"type\": \"create|update|deprecate\", \"targetKind\": \"concept|predicate|relation\", \"targetId\": 标识, \"after\": 完整定义}, \"evidence\": [...]}；after 的 id、kind 必须与 targetId、targetKind 一致（写法见示例）。",
+        "属性定义的 source_path 写 control/predicates/<标识>.yaml；概念与关系写入 control/ontology/core.yaml；概念用 bindings 绑定属性。",
         "新属性需要完整的值与策略配置（value_type、cardinality、storage_mode、authority、freshness、provenance_tier、temporal、evidence、history、write），参照 definition_examples 中的写法；数量型属性必须声明 dimension 与 units。",
         "先注册属性再绑定到概念；不要写入任何业务实例事实。",
         "notes 中逐项说明每个操作的理由；如复用了已有定义，在 reused 中列出其标识。",
@@ -659,7 +661,27 @@ TASK_RULES = {
     ],
 }
 
+ONTOLOGY_EXAMPLE_MATERIAL = "伺服模组由无框力矩电机和谐波减速器组成。每个部件需要记录其所属层级，例如部件、零件或材料。"
 EXAMPLES = {
+    "ontology.model": {"note": f"示例材料：「{ONTOLOGY_EXAMPLE_MATERIAL}」；request_id 必须换成输入中给出的值，quote 必须摘自你收到的材料原文。",
+                       "draft": {"protocol_version": PROTOCOL, "task": "ontology.model", "summary": "新增“部件”概念与“部件层级”属性，用于记录整机分解的层级。",
+                                 "model_output": {"protocol_version": "knowledgeos.ontology-assist.v1", "request_id": "<输入中的 request_id>", "operations": [
+                                     {"operation": {"type": "create", "targetKind": "predicate", "targetId": "component_level", "after": {
+                                         "id": "component_level", "kind": "predicate", "label": "部件层级", "description": "部件在整机分解中的层级：子系统、部件、零件或材料。",
+                                         "lifecycle": "active", "source_path": "control/predicates/component_level.yaml",
+                                         "config": {"value_type": "enum", "cardinality": "one", "allowed": ["subsystem", "component", "part", "material"],
+                                                    "dimension": None, "units": [], "default_unit": None, "minimum": None, "maximum": None,
+                                                    "storage_mode": "assertion", "authority": "git_authored", "embedding": False, "evidence": "required",
+                                                    "freshness": "stable", "history": "full", "provenance_tier": "B", "temporal": "optional", "write": "reviewed",
+                                                    "equivalent_to": None}}},
+                                      "evidence": [{"segment_id": "material:1", "quote": "每个部件需要记录其所属层级"}]},
+                                     {"operation": {"type": "create", "targetKind": "concept", "targetId": "component", "after": {
+                                         "id": "component", "kind": "concept", "label": "部件", "description": "整机分解得到的子系统、部件、零件或材料。",
+                                         "lifecycle": "active", "source_path": "control/ontology/core.yaml",
+                                         "bindings": [{"predicate_id": "component_level", "required": False, "cardinality": "one", "group": "profile"}]}},
+                                      "evidence": [{"segment_id": "material:1", "quote": "伺服模组由无框力矩电机和谐波减速器组成"}]}]},
+                                 "notes": [{"target_id": "component_level", "explanation": "材料要求记录层级，取值为固定的四档，用枚举。"},
+                                           {"target_id": "component", "explanation": "已有 product 表示可供应的产品；部件强调整机分解结构，按材料新建。", "reused": []}]}},
     "logic.draft": [{"kind": "decision_table", "definition": {
         "id": "size_equipment_class", "version": "1.0.0", "label": "按零件尺寸选择设备等级", "description": "尺寸不超过 300 mm 用小型设备，否则用大型设备",
         "hit_policy": "UNIQUE", "inputs": [{"id": "size", "label": "零件尺寸", "source": "facts", "field": "size", "type": "number"}],

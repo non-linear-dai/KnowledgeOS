@@ -14,13 +14,11 @@ from .core import AuthenticationError, AuthorizationError, ConflictError, NotFou
 from .service import Service
 
 
-ROLE_PERMISSIONS = {"reader": ["read"], "agent": ["read", "agent", "extract", "propose"],
-                    "reviewer": ["read", "review"], "publisher": ["read", "publish"],
-                    "template_author": ["read", "template_edit"],
-                    "template_reviewer": ["read", "template_review"],
-                    "template_publisher": ["read", "template_publish"],
-                    "admin": ["read", "agent", "extract", "propose", "review", "publish",
-                              "template_edit", "template_review", "template_publish"]}
+from .participants import ROLE_PERMISSIONS, permissions_for
+
+
+def permissions_of(principal):
+    return set(principal.get("permissions") or permissions_for(principal["roles"]))
 
 
 class AccessControl:
@@ -56,7 +54,8 @@ class AccessControl:
             entries[hashlib.sha256(token.encode()).hexdigest()] = {"id": definition["principal"], "roles": roles}
         return cls(entries)
 
-    def authenticate(self, header):
+    def authenticate(self, header, participants=None, client=None):
+        """Configured tokens first, then credentials issued to registered participants."""
         if not self.enabled:
             return {"id": "local:anonymous", "roles": ["admin"]}
         parts = (header or "").split(None, 1)
@@ -66,11 +65,15 @@ class AccessControl:
         for key, principal in self.entries.items():
             if hmac.compare_digest(key, hashed):
                 return principal
+        if participants is not None:
+            principal = participants.authenticate(parts[1].strip(), client)
+            if principal:
+                return principal
         raise AuthenticationError("invalid Bearer token")
 
     @staticmethod
     def authorize(principal, permission):
-        if permission not in {p for role in principal["roles"] for p in ROLE_PERMISSIONS[role]}:
+        if permission not in permissions_of(principal):
             raise AuthorizationError(f"principal {principal['id']} is not allowed to {permission}")
 
 
@@ -86,6 +89,9 @@ PERMISSIONS = {
     "/v1/templates/propose": "template_edit", "/v1/review": "review",
     "/v1/logic/run": "agent",
     "/v1/authoring/tasks": "read", "/v1/authoring/feedback": "read",
+    "/v1/events": "read", "/v1/inbox": "review", "/v1/auth/logout": "read", "/v1/auth/password": "read",
+    "/v1/participants": "manage", "/v1/participants/agents": "manage", "/v1/participants/update": "manage",
+    "/v1/participants/credentials": "manage", "/v1/participants/credentials/revoke": "manage", "/v1/participants/policy": "read",
     "/v2/extraction/contract": "read", "/v2/extraction/sources": "extract",
     "/v2/extraction/precheck": "extract", "/v2/extraction/submissions": "propose",
     "/v2/extraction/queue": "read", "/v2/extraction/source": "read",
@@ -100,7 +106,9 @@ POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/
              "/v1/logic/preview", "/v1/logic/propose", "/v1/logic/run", "/v1/logic/replay",
              "/v2/extraction/contract", "/v2/extraction/sources", "/v2/extraction/precheck", "/v2/extraction/submissions",
              "/v2/extraction/assets/preview", "/v2/extraction/assets/propose",
-             "/v1/authoring/context", "/v1/authoring/check"}
+             "/v1/authoring/context", "/v1/authoring/check", "/v1/auth/login", "/v1/auth/setup", "/v1/auth/logout", "/v1/auth/password",
+             "/v1/participants/agents", "/v1/participants/update", "/v1/participants/credentials", "/v1/participants/credentials/revoke"}
+PUBLIC = {"/v1/auth/status", "/v1/auth/login", "/v1/auth/setup"}
 AUTHORING = {"/v1/authoring/context", "/v1/authoring/check"}
 AUTHORING_PERMISSIONS = {"propose", "template_edit"}
 LARGE_BODY = {"/v2/extraction/sources": 16 * 1_048_576, "/v2/extraction/precheck": 8 * 1_048_576,
@@ -146,14 +154,20 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                 from . import __version__, __contract_version__
                 self._send(200, {"status": "ok", "version": __version__, "contract_version": __contract_version__, "nodes": service.db.first("SELECT count(*) AS count FROM node")["count"]})
                 return
-            principal = self.server.auth.authenticate(self.headers.get("Authorization"))
+            if path in PUBLIC:
+                self._public(path, service)
+                return
+            principal = self.server.auth.authenticate(self.headers.get("Authorization"), service.participants,
+                                                      self.headers.get("X-KnowledgeOS-Client"))
+            if path == "/v1/participants/policy" and self.command == "POST":
+                self.server.auth.authorize(principal, "manage")
             self.server.auth.authorize(principal, PERMISSIONS.get(path, "read"))
             if path in ("/v1/templates/preview", "/v1/templates/calculate"):
-                permissions = {permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]}
+                permissions = permissions_of(principal)
                 if not permissions.intersection({"template_edit", "template_review", "template_publish"}):
                     raise AuthorizationError("template preview requires expert template permission")
             if path in AUTHORING:
-                permissions = {permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]}
+                permissions = permissions_of(principal)
                 if not permissions & AUTHORING_PERMISSIONS:
                     raise AuthorizationError("authoring assistance requires proposal or expert template permission")
             if path in POST_ONLY and self.command != "POST":
@@ -165,7 +179,7 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                 if path.endswith("propose"):
                     self.server.auth.authorize(principal, "template_edit" if is_table else "propose")
                 elif is_table:
-                    permissions = {permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]}
+                    permissions = permissions_of(principal)
                     if not permissions.intersection({"template_edit", "template_review", "template_publish"}):
                         raise AuthorizationError("decision table preview requires expert template permission")
             with service.db.lock:
@@ -194,6 +208,26 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             print(f"KnowledgeOS API error: {type(exc).__name__}: {exc}", file=sys.stderr)
             self._send(500, {"error": "internal server error"}, principal)
+
+    def _public(self, path, service):
+        """Local account bootstrap and sign-in; no Bearer token yet."""
+        if path == "/v1/auth/status":
+            self._send(200, {"data": {"setup_required": service.participants.setup_required(), "policy_mode": service.participants.policy()["mode"]}})
+            return
+        if self.command != "POST":
+            self._send(405, {"error": "POST required"})
+            return
+        if not self.server.auth.enabled:
+            raise ValidationError("local accounts require authentication to be enabled")
+        body = self._body(16_384)
+        client = self.headers.get("X-KnowledgeOS-Client") or "Studio"
+        with service.db.lock:
+            if path == "/v1/auth/setup":
+                if self.client_address[0] not in ("127.0.0.1", "::1"):
+                    raise AuthorizationError("the first owner account can only be created from this computer")
+                service.participants.setup(username=body.get("username"), label=body.get("label"), password=body.get("password"))
+            session = service.participants.login(body.get("username"), body.get("password"), client)
+        self._send(201 if path == "/v1/auth/setup" else 200, {"data": session})
 
     def _body(self, limit=1_048_576):
         raw_length = self.headers.get("Content-Length")
@@ -248,6 +282,7 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self, path, p, body, principal):
         s = self.server.service
+        from .service import envelope
         if path.startswith("/v1/logic"):
             from .logic_workbench import LogicWorkbench
             from .service import envelope
@@ -278,8 +313,38 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
         if path == "/v1/authoring/feedback":
             return s.authoring_feedback()
         if path == "/v1/session":
-            return {"principal": principal["id"], "roles": principal["roles"],
-                    "permissions": list(dict.fromkeys(permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]))}
+            return {"principal": principal["id"], "roles": principal["roles"], "permissions": sorted(permissions_of(principal)),
+                    "kind": principal.get("kind"), "label": principal.get("label", principal["id"]), "owner": principal.get("owner"),
+                    "credential_kind": principal.get("credential_kind"), "policy": s.participants.policy()}
+        if path == "/v1/auth/logout":
+            if principal.get("credential_kind") == "session":
+                s.participants.revoke(principal["credential_id"], participant_id=principal["id"])
+            return {"data": {"signed_out": True}}
+        if path == "/v1/auth/password":
+            if principal.get("kind") != "human":
+                raise ValidationError("only local accounts have passwords")
+            return {"data": s.participants.change_password(principal["id"], body.get("current"), body.get("new"))}
+        if path == "/v1/events":
+            return s.events(p.get("after", 0), p.get("limit", 100))
+        if path == "/v1/inbox":
+            return s.inbox(principal["id"])
+        if path == "/v1/participants":
+            return envelope(s.participants.directory())
+        if path == "/v1/participants/policy":
+            if self.command == "POST":
+                return envelope(s.participants.set_policy(body.get("changes"), principal["id"]))
+            return envelope(s.participants.policy())
+        if path == "/v1/participants/agents":
+            owner = body.get("owner") or principal["id"]
+            return envelope(s.participants.create_agent(slug=body.get("id"), label=body.get("label"), owner=owner, roles=body.get("roles") or ["agent"],
+                                                        actor=principal["id"], host=body.get("host"), model=body.get("model"), description=body.get("description", "")))
+        if path == "/v1/participants/update":
+            return envelope(s.participants.update(self._required(body, "id"), body.get("changes"), principal["id"]))
+        if path == "/v1/participants/credentials":
+            return envelope(s.participants.issue(self._required(body, "participant_id"), label=body.get("label"), actor=principal["id"],
+                                                 scopes=body.get("scopes"), expires_in_days=body.get("expires_in_days")))
+        if path == "/v1/participants/credentials/revoke":
+            return envelope(s.participants.revoke(self._required(body, "id")))
         if path == "/v1/resolve":
             return s.resolve(self._required(p, "query"), p.get("scope"))
         if path == "/v1/control":
@@ -318,7 +383,9 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
         if path == "/v1/models/history":
             return s.model_history(self._required(p, "id"))
         if path == "/v1/changesets":
-            return s.changesets(p.get("status"), p.get("limit", 100))
+            result = s.changesets(p.get("status"), p.get("limit", 100))
+            s.annotate_changesets(result["data"], principal["id"])
+            return result
         if path == "/v1/get":
             return s.get(self._required(p, "id"), p.get("history") == "true")
         if path == "/v1/instances":

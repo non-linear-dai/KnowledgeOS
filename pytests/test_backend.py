@@ -485,7 +485,7 @@ def test_recorded_time_keeps_earlier_snapshot(service, workspace):
 
 def test_control_studio_and_portable_agent_skill(service, workspace):
     control = service.control_plane()["data"]
-    assert control["contract_version"] == "4.0"
+    assert control["contract_version"] == "4.5"
     assert len(control["ontology"]["concept_types"]) == 14
     assert len(control["ontology"]["relation_types"]) == 10
     assert len(control["predicates"]) == 34
@@ -600,7 +600,7 @@ def test_cli_emits_utf8_json_when_stream_encoding_is_legacy(workspace):
                                cwd=repository, capture_output=True, env=environment, timeout=60)
     assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
     output = completed.stdout.decode("utf-8")
-    assert json.loads(output)["data"]["contract_version"] == "4.0"
+    assert json.loads(output)["data"]["contract_version"] == "4.5"
     assert any("一" <= character <= "鿿" for character in output)
 
 
@@ -614,10 +614,10 @@ def test_python_cli_command_surface(workspace):
         return json.loads(completed.stdout)
     version = subprocess.run([sys.executable, str(entry), "--version"], cwd=repository,
                              capture_output=True, text=True, encoding="utf-8", timeout=20)
-    assert version.returncode == 0 and version.stdout.strip() == "4.0.0"
+    assert version.returncode == 0 and version.stdout.strip() == "4.5.0"
     assert run("doctor")["healthy"]
     assert run("rebuild")["files"] == 5
-    assert run("control")["data"]["contract_version"] == "4.0"
+    assert run("control")["data"]["contract_version"] == "4.5"
     assert run("get", "org:acme")["data"]["id"] == "org:acme"
     assert run("agent-request", "What does Acme make?", "--domain", "industry", "--target", "org:acme")["data"]["evidence"]
     assert run("calculate", "cost_rollup", "--inputs", '{"material_cost":100,"labor_hours":1.5,"labor_rate":20,"overhead":8}')["data"]["output"]["value"] == "138.0"

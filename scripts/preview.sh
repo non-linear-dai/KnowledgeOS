@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# KnowledgeOS 本地预览：准备运行环境，启动后端 API（8787）、编写助手网关（8790）与 Studio（5173），并打开浏览器。
+# KnowledgeOS 本地预览：准备运行环境，启动后端 API（8787）、编写助手网关（8790）、MCP 服务（8791）与 Studio（5173），并打开浏览器。
 # 用法：bash scripts/preview.sh   或在访达中双击仓库根目录的「启动KnowledgeOS预览.command」
 # 缺少 Python ≥ 3.10 或 Node.js ≥ 22.13 时，自动下载到 .preview-tools/（无需管理员权限，不修改系统设置）。
 # 适用于 macOS / Linux（bash 3.2 及以上）。按 Ctrl+C 或关闭窗口停止。
@@ -11,6 +11,7 @@ TOOLS="$ROOT/.preview-tools"
 LOGS="$ROOT/runtime/preview-logs"
 API_PORT=8787
 ASSISTANT_PORT=8790
+MCP_PORT=8791
 STUDIO_PORT=5173
 # 编写助手模型配置（可选）：runtime/assistant.env，例如
 #   KNOWLEDGEOS_ASSISTANT_PROVIDER=anthropic            # 或 openai_compatible
@@ -99,7 +100,7 @@ if curl -fsS -o /dev/null "http://localhost:$STUDIO_PORT/extraction" 2>/dev/null
   command -v open >/dev/null 2>&1 && open "http://localhost:$STUDIO_PORT/extraction"
   exit 0
 fi
-for port in $API_PORT $ASSISTANT_PORT $STUDIO_PORT; do
+for port in $API_PORT $ASSISTANT_PORT $MCP_PORT $STUDIO_PORT; do
   port_busy "$port" && fail "端口 $port 已被其他程序占用。请关闭占用它的程序后重试（终端中 lsof -i :$port 可查看）。"
 done
 
@@ -122,7 +123,8 @@ say "启动后端 API：http://127.0.0.1:$API_PORT"
 API_PID=$!
 STUDIO_PID=""
 ASSISTANT_PID=""
-cleanup() { [ -n "$STUDIO_PID" ] && kill "$STUDIO_PID" 2>/dev/null; [ -n "$ASSISTANT_PID" ] && kill "$ASSISTANT_PID" 2>/dev/null; kill "$API_PID" 2>/dev/null; wait 2>/dev/null; echo "stopped" > "$STATUS"; echo; echo "已停止预览。"; }
+MCP_PID=""
+cleanup() { [ -n "$STUDIO_PID" ] && kill "$STUDIO_PID" 2>/dev/null; [ -n "$ASSISTANT_PID" ] && kill "$ASSISTANT_PID" 2>/dev/null; [ -n "$MCP_PID" ] && kill "$MCP_PID" 2>/dev/null; kill "$API_PID" 2>/dev/null; wait 2>/dev/null; echo "stopped" > "$STATUS"; echo; echo "已停止预览。"; }
 trap 'cleanup' INT TERM HUP
 
 # --- Assistant gateway ----------------------------------------------------------
@@ -141,11 +143,17 @@ if [ -f "$ASSISTANT_ENV" ] && grep -q '^KNOWLEDGEOS_ASSISTANT_PROVIDER=' "$ASSIS
   ASSISTANT_MODE="$(sed -n 's/^KNOWLEDGEOS_ASSISTANT_PROVIDER=//p' "$ASSISTANT_ENV" | head -n 1) · $(sed -n 's/^KNOWLEDGEOS_ASSISTANT_MODEL=//p' "$ASSISTANT_ENV" | head -n 1)"
 fi
 
+# --- MCP adapter ----------------------------------------------------------------
+say "启动 MCP 服务：http://127.0.0.1:$MCP_PORT/mcp"
+KNOWLEDGEOS_API_BASE_URL="http://127.0.0.1:$API_PORT" "$ROOT/.venv/bin/knowledgeos-mcp" --port "$MCP_PORT" > "$LOGS/mcp.log" 2>&1 &
+MCP_PID=$!
+
 # --- Studio -------------------------------------------------------------------
 say "安装 Studio 依赖（首次约 2–4 分钟）"
 cd "$STUDIO"
 [ -f .env.local ] || cp .env.example .env.local
 grep -q '^KNOWLEDGEOS_ASSISTANT_BASE_URL=' .env.local || printf '\nKNOWLEDGEOS_ASSISTANT_BASE_URL=http://127.0.0.1:%s\n' "$ASSISTANT_PORT" >> .env.local
+grep -q '^KNOWLEDGEOS_MCP_BASE_URL=' .env.local || printf '\nKNOWLEDGEOS_MCP_BASE_URL=http://127.0.0.1:%s\n' "$MCP_PORT" >> .env.local
 if command -v pnpm >/dev/null 2>&1 && [ "$(pnpm --version 2>/dev/null)" = "11.25.0" ]; then PNPM="pnpm"; else PNPM="npx --yes pnpm@11.25.0"; fi
 $PNPM install --frozen-lockfile > "$LOGS/studio-install.log" 2>&1 || { tail -n 30 "$LOGS/studio-install.log"; cleanup; fail "Studio 依赖安装失败，详见 $LOGS/studio-install.log"; }
 
@@ -159,6 +167,7 @@ for _ in $(seq 1 150); do
   kill -0 "$API_PID" 2>/dev/null || { tail -n 30 "$LOGS/api.log"; cleanup; fail "后端 API 意外退出，详见 $LOGS/api.log"; }
   kill -0 "$STUDIO_PID" 2>/dev/null || { tail -n 30 "$LOGS/studio.log"; cleanup; fail "Studio 意外退出，详见 $LOGS/studio.log"; }
   kill -0 "$ASSISTANT_PID" 2>/dev/null || { tail -n 30 "$LOGS/assistant.log"; cleanup; fail "助手网关意外退出，详见 $LOGS/assistant.log"; }
+  kill -0 "$MCP_PID" 2>/dev/null || { tail -n 30 "$LOGS/mcp.log"; cleanup; fail "MCP 服务意外退出，详见 $LOGS/mcp.log"; }
   if curl -fsS "http://127.0.0.1:$API_PORT/health" >/dev/null 2>&1 && curl -fsS -o /dev/null "http://localhost:$STUDIO_PORT/extraction" 2>/dev/null; then READY=1; break; fi
   sleep 2
 done
@@ -170,9 +179,11 @@ cat <<EOF
 
 ✅ 预览已就绪
    地址：$URL
-   登录：点击左下角「账户与连接」，粘贴访问凭证
-     作者账号：local-admin-token
-     审核账号：local-reviewer-token（高风险提案需由另一身份批准）
+   登录：点击左下角「账户与连接」
+     首次使用：创建本机所有者账号（用户名 + 密码），之后用它登录、审核与审批
+     开发凭证（仍可用）：local-admin-token / local-reviewer-token（选择“使用访问凭证”）
+   Agent 接入：左侧「Agent 管理」登记 Agent、签发凭证，复制 Claude Code / Claude 桌面版 / Cursor / Kimi Code / Codex 的配置
+     MCP 服务：http://127.0.0.1:$MCP_PORT/mcp（仅本机）
    编写助手：$ASSISTANT_MODE
      在 /rules、/templates、/extraction 与本体白板「建模助手」中使用；配置真实模型见 runtime/assistant.env（说明见 docs/authoring-assistant.md）
    日志：$LOGS

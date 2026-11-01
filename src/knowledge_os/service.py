@@ -32,7 +32,9 @@ class Service:
         self.audit.flush()
         self.models = ModelEngine(self.registry, self.db, self.audit)
         from .agent import AgentService
+        from .participants import Participants
         self.agent = AgentService(self)
+        self.participants = Participants(self.db)
 
     def close(self):
         self.db.close()
@@ -509,6 +511,60 @@ class Service:
                          "proposal_metadata": json.loads(row["proposal_metadata_json"]) if row.get("proposal_metadata_json") else None})
         return envelope(data)
 
+    PUBLIC_EVENTS = ("agent_proposal", "changeset_approved", "changeset_rejected", "changeset_changes_requested",
+                     "changeset_source_applied", "changeset_published", "extraction_source_registered", "extraction_v2_submission",
+                     "git_publication", "semantic_revision_recorded", "model_revision_recorded")
+
+    def events(self, after=0, limit=100):
+        """Governance and publication events after a cursor; payloads stay in the ledger."""
+        try:
+            after, limit = int(after or 0), min(max(int(limit or 100), 1), 500)
+        except (TypeError, ValueError):
+            raise ValidationError("after and limit must be integers")
+        if after < 0:
+            raise ValidationError("after must be ≥ 0")
+        rows, head = self.ledger.since(after, event_types=self.PUBLIC_EVENTS, limit=limit)
+        events = [{"sequence": row["sequence"], "type": row["event_type"], "actor": row["actor"], "target_id": row["target_id"],
+                   "source_ref": row["source_ref"], "reason": row["reason"], "timestamp": row["timestamp"]} for row in rows]
+        has_more = len(events) == limit
+        # Without more public events everything up to the ledger head has been scanned.
+        return envelope({"events": events, "cursor": events[-1]["sequence"] if has_more else head, "has_more": has_more})
+
+    def annotate_changesets(self, items, principal_id):
+        """Add actor identity and the review governance that applies to this reviewer."""
+        cache = {}
+        def who(identifier):
+            if identifier not in cache:
+                found = self.participants.get(identifier)
+                cache[identifier] = {"kind": found["kind"] if found else None, "label": found["label"] if found else identifier,
+                                     "owner": found["owner"] if found else None, "accountable": self.participants.accountable(identifier),
+                                     "host": found["host"] if found else None, "model": found["model"] if found else None}
+            return cache[identifier]
+        for item in items:
+            item["actor_info"] = who(item["actor"])
+            if item["status"] in ("proposed", "review_required"):
+                item["governance"] = self.participants.review_decision(principal_id, item["actor"], item["risk"])
+        return items
+
+    def inbox(self, principal_id):
+        """Pending ChangeSets for one reviewer: what they may approve first, highest risk first."""
+        rows = []
+        for status in ("review_required", "proposed"):
+            rows.extend(self.changesets(status, 500)["data"])
+        items = self.annotate_changesets(rows, principal_id)
+        order = {"high": 0, "normal": 1, "low": 2}
+        items.sort(key=lambda item: (not item["governance"]["allowed"], order.get(item["risk"], 3), item["created_at"]))
+        mine = [item for item in items if self.participants.accountable(item["actor"]) == self.participants.accountable(principal_id)]
+        def summary(item):
+            # Keep the queue light: the patch kind is enough to categorize; details open in change review.
+            patch = item["patch"]
+            return {**{key: value for key, value in item.items() if key not in ("patch", "operations", "expected_json")},
+                    "patch": {"op": patch.get("op")} if isinstance(patch, dict) else {}, "operation_count": len(item["operations"])}
+        return envelope({"items": [summary(item) for item in items],
+                         "counts": {"total": len(items), "can_approve": sum(1 for item in items if item["governance"]["allowed"]),
+                                    "from_my_agents_or_me": len(mine)},
+                         "policy": self.participants.policy()})
+
     def propose(self, *, actor, target_source, patch, reason, risk="normal", title=None, operations=None,
                 base_revision=None, idempotency_key=None, extraction=None, proposal_metadata=None):
         if risk not in ("low", "normal", "high"):
@@ -565,15 +621,22 @@ class Service:
                 raise ValidationError(f"changeset in {row['status']} cannot be reviewed")
             if decision == "approved" and not row["expected_json"]:
                 raise ValidationError("approval requires a verifiable patch")
-            if decision == "approved" and row["risk"] == "high" and reviewer == row["actor"]:
-                raise ValidationError("high-risk changes require an independent reviewer")
+            governed = self.participants.review_decision(reviewer, row["actor"], row["risk"]) if decision == "approved" else {"allowed": True, "self_review": False}
+            if not governed["allowed"]:
+                raise ValidationError(governed["reason"])
             review_note = str(note or "").strip() or f"governance decision: {decision}"
+            if governed["self_review"]:
+                review_note = f"［个人模式自审］{review_note}"
             updated = self.db.write("UPDATE changeset SET status=?,reviewed_by=?,reviewed_at=?,review_note=?,lock_version=lock_version+1 WHERE id=? AND lock_version=?",
                                     (decision, reviewer, utcnow(), review_note, id, row["lock_version"]))
             if updated != 1:
                 raise ConflictError("ChangeSet changed concurrently")
             self.audit.stage(event_type="changeset_" + decision, actor=reviewer, target_id=id,
-                             source_ref=row["target_source"], reason="review decision", payload={"reviewer": reviewer, "note": review_note})
+                             source_ref=row["target_source"], reason="review decision", payload={"reviewer": reviewer, "note": review_note,
+                                                                                                  "self_review": governed["self_review"],
+                                                                                                  "approval_basis": governed.get("basis"),
+                                                                                                  "accountable_reviewer": self.participants.accountable(reviewer),
+                                                                                                  "accountable_actor": self.participants.accountable(row["actor"])})
         self.audit.flush()
         return envelope({"id": id, "status": decision,
                          "note": "Approval records governance only; apply the patch to the real source of truth, then compile."})
@@ -598,8 +661,11 @@ class Service:
             if decision == "approved":
                 if not row["expected_json"]:
                     blockers.append("缺少可验证的变更内容")
-                if row["risk"] == "high" and reviewer == row["actor"]:
-                    blockers.append("需由另一位审核人批准")
+                governed = self.participants.review_decision(reviewer, row["actor"], row["risk"])
+                if not governed["allowed"]:
+                    blockers.append(governed["reason"].split("（")[0])
+                elif governed["self_review"]:
+                    blockers.append("批量审核不支持自审，请逐条审核")
                 if ChangePlan(self).revision(row["target_source"]) != row["base_revision"]:
                     blockers.append("来源已变化，需要重新提交")
             items.append({"id": identifier, "title": row["title"] or row["reason"], "target_source": row["target_source"],
@@ -634,6 +700,7 @@ class Service:
         return envelope({"ids": ids, "status": decision, "automatic_approval": False})
 
     def publish_changeset(self, *, id, publisher, source_revision):
+        self.participants.assert_may_publish(publisher)
         plan = ChangePlan(self)
         row = self.db.first("SELECT * FROM changeset WHERE id=?", (id,))
         if not row:
@@ -709,6 +776,7 @@ class Service:
 
     def apply_changeset(self, *, id, publisher):
         """Write an approved standalone control definition or expert template package."""
+        self.participants.assert_may_publish(publisher)
         row = self.db.first("SELECT * FROM changeset WHERE id=?", (id,))
         if not row:
             raise NotFoundError(f"changeset not found: {id}")

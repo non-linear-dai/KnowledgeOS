@@ -124,4 +124,4 @@ KNOWLEDGEOS_ASSISTANT_API_KEY=...
 
 - 网关不保存会话；访谈记录只在页面内存中，刷新即清空。
 - 说明模板写在代码中（`authoring.py`），尚未作为可审核的控制资产维护。
-- 尚未提供英文说明、MCP 工具封装与流式输出。
+- 尚未提供英文说明与流式输出。外部 Agent 通过 MCP 使用同一套说明与检查，见 [多 Agent 接入](agent-collaboration-mcp.md)。

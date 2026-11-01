@@ -10,7 +10,17 @@ export type ChangeRecord = {
   operations: Record<string, unknown>[];
   patch: { op?: string; template?: ExpertTemplate; [key: string]: unknown };
   proposal_metadata?: { assistance?: DeclaredAssistance; [key: string]: unknown } | null;
+  /** Who proposed it: a person or an agent and the person accountable for it. */
+  actor_info?: ActorInfo;
+  /** How an approval by the current reviewer is governed (server decision). */
+  governance?: { allowed: boolean; reason: string | null; self_review: boolean; basis?: "independent" | "owner_of_agent" | "self_review" | null };
 };
+export type ActorInfo = { kind: "human" | "agent" | null; label: string; owner: string | null; accountable: string; host: string | null; model: string | null };
+export function actorText(change: Pick<ChangeRecord, "actor" | "actor_info">) {
+  const info = change.actor_info;
+  if (!info || info.kind !== "agent") return info?.label && info.label !== change.actor ? `${info.label}（${change.actor}）` : change.actor;
+  return `Agent · ${info.label}${info.owner ? `（负责人 ${info.owner.replace(/^user:/, "")}）` : ""}`;
+}
 export type DeclaredAssistance = {
   suggestion_id: string; task: string; provider: string; model: string; renderer_version?: string; instructions_hash: string;
   items_total?: number; items_accepted?: number; repair_rounds?: number; created_at?: string; modified_after_suggestion?: boolean;
@@ -24,20 +34,25 @@ export function isTemplateChange(change: ChangeRecord) {
   return change.target_source.split(",").some(path => /^(knowledge\/(templates|operations|decisions)\/)/.test(path.trim()));
 }
 export function isExtractionChange(change: ChangeRecord) {
-  return change.patch.op === "extraction_asset" || change.target_source.split(",").every(path => path.trim().startsWith("control/extraction/"));
+  return change.patch?.op === "extraction_asset" || change.target_source.split(",").every(path => path.trim().startsWith("control/extraction/"));
 }
 export function changeCategory(change: ChangeRecord) {
   if (isExtractionChange(change)) return "抽取配置";
-  if (change.patch.op === "logic_asset" || change.target_source.split(",").every(path => /^control\/(models|rules\/business|constraints\/business|decision-models)\//.test(path.trim()))) return "业务逻辑";
+  if (change.patch?.op === "logic_asset" || change.target_source.split(",").every(path => /^control\/(models|rules\/business|constraints\/business|decision-models)\//.test(path.trim()))) return "业务逻辑";
   return isTemplateChange(change) ? "专家模板" : change.target_source.split(",").every(path => path.trim().startsWith("control/")) ? "本体与定义" : "知识变更";
 }
 export function reviewAccess(change: ChangeRecord, session: UserSession | null) {
   const permissions = session?.permissions ?? [];
   const pending = ["proposed", "review_required"].includes(change.status);
   const reviewer = permissions.includes(isTemplateChange(change) ? "template_review" : "review");
+  const governed = change.governance;
+  const canApprove = pending && reviewer && (governed ? governed.allowed : !(change.risk === "high" && change.actor === session?.principal));
+  const approvalNote = !pending || !reviewer ? ""
+    : governed?.self_review ? "按个人模式审批策略，你可以自审此高风险变更；批准记录将标注“个人模式自审”。"
+    : governed?.basis === "owner_of_agent" && change.risk === "high" ? "个人模式：你是提交此提案的 Agent 的负责人，你的批准即为独立审核。"
+    : canApprove ? "" : (governed?.reason ?? "").replace(/（.*）$/, "") || "此高风险提案需要另一位审核人批准。";
   return {
-    canReview: pending && reviewer,
-    canApprove: pending && reviewer && !(change.risk === "high" && change.actor === session?.principal),
+    canReview: pending && reviewer, canApprove, approvalNote,
     canPublish: change.status === "approved" && permissions.includes(isTemplateChange(change) ? "template_publish" : "publish"),
   };
 }

@@ -345,6 +345,14 @@ def test_instruction_examples_are_valid_and_pass_their_cases(service):
     template = EXAMPLES["template.interview"]["template"]
     from knowledge_os.templates import TemplateWorkbench
     assert TemplateWorkbench(service).preview(template, template["cases"][0])["matches_expected"] is True
+    import copy
+    from knowledge_os.authoring import ONTOLOGY_EXAMPLE_MATERIAL
+    from knowledge_os.semantic_workbench import SemanticWorkbench
+    request = SemanticWorkbench(service).prepare(goal="部件层级", material=ONTOLOGY_EXAMPLE_MATERIAL)
+    output = copy.deepcopy(EXAMPLES["ontology.model"]["draft"]["model_output"])
+    output["request_id"] = request["request_id"]
+    preview = SemanticWorkbench(service).finalize(request=request, model_output=output)
+    assert preview["impact"]["compatible"] is True and preview["impact"]["issues"] == []
 
 
 def test_workbench_catalogs_tolerate_entity_changesets_from_extraction(service, workspace):

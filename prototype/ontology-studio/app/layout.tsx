@@ -3,7 +3,7 @@ import "./globals.css";
 import { KnowledgeWorkspace } from "./workspace-shell";
 
 export const metadata: Metadata = {
-  title: "KnowledgeOS 4.0 · 结构化知识工作台",
+  title: "KnowledgeOS 4.5 · 结构化知识工作台",
   description: "在独立工作区中建模本体、搜索实例与编排专家流程模板，追踪影响并通过 ChangeSet 治理变更。",
   icons: {
     icon: "/favicon.svg",
