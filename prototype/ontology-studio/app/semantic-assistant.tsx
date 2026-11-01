@@ -13,8 +13,12 @@ import { evaluateSemantics, exportSemantics, loadSemantics, ontologyPreview, ont
 import { OntologyDraftTab, SimilarDefinitions, type SimilarEntry } from './ontology-assistant';
 import { checkDraft as checkAuthoringDraft } from './assistant/assistant-api';
 
-export function SemanticAssistant({ open, onOpenChange, definitions, canPropose, onSubmitted }: { open: boolean; onOpenChange: (open: boolean) => void; definitions: OntologyDefinition[]; canPropose: boolean; onSubmitted: () => Promise<unknown> }) {
-  const [tab, setTab] = useState('model');
+export type AssistantTab = 'model' | 'draft' | 'terms' | 'checks';
+export function SemanticAssistant({ open, onOpenChange, definitions, canPropose, onSubmitted, initialTab = 'model' }: { open: boolean; onOpenChange: (open: boolean) => void; definitions: OntologyDefinition[]; canPropose: boolean; onSubmitted: () => Promise<unknown>; initialTab?: AssistantTab }) {
+  const [tab, setTab] = useState<string>(initialTab);
+  // Each entry point opens the assistant on its own tab.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
   const [summary, setSummary] = useState<SemanticSummary | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [label, setLabel] = useState(''); const [description, setDescription] = useState(''); const [identifier, setIdentifier] = useState('');

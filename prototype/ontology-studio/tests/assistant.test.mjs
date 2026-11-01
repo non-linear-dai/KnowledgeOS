@@ -98,3 +98,15 @@ test('Studio proxies expose authoring and assistant routes only', () => {
   assert.match(assistant, /POST: new Set\(\["\/v1\/assistant\/suggest"\]\)/);
   assert.match(assistant, /KNOWLEDGEOS_ASSISTANT_BASE_URL/);
 });
+
+test('ontology whiteboard exposes visible assistant entries', () => {
+  const source = readFileSync(new URL('../app/ontology-workspace.tsx', import.meta.url), 'utf8');
+  assert.match(source, /className="canvas-assistant-entry".*onClick=\{\(\) => openAssistant\("draft"\)\}><Sparkles \/>助手起草<\/Button>/);
+  assert.match(source, /aria-label="建模助手 · 助手起草".*><Sparkles \/><\/Button>/);
+  assert.match(source, /onAssist\("draft"\)\}><Sparkles \/>助手起草<\/Button>/);
+  assert.match(source, /openAssistant\("draft"\); setCommandOpen\(false\)/);
+  assert.doesNotMatch(source, /aria-label="建模助手".*><CircleHelp \/>/);
+  const assistant = readFileSync(new URL('../app/semantic-assistant.tsx', import.meta.url), 'utf8');
+  assert.match(assistant, /initialTab = 'model'/);
+  assert.match(assistant, /\['draft', '助手起草'\]/);
+});

@@ -57,3 +57,5 @@
 .assistant-metrics p { font-size: 11px; color: var(--muted-foreground); }
 .assistance-review h3 { display: flex; align-items: center; gap: 6px; }
 @media (max-width: 640px) { .assistant-transcript li { max-width: 100%; } .assistant-table th, .assistant-table td { white-space: normal; } }
+.canvas-assistant-entry { position: absolute; top: 16px; left: 50%; z-index: 30; transform: translateX(-50%); box-shadow: var(--shadow-float); }
+@media (max-width: 640px) { .canvas-assistant-entry { top: auto; bottom: 72px; } }
