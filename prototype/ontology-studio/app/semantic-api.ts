@@ -14,7 +14,7 @@ const post = <T,>(path: string, body: unknown) => request<{ data: T }>(path, { m
 export const loadSemantics = () => request<{ data: SemanticSummary }>('/v1/semantics');
 export const ontologyRequest = (goal: string, material: string) => post<OntologyRequest>('/v1/ontology/request', { goal, material });
 export const ontologyPreview = (request: OntologyRequest, model_output: JsonObject) => post<OntologyPreview>('/v1/ontology/preview', { request, model_output });
-export const ontologyPropose = (request: OntologyRequest, model_output: JsonObject, reason: string, idempotency_key: string) => post<{ id: string }>('/v1/ontology/propose', { request, model_output, reason, idempotency_key });
+export const ontologyPropose = (request: OntologyRequest, model_output: JsonObject, reason: string, idempotency_key: string, assistance?: Record<string, unknown>) => post<{ id: string }>('/v1/ontology/propose', { request, model_output, reason, idempotency_key, ...(assistance ? { assistance } : {}) });
 export const vocabularyPropose = (vocabulary: Vocabulary, base_revision: string, reason: string, idempotency_key: string) => post<{ id: string }>('/v1/semantics/vocabulary/propose', { vocabulary, base_revision, reason, idempotency_key });
 export const evaluateSemantics = () => request<{ data: { conforms: boolean; passed: number; total: number; cases: { id: string; question: string; passed: boolean }[] } }>('/v1/semantics/evaluate');
 export const exportSemantics = (format: 'turtle' | 'json-ld') => request<{ data: { content: string; triples: number } }>(`/v1/semantics/export?format=${format}`);

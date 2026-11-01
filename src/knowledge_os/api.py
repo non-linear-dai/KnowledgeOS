@@ -85,6 +85,7 @@ PERMISSIONS = {
     "/v1/models/preview": "propose", "/v1/business/preview": "propose", "/v1/business/impact": "propose",
     "/v1/templates/propose": "template_edit", "/v1/review": "review",
     "/v1/logic/run": "agent",
+    "/v1/authoring/tasks": "read", "/v1/authoring/feedback": "read",
     "/v2/extraction/contract": "read", "/v2/extraction/sources": "extract",
     "/v2/extraction/precheck": "extract", "/v2/extraction/submissions": "propose",
     "/v2/extraction/queue": "read", "/v2/extraction/source": "read",
@@ -98,7 +99,10 @@ POST_ONLY = {"/v1/agent/request", "/v1/agent/respond", "/v1/agent/invoke", "/v1/
              "/v1/templates/preview", "/v1/templates/calculate", "/v1/templates/propose",
              "/v1/logic/preview", "/v1/logic/propose", "/v1/logic/run", "/v1/logic/replay",
              "/v2/extraction/contract", "/v2/extraction/sources", "/v2/extraction/precheck", "/v2/extraction/submissions",
-             "/v2/extraction/assets/preview", "/v2/extraction/assets/propose"}
+             "/v2/extraction/assets/preview", "/v2/extraction/assets/propose",
+             "/v1/authoring/context", "/v1/authoring/check"}
+AUTHORING = {"/v1/authoring/context", "/v1/authoring/check"}
+AUTHORING_PERMISSIONS = {"propose", "template_edit"}
 LARGE_BODY = {"/v2/extraction/sources": 16 * 1_048_576, "/v2/extraction/precheck": 8 * 1_048_576,
               "/v2/extraction/submissions": 8 * 1_048_576}
 
@@ -148,6 +152,10 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                 permissions = {permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]}
                 if not permissions.intersection({"template_edit", "template_review", "template_publish"}):
                     raise AuthorizationError("template preview requires expert template permission")
+            if path in AUTHORING:
+                permissions = {permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]}
+                if not permissions & AUTHORING_PERMISSIONS:
+                    raise AuthorizationError("authoring assistance requires proposal or expert template permission")
             if path in POST_ONLY and self.command != "POST":
                 self._send(405, {"error": "POST required"}, principal)
                 return
@@ -254,12 +262,21 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                 if not isinstance(body.get("base_revision"), str) or not body["base_revision"]:
                     raise ValidationError("logic proposals require a catalog baseline")
                 return workbench.propose(actor=principal["id"], kind=body["kind"], definition=body["definition"],
-                                          reason=body["reason"], base_revision=body["base_revision"], idempotency_key=body.get("idempotency_key"))
+                                          reason=body["reason"], base_revision=body["base_revision"], idempotency_key=body.get("idempotency_key"),
+                                          assistance=body.get("assistance"))
             if path == "/v1/logic/run":
                 return envelope(workbench.run(ref=body["ref"], actor=principal["id"], facts=body.get("facts"), entity_bindings=body.get("entity_bindings"),
                                                as_of=body.get("as_of"), idempotency_key=body.get("idempotency_key")))
             if path == "/v1/logic/replay":
                 return envelope(workbench.replay(body["id"]), quality={"durable_write": False})
+        if path == "/v1/authoring/tasks":
+            return s.authoring_tasks()
+        if path == "/v1/authoring/context":
+            return s.authoring_context(task=body["task"], input=body.get("input"), include=body.get("include", ["instructions"]))
+        if path == "/v1/authoring/check":
+            return s.authoring_check(task=body["task"], draft=body["draft"], input=body.get("input"))
+        if path == "/v1/authoring/feedback":
+            return s.authoring_feedback()
         if path == "/v1/session":
             return {"principal": principal["id"], "roles": principal["roles"],
                     "permissions": list(dict.fromkeys(permission for role in principal["roles"] for permission in ROLE_PERMISSIONS[role]))}
@@ -284,7 +301,8 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
         if path == "/v1/ontology/preview":
             return s.ontology_preview(request=body["request"], model_output=body["model_output"])
         if path == "/v1/ontology/propose":
-            return s.ontology_propose(request=body["request"], model_output=body["model_output"], actor=principal["id"], reason=body["reason"], idempotency_key=body.get("idempotency_key"))
+            return s.ontology_propose(request=body["request"], model_output=body["model_output"], actor=principal["id"], reason=body["reason"],
+                                      idempotency_key=body.get("idempotency_key"), assistance=body.get("assistance"))
         if path == "/v1/semantics/vocabulary/propose":
             return s.vocabulary_propose(vocabulary=body["vocabulary"], actor=principal["id"], reason=body["reason"], base_revision=body["base_revision"], idempotency_key=body.get("idempotency_key"))
         if path == "/v1/changesets/review-batch/preview":
@@ -337,7 +355,7 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return s.template_calculate(body["template"], body["case"], body["scenario"])
         if path == "/v1/templates/propose":
             return s.template_propose(actor=principal["id"], template=body["template"],
-                                      reason=body["reason"], idempotency_key=body.get("idempotency_key"))
+                                      reason=body["reason"], idempotency_key=body.get("idempotency_key"), assistance=body.get("assistance"))
         if path == "/v1/business/preview":
             return s.preview_business(body["definition"], body["kind"], body["facts"])
         if path == "/v1/business/impact":
@@ -391,7 +409,8 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
                                                  sample_text=body.get("sample_text"))
         if path == "/v2/extraction/assets/propose":
             return s.extraction_v2_asset_propose(kind=body["kind"], document=body["document"], reason=body["reason"], actor=principal["id"],
-                                                 base_revision=body.get("base_revision"), idempotency_key=body.get("idempotency_key"))
+                                                 base_revision=body.get("base_revision"), idempotency_key=body.get("idempotency_key"),
+                                                 assistance=body.get("assistance"))
         if path == "/v2/extraction/queue":
             return s.extraction_v2_queue(p.get("kind"), p.get("status", "open"), p.get("limit", 100))
         if path == "/v2/extraction/source":

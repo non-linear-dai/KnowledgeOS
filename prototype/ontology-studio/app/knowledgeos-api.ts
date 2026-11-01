@@ -12,6 +12,8 @@ import { wireSnapshot, connectionFailure } from "./studio-contract";
 
 let sessionToken = "";
 export function setSessionToken(token: string) { sessionToken = token.trim(); }
+/** Authorization header for sibling Studio proxies (the assistant gateway uses the same personal token). */
+export function sessionAuthorization(): Record<string, string> { return sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}; }
 export class ApiError extends Error {
   constructor(message: string, public status: number, public code?: string) { super(message); }
   get connectionState() { return connectionFailure(this.status, this.code); }

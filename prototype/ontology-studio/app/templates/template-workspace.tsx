@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ArrowRight, Check, CheckCheck, CircleAlert, ClipboardPaste, Copy, FilePlus2, FlaskConical,
   BookOpen, Focus, GitBranch, GripVertical, Layers3, LibraryBig, Loader2, LockKeyhole, PanelLeftClose, PanelLeftOpen, PanelRightClose, Scan, Plus,
-  Redo2, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal, Trash2, Undo2, Workflow, X, Table2, Calculator, Diamond, ChevronDown, ChevronLeft, ChevronRight, ListTree, MoreHorizontal } from "lucide-react";
+  Redo2, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Undo2, Workflow, X, Table2, Calculator, Diamond, ChevronDown, ChevronLeft, ChevronRight, ListTree, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -22,6 +22,8 @@ import {DecisionEditor,DecisionBindingEditor} from './decision-editor';
 import {emptyDecision} from './decision-editing';
 import {workbenchExample} from './workbench-example';
 import { TemplateSubmitDialog } from "./template-submit-dialog";
+import { TemplateInterview } from "./template-interview";
+import type { Assistance } from "../assistant/assistant-api";
 import { RouteCanvas, type RouteFlow, type RoutePositions } from "./route-canvas";
 import { connectRoute, duplicateRouteAfter, duplicateRouteItems, insertRoutePlan, parseRoutePlan, patchRouteSteps, routeOutline, selectedRouteSteps, insertRouteSequence, moveRouteStep, nextRouteKey, removeRouteItems, routeScope } from "./route-editing";
 import { loadTemplate, loadTemplateCatalog, loadTemplateChangeSets, previewTemplate, submitTemplate, calculateTemplate,
@@ -49,6 +51,8 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
   const followedTemplate = useRef("");
   const [submitOpen, setSubmitOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [interviewOpen, setInterviewOpen] = useState(false);
+  const [assistance, setAssistance] = useState<Assistance | null>(null);
   const [tokenInput, setTokenInput] = useState("");
   const [catalog, setCatalog] = useState<Catalog>(emptyCatalog);
   const [changesets, setChangesets] = useState<TemplateChangeSet[]>([]);
@@ -121,7 +125,7 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
   const resolvedOperations=useMemo(()=>{const refs:Record<string,string[]>={};for(const item of preview?.instances??[])refs[item.step_key]=[...new Set([...(refs[item.step_key]??[]),item.operation_ref])];return refs;},[preview]);
 
   function resetHistory(next: ExpertTemplate) {
-    templateRef.current = next; setTemplate(next);
+    templateRef.current = next; setTemplate(next); setAssistance(null);
     history.current = { past: [], future: [] }; setHistoryCounts({ past: 0, future: 0 });
     setRestoredPositions(null); dragStart.current = null;
     setLayoutRevision((value) => value + 1); setPreview(null); setCostResult(null); setDraftId(null); setSelectedEdges([]); setSelectedIds([]); setCollapsedGroups([]); setOutlineSearch(""); setScopeSearch(""); setOperationEditor(null); setLibraryMode("insert");
@@ -165,6 +169,13 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
       setHistoryCounts({ past: history.current.past.length, future: 0 }); }
     setRestoredPositions(null); setLayoutRevision((value) => value + 1);
     setTimeout(() => void flow?.fitView({ padding: 0.2, maxZoom: 1, duration: 300 }), 150);
+  }
+  function applyInterview(next: ExpertTemplate, declared: Assistance) {
+    if (!editable) return;
+    commit(next); setAssistance(declared); setSelectedIds([]); setCaseId(next.cases[0]?.id ?? "basic");
+    setRestoredPositions(null); setLayoutRevision((value) => value + 1);
+    setTimeout(() => void flow?.fitView({ padding: 0.2, maxZoom: 1, duration: 300 }), 150);
+    toast.success("已应用访谈草稿；可撤销。请核对样例后提交审核");
   }
   function attempt(action: () => void) { try { action(); } catch (cause) { toast.error(cause instanceof Error ? cause.message : "操作失败"); } }
   function setPanel(value: Panel | null) {
@@ -332,7 +343,7 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
   async function submit(validatedTemplate: ExpertTemplate) {
     if (validatedTemplate !== templateRef.current) return;
     setBusy(true); setError("");
-    try { const result = await submitTemplate(validatedTemplate, reason, crypto.randomUUID()); setDraftId(result.id); await refresh(); setSubmitOpen(false); router.push("/changesets"); toast.success("已提交到统一变更队列"); }
+    try { const result = await submitTemplate(validatedTemplate, reason, crypto.randomUUID(), assistance ?? undefined); setDraftId(result.id); await refresh(); setSubmitOpen(false); router.push("/changesets"); toast.success("已提交到统一变更队列"); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "提交失败"); } finally { setBusy(false); } }
   const semanticChanges = sourceTemplate && editable ? [
     ...template.groups.filter((item) => !sourceTemplate.groups.some((old) => old.id === item.id)).map((item) => `新增工序组：${item.label}`),
@@ -385,6 +396,7 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
     <a className="skip-link" href="#template-workspace">跳到工艺工作区</a><h1 className="sr-only">专家流程模板工作台</h1>
     {!session && <div className="workspace-navigation-access"><NavigationToggle /></div>}
     <Dialog open={active && helpOpen} onOpenChange={setHelpOpen}><DialogContent><DialogHeader><DialogTitle>工艺白板快捷键</DialogTitle><DialogDescription>在空白处按住鼠标左键拖动可平移整个白板；按住 Shift 拖动可框选。点击名称直接编辑，拖动连接点建立前置关系。</DialogDescription></DialogHeader><div className="grid grid-cols-[1fr_auto] gap-3 text-sm"><span>新增工序 / 工序组</span><kbd>N / G</kbd><span>定位工序</span><kbd>⌘ / Ctrl K</kbd><span>复制并串联</span><kbd>⌘ / Ctrl ⇧ D</kbd><span>撤销 / 重做</span><kbd>⌘ Z / ⌘ ⇧ Z</kbd><span>专注工作区</span><kbd>⇧ F</kbd><span>目录 / 属性</span><kbd>[ / ]</kbd></div></DialogContent></Dialog>
+    {canEdit && <TemplateInterview open={active && interviewOpen} onOpenChange={setInterviewOpen} current={template} editable={editable} onApply={applyInterview} />}
     <TemplateSubmitDialog open={active && submitOpen} onOpenChange={setSubmitOpen} template={template} editable={editable} busy={busy} error={error} reason={reason} onReasonChange={setReason} semanticChanges={semanticChanges}
       onExpectedChange={(id, expected) => update(copy => { const sample = copy.cases.find(item => item.id === id); if (sample) sample.expected_operations = expected; })}
       onEditCase={id => { setCaseId(id); setSubmitOpen(false); setPanel("cases"); }} onSubmit={submit} />
@@ -401,6 +413,7 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
         <Button size="icon-sm" variant={panel === "templates" && leftPanelVisible ? "secondary" : "ghost"} aria-label="路线模板" title="路线模板" onClick={() => togglePanel("templates")}><Workflow /></Button>
         <Button size="icon-sm" variant={panel === "operations" && leftPanelVisible ? "secondary" : "ghost"} aria-label="标准工序库" title="标准工序库" onClick={() => { setLibraryMode("insert"); togglePanel("operations"); }}><LibraryBig /></Button>
         <Button size="icon-sm" variant={panel === "cases" && leftPanelVisible ? "secondary" : "ghost"} aria-label="案例试展开" title="案例试展开" onClick={() => togglePanel("cases")}><FlaskConical /></Button>
+        {canEdit && <Button size="icon-sm" variant={interviewOpen ? "secondary" : "ghost"} aria-label="工艺访谈助手" title="工艺访谈助手" onClick={() => setInterviewOpen(true)}><Sparkles /></Button>}
         {inspectorAvailable && <Button size="icon-sm" variant={showInspector ? "secondary" : "ghost"} aria-label={showInspector ? "隐藏工序属性" : "显示工序属性"} title="工序属性 · ]" aria-pressed={showInspector} onClick={() => togglePanel("properties")}><SlidersHorizontal /></Button>}
         {editable && <><span className="canvas-dock-separator" /><Button size="icon-sm" variant="ghost" aria-label="撤销" title="撤销 · ⌘ Z" disabled={!undoAvailable} onClick={() => undo()}><Undo2 /></Button><Button size="icon-sm" variant="ghost" aria-label="重做" title="重做 · ⌘ ⇧ Z" disabled={!redoAvailable} onClick={() => undo(true)}><Redo2 /></Button></>}
         <span className="canvas-dock-separator" />

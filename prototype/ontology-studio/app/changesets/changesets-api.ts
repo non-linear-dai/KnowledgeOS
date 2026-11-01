@@ -9,7 +9,16 @@ export type ChangeRecord = {
   published_by?: string | null; published_at?: string | null; publication?: unknown;
   operations: Record<string, unknown>[];
   patch: { op?: string; template?: ExpertTemplate; [key: string]: unknown };
+  proposal_metadata?: { assistance?: DeclaredAssistance; [key: string]: unknown } | null;
 };
+export type DeclaredAssistance = {
+  suggestion_id: string; task: string; provider: string; model: string; renderer_version?: string; instructions_hash: string;
+  items_total?: number; items_accepted?: number; repair_rounds?: number; created_at?: string; modified_after_suggestion?: boolean;
+};
+export function assistanceOf(change: ChangeRecord): DeclaredAssistance | null {
+  const value = change.proposal_metadata?.assistance;
+  return value && typeof value === "object" && typeof value.suggestion_id === "string" ? value : null;
+}
 export const changeStatusLabels: Record<string, string> = { proposed: "已提交", review_required: "待审核", approved: "已批准", changes_requested: "需修改", rejected: "已驳回", published: "已发布" };
 export function isTemplateChange(change: ChangeRecord) {
   return change.target_source.split(",").some(path => /^(knowledge\/(templates|operations|decisions)\/)/.test(path.trim()));

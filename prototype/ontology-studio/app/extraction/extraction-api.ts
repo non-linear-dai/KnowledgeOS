@@ -63,9 +63,9 @@ export async function loadFeedback(options: { concept?: string; since?: string }
   const query = new URLSearchParams(Object.entries(options).filter(([, value]) => value) as [string, string][]).toString();
   return (await request<{ data: ExtractionFeedback }>(`/v2/extraction/feedback${query ? `?${query}` : ""}`, { signal })).data;
 }
-export async function proposeAsset(kind: AssetKind, document: JsonRecord, reason: string, baseRevision?: string) {
+export async function proposeAsset(kind: AssetKind, document: JsonRecord, reason: string, baseRevision?: string, assistance?: Record<string, unknown>) {
   return (await request<{ data: { id: string; status: string; target_source: string } }>("/v2/extraction/assets/propose", { method: "POST",
-    body: JSON.stringify({ kind, document, reason, base_revision: baseRevision || undefined }) })).data;
+    body: JSON.stringify({ kind, document, reason, base_revision: baseRevision || undefined, ...(assistance ? { assistance } : {}) }) })).data;
 }
 
 // ---------------------------------------------------------------------------

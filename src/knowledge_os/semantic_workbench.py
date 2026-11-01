@@ -178,7 +178,9 @@ class SemanticWorkbench:
                 "request_id": request["request_id"], "registry_fingerprint": self.registry.fingerprint,
                 "impact": impact, "write_performed": False}
 
-    def propose(self, *, request, model_output, actor, reason, idempotency_key=None):
+    def propose(self, *, request, model_output, actor, reason, idempotency_key=None, assistance=None):
+        from .authoring import assistance_metadata
+        assisted = assistance_metadata(assistance, model_output) if assistance is not None else None
         proposal = self.finalize(request=request, model_output=model_output)
         if not proposal["impact"]["compatible"]:
             raise ValidationError("ontology proposal breaks existing contracts or data; resolve preview issues before submitting")
@@ -186,7 +188,8 @@ class SemanticWorkbench:
                                     target_source=proposal["target_source"], patch={"op": "studio_batch"},
                                     operations=proposal["operations"], risk="high", base_revision=proposal["registry_fingerprint"],
                                     idempotency_key=idempotency_key,
-                                    proposal_metadata={"kind": "ontology_assistance", "request_id": request["request_id"], "evidence": proposal["evidence"], "material_hash": digest(request["segments"]), "source_segments": request["segments"]})
+                                    proposal_metadata={"kind": "ontology_assistance", "request_id": request["request_id"], "evidence": proposal["evidence"], "material_hash": digest(request["segments"]), "source_segments": request["segments"],
+                                                       **({"assistance": assisted} if assisted else {})})
 
     def vocabulary_propose(self, *, vocabulary, actor, reason, base_revision, idempotency_key=None):
         from .semantic_contract import validate_vocabularies

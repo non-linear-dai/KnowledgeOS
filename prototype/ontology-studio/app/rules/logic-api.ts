@@ -21,8 +21,8 @@ export async function loadLogic(signal?: AbortSignal) { return (await request<{ 
 export async function previewLogic(kind: LogicKind, definition: LogicDocument, facts?: Record<string, unknown>, entity_bindings?: EntityBindings) {
   return (await request<{ data: LogicPreview }>("/v1/logic/preview", { method: "POST", body: JSON.stringify({ kind, definition, facts, entity_bindings }) })).data;
 }
-export async function proposeLogic(kind: LogicKind, definition: LogicDocument, reason: string, base_revision: string, idempotency_key: string) {
-  return (await request<{ data: { id: string } }>("/v1/logic/propose", { method: "POST", body: JSON.stringify({ kind, definition, reason, base_revision, idempotency_key }) })).data;
+export async function proposeLogic(kind: LogicKind, definition: LogicDocument, reason: string, base_revision: string, idempotency_key: string, assistance?: Record<string, unknown>) {
+  return (await request<{ data: { id: string } }>("/v1/logic/propose", { method: "POST", body: JSON.stringify({ kind, definition, reason, base_revision, idempotency_key, ...(assistance ? { assistance } : {}) }) })).data;
 }
 export async function runLogic(ref: string, idempotency_key: string, facts?: Record<string, unknown>, entity_bindings?: EntityBindings) {
   return (await request<{ data: LogicRun }>("/v1/logic/run", { method: "POST", body: JSON.stringify({ ref, facts, entity_bindings, idempotency_key }) })).data;

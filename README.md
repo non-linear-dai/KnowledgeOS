@@ -117,6 +117,7 @@ See [docs/architecture-v3.md](docs/architecture-v3.md) for the frozen design-to-
 See [docs/extraction.md](docs/extraction.md) for the compatibility protocol used by external extraction Agents and Skills; it is not a KnowledgeOS Studio product page.
 See [docs/extraction-v2.md](docs/extraction-v2.md) for extraction protocol v2: contract, source registration, acceptance rules, normalization, proposals and queues, with a worked example in `docs/examples/extraction-v2/`.
 See [docs/agent-service.md](docs/agent-service.md) for the Agent/LLM request, tool, grounding, and response protocol.
+See [docs/authoring-assistant.md](docs/authoring-assistant.md) for model-assisted authoring in Studio: the deterministic `/v1/authoring` contract (context, standard instructions, dry-run checks), the optional `knowledgeos-assistant` gateway, and how assistant-written drafts stay inside ChangeSet review. The kernel itself never calls a model.
 See [docs/python-backend.md](docs/python-backend.md) for migration and validation commands.
 See [docs/knowledgeos-v3.5-guide.html](docs/knowledgeos-v3.5-guide.html) for a Chinese, diagram-rich V3.5 architecture and Ontology Studio user guide.
 See [docs/units-formulas-fx.md](docs/units-formulas-fx.md) for physical units, currencies, source-backed FX, bound empirical formulas, and Studio review behavior.

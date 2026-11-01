@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { BarChart3, CircleAlert, FileText, FlaskConical, Loader2, Plus, RefreshCw, Search, Send, ShieldCheck, Trash2 } from "lucide-react";
+import { BarChart3, CircleAlert, FileText, FlaskConical, Loader2, Plus, RefreshCw, Search, Send, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "../workspace-session";
+import { CardAssistant, type CardAssistTarget } from "./card-assistant";
+import type { Assistance } from "../assistant/assistant-api";
 import { NavigationToggle } from "../workspace-navigation-context";
 import {
   applicable, applySuggestion, assetVersion, bumpVersion, cleanDraft, loadFeedback, percent, suggestionKinds, suggestionStatus, compareVersions, cueSegments, cueTypes, isStableId, lines, loadExtractionAssets, mapping,
@@ -276,7 +278,7 @@ function TrialPanel({ kind, properties, conceptId, draft, canPreview }: { kind: 
   </section>;
 }
 
-function SubmitBar({ kind, draft, original, revision, canPropose, onSubmitted, onVersion }: { kind: AssetKind; draft: Draft; original: Draft | null; revision: string; canPropose: boolean; onSubmitted: (id: string) => void; onVersion: (version: string) => void }) {
+function SubmitBar({ kind, draft, original, revision, canPropose, onSubmitted, onVersion, assistance }: { kind: AssetKind; draft: Draft; original: Draft | null; revision: string; canPropose: boolean; onSubmitted: (id: string) => void; onVersion: (version: string) => void; assistance?: Assistance }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]), [checked, setChecked] = useState(false);
@@ -290,7 +292,7 @@ function SubmitBar({ kind, draft, original, revision, canPropose, onSubmitted, o
   }
   async function submit() {
     setBusy(true); setErrors([]);
-    try { const created = await proposeAsset(kind, cleanDraft(kind, draft), reason.trim(), revision); setReason(""); setChecked(false); onSubmitted(created.id); }
+    try { const created = await proposeAsset(kind, cleanDraft(kind, draft), reason.trim(), revision, assistance); setReason(""); setChecked(false); onSubmitted(created.id); }
     catch (cause) { setErrors([cause instanceof Error ? cause.message : "提交失败"]); }
     finally { setBusy(false); }
   }
@@ -310,9 +312,9 @@ function SubmitBar({ kind, draft, original, revision, canPropose, onSubmitted, o
 }
 
 
-function FeedbackView({ feedback, assets, loading, error, concept, onConcept, onRefresh, onApply, onOpen }: {
+function FeedbackView({ feedback, assets, loading, error, concept, onConcept, onRefresh, onApply, onOpen, onAssist }: {
   feedback: ExtractionFeedback | null; assets: ExtractionAssets; loading: boolean; error: string; concept: string; onConcept: (value: string) => void;
-  onRefresh: () => void; onApply: (suggestion: Suggestion, choice: string) => void; onOpen: (suggestion: Suggestion) => void;
+  onRefresh: () => void; onApply: (suggestion: Suggestion, choice: string) => void; onOpen: (suggestion: Suggestion) => void; onAssist?: (concept: string, suggestionIds: string[]) => void;
 }) {
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [showClosed, setShowClosed] = useState(false);
@@ -337,11 +339,11 @@ function FeedbackView({ feedback, assets, loading, error, concept, onConcept, on
           <tbody>{feedback.versions.map(version => <tr key={version.registry_fingerprint}><td>{version.label}{version.current ? " · 当前" : ""}<small><code>{version.registry_fingerprint.slice(0, 10)}</code></small></td><td>{version.first_seen.slice(0, 10)}{version.last_seen.slice(0, 10) !== version.first_seen.slice(0, 10) ? ` 至 ${version.last_seen.slice(0, 10)}` : ""}</td><td>{version.submissions}</td><td>{percent(version.field_acceptance_rate)}</td><td>{version.normalization_failures}</td><td>{version.uncovered_cues}</td><td>{version.unmapped_facts}</td><td>{version.needs_resolution}</td></tr>)}</tbody></table>
       </section>
       <section className="change-section"><h3>按概念</h3>
-        <table className="extraction-table"><thead><tr><th>概念</th><th>实例（匹配/新建/草稿/待确认/拒绝）</th><th>字段（通过/拒绝）</th><th>常见问题</th></tr></thead>
+        <table className="extraction-table"><thead><tr><th>概念</th><th>实例（匹配/新建/草稿/待确认/拒绝）</th><th>字段（通过/拒绝）</th><th>常见问题</th>{onAssist && <th><span className="sr-only">助手</span></th>}</tr></thead>
           <tbody>{feedback.concepts.map(item => {
             const ok = ["accepted", "already_present", "conflict", "upstream_required"].reduce((sum, key) => sum + (item.fields[key] ?? 0), 0);
             const issues = Object.entries(item.issues).sort((a, b) => b[1] - a[1]).slice(0, 3);
-            return <tr key={item.concept}><td>{item.label}</td><td>{["matched", "new", "draft", "needs_resolution", "rejected"].map(key => item.instances[key] ?? 0).join(" / ")}</td><td>{ok} / {item.fields.rejected ?? 0}</td><td>{issues.map(([code, count]) => <small key={code}>{code} × {count}</small>)}</td></tr>;
+            return <tr key={item.concept}><td>{item.label}</td><td>{["matched", "new", "draft", "needs_resolution", "rejected"].map(key => item.instances[key] ?? 0).join(" / ")}</td><td>{ok} / {item.fields.rejected ?? 0}</td><td>{issues.map(([code, count]) => <small key={code}>{code} × {count}</small>)}</td>{onAssist && <td>{(feedback.suggestions ?? []).some(entry => entry.status === "open" && entry.concept === item.concept && entry.kind !== "currency_alias") && <Button size="sm" variant="outline" onClick={() => onAssist(item.concept, [])}><Sparkles />助手起草</Button>}</td>}</tr>;
           })}</tbody></table>
       </section>
       <section className="change-section"><h3>改进建议 <span>{suggestions.length} 项</span></h3>
@@ -359,6 +361,7 @@ function FeedbackView({ feedback, assets, loading, error, concept, onConcept, on
               {applicable(item) && <><select aria-label="选择对应项" value={choice} onChange={event => setChoices(current => ({ ...current, [item.id]: event.target.value }))}><option value="">{item.kind === "property_term" ? "加入哪个属性的叫法" : item.kind === "enum_alias" ? "对应的可选值" : item.kind === "currency_alias" ? "对应的币种" : "对应的注册单位"}</option>{item.action?.choices?.map(value => <option key={value} value={value}>{choiceLabel(value)}</option>)}</select>
                 <Button size="sm" disabled={!choice} onClick={() => onApply(item, choice)}><Plus />加入草稿</Button></>}
               {item.concept && <Button size="sm" variant="outline" onClick={() => onOpen(item)}>打开说明卡</Button>}
+              {item.concept && onAssist && item.kind !== "currency_alias" && <Button size="sm" variant="ghost" onClick={() => onAssist(item.concept!, [item.id])}><Sparkles />让助手处理</Button>}
             </div>}
           </li>;
         })}</ul>
@@ -399,6 +402,8 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
   const [feedbackConcept, setFeedbackConcept] = useState("");
   const [feedbackLoading, setFeedbackLoading] = useState(false), [feedbackError, setFeedbackError] = useState("");
   const [feedbackRevision, setFeedbackRevision] = useState(0);
+  const [assistTarget, setAssistTarget] = useState<CardAssistTarget | null>(null);
+  const [assisted, setAssisted] = useState<Record<string, Assistance>>({});
   const detailRef = useRef<HTMLElement>(null);
   const permissions = session?.permissions ?? [];
   const canPropose = permissions.includes("propose");
@@ -469,9 +474,17 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
     if (suggestion.kind === "currency_alias") select({ kind: "profile", id: "profile" });
     else if (suggestion.concept) select({ kind: "card", id: suggestion.concept }, suggestionTab(suggestion));
   }
-  function discard() { setDrafts(current => { const next = { ...current }; delete next[key]; return next; }); setEditorEpoch(value => value + 1); }
+  function forgetAssistance(itemKey: string) { setAssisted(current => { const next = { ...current }; delete next[itemKey]; return next; }); }
+  function discard() { setDrafts(current => { const next = { ...current }; delete next[key]; return next; }); forgetAssistance(key); setEditorEpoch(value => value + 1); }
+  function assist(conceptId: string, suggestionIds: string[]) { setAssistTarget({ concept: conceptId, label: assets?.concepts.find(item => item.id === conceptId)?.label ?? conceptId, suggestionIds }); }
+  function adoptCard(conceptId: string, card: JsonRecord, assistance: Assistance) {
+    const target: Selection = { kind: "card", id: conceptId }, targetKey = selectionKey(target);
+    setDrafts(current => ({ ...current, [targetKey]: structuredClone(card) })); setAssisted(current => ({ ...current, [targetKey]: assistance }));
+    setEditorEpoch(value => value + 1); select(target, "properties");
+    toast.success("已采纳助手草稿到说明卡；核对后检查并提交审核");
+  }
   function submittedProposal(id: string) {
-    setSubmitted({ key, id }); setDrafts(current => { const next = { ...current }; delete next[key]; return next; }); setEditorEpoch(value => value + 1); setRevision(value => value + 1);
+    setSubmitted({ key, id }); setDrafts(current => { const next = { ...current }; delete next[key]; return next; }); forgetAssistance(key); setEditorEpoch(value => value + 1); setRevision(value => value + 1);
     toast.success("已提交审核，等待独立审核人处理");
   }
   const text = query.trim().toLowerCase();
@@ -514,16 +527,16 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
         {view === "feedback" && assets ? <article className="change-detail outline-none" aria-label="抽取反馈" tabIndex={-1}>
           <div className="change-detail-topline"><span className="detail-navigation-access"><NavigationToggle /></span><Button className="change-back" size="sm" variant="ghost" onClick={() => setView("assets")}>返回目录</Button><span>抽取反馈</span><code>GET /v2/extraction/feedback</code></div>
           <FeedbackView feedback={feedback} assets={assets} loading={feedbackLoading} error={feedbackError} concept={feedbackConcept} onConcept={setFeedbackConcept}
-            onRefresh={() => setFeedbackRevision(value => value + 1)} onApply={applyFeedback} onOpen={openSuggestion} />
+            onRefresh={() => setFeedbackRevision(value => value + 1)} onApply={applyFeedback} onOpen={openSuggestion} onAssist={canPropose ? assist : undefined} />
         </article> :
         selection && assets && draft ? <article ref={detailRef} tabIndex={-1} className="change-detail outline-none" aria-label="抽取配置详情" onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setSelection(null); } }}>
           <div className="change-detail-topline"><span className="detail-navigation-access"><NavigationToggle /></span><Button className="change-back" size="sm" variant="ghost" onClick={() => setSelection(null)}>返回目录</Button><span>{selection.kind === "card" ? "抽取说明卡" : selection.kind === "recipe" ? "文档抽取方案" : "全局配置"}</span><code>{sourcePath}</code></div>
           <div className="change-detail-content">
             <div className="change-title">
-              <div className="flex flex-wrap items-center gap-2"><span className="neutral-badge">{file?.exists ? `当前 v${assetVersion(selection.kind, file.document)}` : "尚未创建"}</span>{dirty && <span className="neutral-badge">有未提交修改</span>}{concept?.excluded && <span className="neutral-badge">该概念不开放抽取</span>}</div>
+              <div className="flex flex-wrap items-center gap-2"><span className="neutral-badge">{file?.exists ? `当前 v${assetVersion(selection.kind, file.document)}` : "尚未创建"}</span>{dirty && <span className="neutral-badge">有未提交修改</span>}{assisted[key] && <span className="neutral-badge">助手起草</span>}{concept?.excluded && <span className="neutral-badge">该概念不开放抽取</span>}</div>
               <h2>{selection.kind === "card" ? concept?.label : selection.kind === "recipe" ? selection.id : "抽取协议 v2 全局配置"}</h2>
               <p>{selection.kind === "card" ? concept?.description || "维护 AI 识别这个概念时使用的说明、叫法、单位写法与身份规则。" : selection.kind === "recipe" ? "声明某类文档中哪些章节、表头或标签对应哪个概念与属性；不绑定具体解析器。" : "契约上限、验收口径、默认时区、新实例 ID 前缀、来源权威等级以及全局单位与币种写法。"}</p>
-              {selection.kind === "card" && <span><Link className="logic-link" href="/">在本体白板查看该概念</Link></span>}
+              {selection.kind === "card" && <span className="flex flex-wrap gap-3"><Link className="logic-link" href="/">在本体白板查看该概念</Link>{canPropose && <button type="button" className="logic-link" onClick={() => assist(selection.id, [])}><Sparkles size={13} aria-hidden="true" />让助手按抽取反馈起草</button>}</span>}
             </div>
             {pending.length > 0 && <div className="extraction-pending" role="note">{pending.map(item => <p key={item.id}>该文件有待处理的提案：<Link href={`/changesets?id=${encodeURIComponent(item.id)}`}>{item.title}</Link>（{item.status === "approved" ? "已批准，待发布" : "待审核"}）</p>)}</div>}
             {submitted?.key === key && <div className="extraction-pending" role="status"><p>已提交审核：<Link href={`/changesets?id=${encodeURIComponent(submitted.id)}`}>前往变更审核查看</Link>。批准、应用真源并验证发布后生效。</p></div>}
@@ -535,11 +548,12 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
               <details className="change-json"><summary>原始配置（提交内容预览）</summary><pre>{JSON.stringify(cleanDraft(selection.kind, draft), null, 2)}</pre></details>
               {dirty && <div className="change-actions"><Button type="button" variant="ghost" size="sm" onClick={discard}>放弃本项修改</Button></div>}
               <SubmitBar kind={selection.kind} draft={draft} original={file?.exists ? file.document : null} revision={file?.revision ?? ""} canPropose={canPropose}
-                onVersion={version => change(current => ({ ...current, [selection.kind === "card" ? "card_version" : "version"]: version }))} onSubmitted={submittedProposal} />
+                onVersion={version => change(current => ({ ...current, [selection.kind === "card" ? "card_version" : "version"]: version }))} onSubmitted={submittedProposal} assistance={assisted[key]} />
             </div>
           </div>
         </article> : <div className="change-empty"><FileText size={28} strokeWidth={1.3} /><h2>{loading ? "正在读取抽取配置…" : "选择说明卡或方案"}</h2><p>抽取说明卡告诉外部 Agent 如何在文档中识别概念与属性；方案声明文档位置与概念的对应关系。修改先检查、再提交审核，发布后进入抽取契约。</p></div>}
       </div>
+      <CardAssistant target={assistTarget} onClose={() => setAssistTarget(null)} canPropose={canPropose} onAdopt={adoptCard} />
     </>}
   </div>;
 }
