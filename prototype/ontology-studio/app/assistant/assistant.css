@@ -1,6 +1,20 @@
-/* Authoring assistant: side sheet, checks, case confirmation and interview transcript. */
-.assistant-sheet { padding: 0; }
-.assistant-sheet-head { border-bottom: 1px solid var(--border); padding-right: 3rem; }
+/* Authoring assistant: docked panel, checks, case confirmation and interview transcript. */
+/* The dock floats in the same slot as the details panel and does not block the canvas. */
+.assistant-dock { position: absolute; top: 16px; right: 16px; bottom: 16px; z-index: 40; display: flex; flex-direction: column; width: min(420px, calc(100% - 92px)); min-height: 0; overflow: hidden; border: 1px solid var(--border-strong); border-radius: .65rem; background: var(--card); box-shadow: var(--shadow-float); }
+.assistant-dock[hidden] { display: none; }
+.assistant-dock-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 48px; flex: none; border-bottom: 1px solid var(--border); padding: 0 8px 0 10px; }
+.assistant-dock-scroll { min-height: 0; flex: 1; overflow-y: auto; }
+.assistant-dock-intro { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px 0; }
+.assistant-dock-intro h2 { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
+.assistant-dock-intro p { font-size: 12px; line-height: 1.7; color: var(--muted-foreground); }
+.panel-tabs { display: flex; min-width: 0; gap: 2px; border-radius: 8px; background: var(--muted); padding: 2px; }
+.panel-tabs button { display: inline-flex; min-width: 0; max-width: 220px; align-items: center; gap: 5px; border-radius: 6px; padding: 4px 10px; font-size: 13px; color: var(--muted-foreground); }
+.panel-tabs button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.panel-tabs button:hover { color: var(--foreground); }
+.panel-tabs button[aria-selected=true] { background: var(--card); color: var(--foreground); font-weight: 500; box-shadow: 0 1px 2px rgb(15 23 42 / .08); }
+.panel-tabs button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.extraction-workspace { position: relative; }
+@media (max-width: 900px) { .assistant-dock { top: 10px; right: 10px; bottom: 10px; width: calc(100% - 20px); } }
 .assistant-sheet-body { display: flex; flex-direction: column; gap: 14px; padding: 16px; font-size: 13px; }
 .assistant-sheet-body textarea { font-size: 13px; line-height: 1.7; }
 .assistant-notice { display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); padding: 9px 11px; font-size: 12px; line-height: 1.7; color: var(--foreground); }
@@ -57,5 +71,4 @@
 .assistant-metrics p { font-size: 12px; color: var(--muted-foreground); }
 .assistance-review h3 { display: flex; align-items: center; gap: 6px; }
 @media (max-width: 640px) { .assistant-transcript li { max-width: 100%; } .assistant-table th, .assistant-table td { white-space: normal; } }
-.canvas-assistant-entry { position: absolute; top: 16px; left: 50%; z-index: 30; transform: translateX(-50%); box-shadow: var(--shadow-float); }
-@media (max-width: 640px) { .canvas-assistant-entry { top: auto; bottom: 72px; } }
+

@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ArrowRight, Check, CheckCheck, CircleAlert, ClipboardPaste, Copy, FilePlus2, FlaskConical,
   BookOpen, Focus, GitBranch, GripVertical, Layers3, LibraryBig, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Scan, Plus,
-  Redo2, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Undo2, Workflow, X, Table2, Calculator, Diamond, ChevronDown, ChevronLeft, ChevronRight, ListTree, MoreHorizontal } from "lucide-react";
+  Redo2, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal, Trash2, Undo2, Workflow, X, Table2, Calculator, Diamond, ChevronDown, ChevronLeft, ChevronRight, ListTree, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { NavigationToggle } from "../workspace-navigation-context";
+import { WorkspaceTitleBar, useAssistantShortcut } from "../workspace-title-bar";
+import { PanelTabs } from "../assistant/assistant-panel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +55,7 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
   const [submitOpen, setSubmitOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
+  const toggleInterview = useCallback(() => setInterviewOpen(value => !value), []);
   const [assistance, setAssistance] = useState<Assistance | null>(null);
   const [catalog, setCatalog] = useState<Catalog>(emptyCatalog);
   const [changesets, setChangesets] = useState<TemplateChangeSet[]>([]);
@@ -93,6 +96,7 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
   const [historyCounts, setHistoryCounts] = useState({ past: 0, future: 0 });
 
   const canEdit = Boolean(session?.permissions.includes("template_edit"));
+  useAssistantShortcut(active && canEdit, toggleInterview);
   const canReview = Boolean(session?.permissions.includes("template_review"));
   const canPublish = Boolean(session?.permissions.includes("template_publish"));
   const editable = canEdit && !readOnly;
@@ -345,7 +349,7 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
   async function submit(validatedTemplate: ExpertTemplate) {
     if (validatedTemplate !== templateRef.current) return;
     setBusy(true); setError("");
-    try { const result = await submitTemplate(validatedTemplate, reason, crypto.randomUUID(), assistance ?? undefined); setDraftId(result.id); await refresh(); setSubmitOpen(false); router.push("/changesets"); toast.success("已提交到统一变更队列"); }
+    try { const result = await submitTemplate(validatedTemplate, reason, crypto.randomUUID(), assistance ?? undefined); setDraftId(result.id); await refresh(); setSubmitOpen(false); router.push(`/changesets?${new URLSearchParams({ id: result.id })}`); toast.success("已提交审核"); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "提交失败"); } finally { setBusy(false); } }
   const semanticChanges = sourceTemplate && editable ? [
     ...template.groups.filter((item) => !sourceTemplate.groups.some((old) => old.id === item.id)).map((item) => `新增工序组：${item.label}`),
@@ -395,14 +399,19 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
     }}
     onPaste={(event) => { if (!editable || (event.target as HTMLElement).closest("input,textarea")) return;
       const value = event.clipboardData.getData("text"); if (value.trim()) { event.preventDefault(); setSequenceText(value); setPanel("sequence"); } }}>
-    <a className="skip-link" href="#template-workspace">跳到工艺工作区</a><h1 className="sr-only">专家流程模板工作台</h1>
+    <a className="skip-link" href="#template-workspace">跳到工艺工作区</a>{!session && <h1 className="sr-only">专家流程模板工作台</h1>}
     {!session && <div className="workspace-navigation-access"><NavigationToggle /></div>}
     <Dialog open={active && helpOpen} onOpenChange={setHelpOpen}><DialogContent><DialogHeader><DialogTitle>工艺白板快捷键</DialogTitle><DialogDescription>在空白处按住鼠标左键拖动可平移整个白板；按住 Shift 拖动可框选。点击名称直接编辑，拖动连接点建立前置关系。</DialogDescription></DialogHeader><div className="grid grid-cols-[1fr_auto] gap-3 text-sm"><span>新增工序 / 工序组</span><kbd>N / G</kbd><span>定位工序</span><kbd>⌘ / Ctrl K</kbd><span>复制并串联</span><kbd>⌘ / Ctrl ⇧ D</kbd><span>撤销 / 重做</span><kbd>⌘ Z / ⌘ ⇧ Z</kbd><span>专注工作区</span><kbd>⇧ F</kbd><span>目录 / 属性</span><kbd>[ / ]</kbd></div></DialogContent></Dialog>
-    {canEdit && <TemplateInterview open={active && interviewOpen} onOpenChange={setInterviewOpen} current={template} editable={editable} onApply={applyInterview} />}
     <TemplateSubmitDialog open={active && submitOpen} onOpenChange={setSubmitOpen} template={template} editable={editable} busy={busy} error={error} reason={reason} onReasonChange={setReason} semanticChanges={semanticChanges}
       onExpectedChange={(id, expected) => update(copy => { const sample = copy.cases.find(item => item.id === id); if (sample) sample.expected_operations = expected; })}
       onEditCase={id => { setCaseId(id); setSubmitOpen(false); setPanel("cases"); }} onSubmit={submit} />
-    {!session ? <SignInPrompt icon={<Workflow size={25} strokeWidth={1.4} />} title="专家模板">登录后用工艺白板编排标准路线。模板编写、独立审核和发布按角色授权。</SignInPrompt> : <div id="template-workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
+    {!session ? <SignInPrompt icon={<Workflow size={25} strokeWidth={1.4} />} title="专家模板">登录后用工艺白板编排标准路线。模板编写、独立审核和发布按角色授权。</SignInPrompt> : <><WorkspaceTitleBar title="工艺模板" context={<button className="workspace-titlebar-crumb" aria-label="模板名称与设置" title="模板名称与设置" onClick={() => setPanel("settings")}><strong>{template.label}</strong><small>v{template.version} · {readOnly ? "已发布" : "草稿"}</small></button>}
+      assistant={canEdit ? { open: interviewOpen, onToggle: toggleInterview, label: "工艺访谈助手" } : undefined}>
+      {canEdit && <Button size="sm" disabled={busy || !editable || Boolean(draftId)} onClick={() => { setError(""); setSubmitOpen(true); }}><Save />提交模板变更</Button>}
+    </WorkspaceTitleBar>
+    <div id="template-workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
+      {canEdit && <TemplateInterview open={active && interviewOpen} onOpenChange={setInterviewOpen} current={template} editable={editable} onApply={applyInterview}
+        detail={inspectorAvailable ? { label: selectedGroup?.label ?? selectedStep?.label ?? "工序属性", onShow: () => { setInterviewOpen(false); dispatchLayout({ type: "open", side: "right" }); } } : undefined} />}
       <div className="canvas-dock" role="toolbar" aria-label="工艺白板工具" aria-orientation="vertical">
         <NavigationToggle />
         {editable && <ToolHint label="下一工序" shortcut="N"><Button size="icon-sm" aria-label="下一工序" onClick={() => append(selected || undefined)}><Plus /></Button></ToolHint>}
@@ -410,11 +419,9 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
         <ToolHint label="路线模板"><Button size="icon-sm" variant={panel === "templates" && leftPanelVisible ? "secondary" : "ghost"} aria-label="路线模板" onClick={() => togglePanel("templates")}><Workflow /></Button></ToolHint>
         <ToolHint label="标准工序库"><Button size="icon-sm" variant={panel === "operations" && leftPanelVisible ? "secondary" : "ghost"} aria-label="标准工序库" onClick={() => { setLibraryMode("insert"); togglePanel("operations"); }}><LibraryBig /></Button></ToolHint>
         <ToolHint label="案例试展开"><Button size="icon-sm" variant={panel === "cases" && leftPanelVisible ? "secondary" : "ghost"} aria-label="案例试展开" onClick={() => togglePanel("cases")}><FlaskConical /></Button></ToolHint>
-        {canEdit && <ToolHint label="工艺访谈助手"><Button size="icon-sm" variant={interviewOpen ? "secondary" : "ghost"} aria-label="工艺访谈助手" onClick={() => setInterviewOpen(true)}><Sparkles /></Button></ToolHint>}
         {inspectorAvailable && <ToolHint label="工序属性" shortcut="]"><Button size="icon-sm" variant={showInspector ? "secondary" : "ghost"} aria-label={showInspector ? "隐藏工序属性" : "显示工序属性"} aria-pressed={showInspector} onClick={() => togglePanel("properties")}><SlidersHorizontal /></Button></ToolHint>}
         {editable && <><span className="canvas-dock-separator" /><ToolHint label="撤销" shortcut="⌘Z"><Button size="icon-sm" variant="ghost" aria-label="撤销" disabled={!undoAvailable} onClick={() => undo()}><Undo2 /></Button></ToolHint><ToolHint label="重做" shortcut="⌘⇧Z"><Button size="icon-sm" variant="ghost" aria-label="重做" disabled={!redoAvailable} onClick={() => undo(true)}><Redo2 /></Button></ToolHint></>}
         <span className="canvas-dock-separator" />
-        <ToolHint label="提交模板变更"><Button size="icon-sm" variant="ghost" aria-label="提交模板变更" disabled={busy || !editable || Boolean(draftId)} onClick={() => { setError(""); setSubmitOpen(true); }}><Save /></Button></ToolHint>
         <DropdownMenu><DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label="更多工艺工作台操作" title="更多工艺操作"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent side="right" align="end" className="max-h-[80dvh] w-60 overflow-y-auto"><DropdownMenuLabel className="truncate">{template.label} · v{template.version}</DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => setPanel("settings")}><Settings2 />模板名称与设置</DropdownMenuItem><DropdownMenuItem onSelect={() => setPanel("decisions")}><Table2 />决策表</DropdownMenuItem><DropdownMenuItem onSelect={() => setPanel("costs")}><Calculator />成本试算</DropdownMenuItem>
           {editable && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => addGroup()}><Layers3 />添加重复组</DropdownMenuItem><DropdownMenuItem onSelect={() => addGroup("conditional", false)}><Workflow />添加工艺阶段</DropdownMenuItem><DropdownMenuItem onSelect={() => addGroup("conditional")}><Diamond />添加条件工序组</DropdownMenuItem><DropdownMenuItem onSelect={() => setPanel("sequence")}><ClipboardPaste />批量添加工序</DropdownMenuItem></>}
@@ -528,10 +535,9 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
           {editable && selectedIds.length > 1 && <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-white p-2 shadow-lg"><span className="px-2 text-xs text-muted-foreground">已选 {selectedIds.length} 项</span><Button size="sm" variant="outline" onClick={connectSelection}><ArrowRight className="size-3.5" /> 串联</Button><Button size="sm" variant="ghost" onClick={() => duplicate(selectedIds)}><Copy className="size-3.5" /> 复制</Button><Button size="sm" variant="ghost" onClick={() => removeSelected()}><Trash2 className="size-3.5" /></Button></div>}
           {template.steps.length === 0 && template.groups.length === 0 && <div className="absolute inset-0 grid place-items-center p-6"><div className="max-w-sm text-center"><span className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-border bg-card text-primary"><Workflow className="size-6" /></span><h2 className="mt-5 text-lg font-semibold">从第一道工序开始</h2><p className="mt-2 text-sm leading-7 text-muted-foreground">从工序库选择标准工序，或直接粘贴工序清单，逐步建立可验证的路线。</p><div className="mt-5 flex flex-wrap justify-center gap-2">{editable && <><Button onClick={() => append()}><Plus className="size-4" />添加工序</Button><Button variant="outline" onClick={() => setPanel("sequence")}><ClipboardPaste className="size-4" />粘贴清单</Button></>}</div></div></div>}
         </div>
-        <button className="canvas-document-label" aria-label="模板名称与设置" title="模板名称与设置" onClick={() => setPanel("settings")}>{template.label} · v{template.version} · {readOnly ? "已发布" : "草稿"}</button>
       </section>
-      {inspectorAvailable && <aside hidden={!showInspector} aria-label="工序属性" className={`template-inspector canvas-context-panel flex w-[360px] flex-col ${leftPanelVisible ? "max-[1099px]:hidden" : ""}`}>
-        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-100 px-4"><h2 className="flex-1 text-sm font-semibold">{selectedIds.length > 1 ? `批量属性 · ${batchSteps.length} 道` : "工序属性"}</h2>
+      {inspectorAvailable && <aside hidden={!showInspector || (canEdit && interviewOpen)} aria-label="工序属性" className={`template-inspector canvas-context-panel flex w-[360px] flex-col ${leftPanelVisible ? "max-[1099px]:hidden" : ""}`}>
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-100 px-4">{canEdit ? <div className="min-w-0 flex-1"><h2 className="sr-only">{selectedIds.length > 1 ? `批量属性 · ${batchSteps.length} 道` : "工序属性"}</h2><PanelTabs active="detail" detail={{ label: selectedIds.length > 1 ? `批量 · ${batchSteps.length} 道` : selectedGroup?.label ?? selectedStep?.label ?? "工序属性", onShow: () => undefined }} onAssistant={() => setInterviewOpen(true)} /></div> : <h2 className="flex-1 text-sm font-semibold">{selectedIds.length > 1 ? `批量属性 · ${batchSteps.length} 道` : "工序属性"}</h2>}
           <button aria-label="上一工序属性" title="上一工序 · Alt↑" disabled={navigationIndex <= 0} onClick={() => focusCard(outline[navigationIndex - 1].id)} className="grid size-7 place-items-center rounded hover:bg-secondary disabled:opacity-30"><ChevronLeft className="size-4" /></button>
           <button aria-label="下一工序属性" title="下一工序 · Alt↓" disabled={navigationIndex < 0 || navigationIndex >= outline.length - 1} onClick={() => focusCard(outline[navigationIndex + 1].id)} className="grid size-7 place-items-center rounded hover:bg-secondary disabled:opacity-30"><ChevronRight className="size-4" /></button>
           <button aria-label="收起属性侧栏" onClick={() => dispatchLayout({ type: "close", side: "right" })} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-secondary"><PanelRightClose className="size-4" /></button>
@@ -542,6 +548,6 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
           {editable && selectedIds.length === 1 && <Button className="w-full" size="sm" variant="outline" onClick={() => duplicateAfter(selected)}><Copy className="size-3.5" />复制并接在后面 <kbd className="ml-auto text-xs text-muted-foreground">⌘⇧D</kbd></Button>}
         </div>
       </aside>}
-    </div>}
+    </div></>}
   </main>;
 }

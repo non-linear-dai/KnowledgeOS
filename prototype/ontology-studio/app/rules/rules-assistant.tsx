@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { AssistantSheet, AssistantStatusNotice, Busy, IssueList, SuggestionSummary, useAssistantStatus } from "../assistant/assistant-panel";
+import { AssistantDock, type DockDetail, AssistantStatusNotice, Busy, IssueList, SuggestionSummary, useAssistantStatus } from "../assistant/assistant-panel";
 import { adoptLogic, regionText, requestSuggestion, type Assistance, type BoundaryCase, type Coverage, type IntentResult, type LogicDraftOutput, type Suggestion } from "../assistant/assistant-api";
 import { logicKindLabels, pretty, records, object, type LogicDocument, type LogicKind } from "./logic-api";
 
@@ -45,8 +45,8 @@ function DefinitionPreview({ kind, definition }: { kind: AssistKind; definition:
   })}</ul>;
 }
 
-export function RulesAssistant({ open, onOpenChange, current, canAuthor, onAdopt }: {
-  open: boolean; onOpenChange: (open: boolean) => void;
+export function RulesAssistant({ open, onOpenChange, current, canAuthor, onAdopt, detail }: {
+  open: boolean; onOpenChange: (open: boolean) => void; detail?: DockDetail;
   current: { kind: LogicKind; definition: LogicDocument; label: string } | null;
   canAuthor: (kind: LogicKind) => boolean;
   onAdopt: (kind: AssistKind, definition: LogicDocument, assistance: Assistance, refine: boolean) => void;
@@ -99,7 +99,7 @@ export function RulesAssistant({ open, onOpenChange, current, canAuthor, onAdopt
   const caseCount = intent.filter(item => item.passed && acceptedIntent.includes(item.id)).length + confirmed.length + records(definition?.test_cases).length;
   const toggle = (list: string[], id: string, on: boolean) => on ? [...new Set([...list, id])] : list.filter(item => item !== id);
 
-  return <AssistantSheet open={open} onOpenChange={value => { if (!value) controller.current?.abort(); onOpenChange(value); }} title="助手起草业务逻辑" description="用业务语言描述规则；助手起草决策表或规则，KnowledgeOS 用确定性引擎检查覆盖、矛盾与案例。">
+  return <AssistantDock open={open} detail={detail} onOpenChange={value => { if (!value) controller.current?.abort(); onOpenChange(value); }} title="助手起草业务逻辑" description="用业务语言描述规则；助手起草决策表或规则，KnowledgeOS 用确定性引擎检查覆盖、矛盾与案例。">
     <AssistantStatusNotice status={status} error={statusError} sends={`控制定义目录（概念、属性、单位、已登记逻辑名称）与您填写的说明${refine ? "，以及当前草稿" : ""}`} />
     {refinable && current && <div className="logic-segment" role="group" aria-label="起草方式"><button aria-pressed={!refine} onClick={() => setRefine(false)}>新建</button><button aria-pressed={refine} onClick={() => setRefine(true)}>修改「{current.label}」</button></div>}
     {!refine && <label className="logic-field">逻辑类型<select aria-label="助手起草的逻辑类型" value={kind} onChange={event => setKind(event.target.value as AssistKind | "")}><option value="">由助手判断</option>{assistKinds.filter(canAuthor).map(value => <option key={value} value={value}>{logicKindLabels[value]}</option>)}</select></label>}
@@ -129,5 +129,5 @@ export function RulesAssistant({ open, onOpenChange, current, canAuthor, onAdopt
         <Button disabled={!suggestion.check.submitted || !canAuthor(suggestion.output.kind)} onClick={adopt}><Check />采纳为{refine ? "修改后的" : "新"}草稿</Button>
       </div>
     </>}
-  </AssistantSheet>;
+  </AssistantDock>;
 }

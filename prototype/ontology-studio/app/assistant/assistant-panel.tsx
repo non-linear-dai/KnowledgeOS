@@ -1,17 +1,33 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { CircleAlert, Info, Loader2, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { CircleAlert, Info, Loader2, ShieldCheck, Sparkles, TriangleAlert, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { loadAssistantStatus, severityLabels, sortIssues, type AssistantStatus, type AuthoringIssue, type Suggestion } from "./assistant-api";
 
-export function AssistantSheet({ open, onOpenChange, title, description, children }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; description: string; children: ReactNode }) {
-  return <Sheet open={open} onOpenChange={onOpenChange}>
-    <SheetContent side="right" className="assistant-sheet w-full gap-0 overflow-y-auto sm:max-w-xl" aria-describedby={undefined}>
-      <SheetHeader className="assistant-sheet-head"><SheetTitle className="flex items-center gap-2"><Sparkles className="size-4" aria-hidden="true" />{title}</SheetTitle><SheetDescription>{description}</SheetDescription></SheetHeader>
+export type DockDetail = { label: string; onShow: () => void };
+
+/** Switches the right-hand slot between the selected object's details and the assistant. */
+export function PanelTabs({ active, detail, onAssistant }: { active: "detail" | "assistant"; detail?: DockDetail; onAssistant?: () => void }) {
+  return <div className="panel-tabs" role="tablist" aria-label="右侧面板">
+    {detail && <button type="button" role="tab" aria-selected={active === "detail"} onClick={detail.onShow} title={detail.label}><span>详情</span><small>{detail.label}</small></button>}
+    <button type="button" role="tab" aria-selected={active === "assistant"} onClick={onAssistant}><Sparkles size={13} aria-hidden="true" /><span>助手</span></button>
+  </div>;
+}
+
+/**
+ * The assistant as a docked, non-modal panel on the right of the workspace. It shares the slot with the
+ * details panel (tabs at the top), keeps its drafts while hidden, and leaves the canvas usable.
+ */
+export function AssistantDock({ open, onOpenChange, title, description, detail, children }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; description: string; detail?: DockDetail; children: ReactNode }) {
+  return <aside hidden={!open} className="assistant-dock" aria-label={title}
+    onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.stopPropagation(); onOpenChange(false); } }}>
+    <header className="assistant-dock-head"><PanelTabs active="assistant" detail={detail} /><Button variant="ghost" size="icon-sm" aria-label="关闭助手" title="关闭助手 · Esc" onClick={() => onOpenChange(false)}><X /></Button></header>
+    <div className="assistant-dock-scroll">
+      <div className="assistant-dock-intro"><h2><Sparkles className="size-4" aria-hidden="true" />{title}</h2><p>{description}</p></div>
       <div className="assistant-sheet-body">{children}</div>
-    </SheetContent>
-  </Sheet>;
+    </div>
+  </aside>;
 }
 
 /** Gateway availability; failures leave the deterministic checks usable. */

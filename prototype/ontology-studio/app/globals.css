@@ -160,7 +160,6 @@ input[type="checkbox"] { accent-color: var(--primary); width: 1rem; height: 1rem
 .detail-navigation-access { display: none; }
 .change-queue-summary { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .7rem; }
 .change-queue-summary > p { font-size: .75rem; color: var(--muted-foreground); }
-.canvas-document-label { position: absolute; z-index: 20; bottom: 16px; left: 64px; max-width: min(350px, calc(100% - 90px)); border: 1px solid var(--border); border-radius: .45rem; padding: .5rem .75rem; background: rgb(255 255 255 / 96%); font-size: .75rem; color: var(--muted-foreground); box-shadow: var(--shadow-panel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .studio-node { box-shadow: 0 2px 6px rgb(36 67 112 / 4%); }
 .studio-node-selected { outline: 2px solid var(--brand-blue); outline-offset: 3px; box-shadow: var(--shadow-float); }
 .ontology-legend { align-items: center; gap: .2rem; padding: .25rem .4rem; border: 1px solid var(--border); border-radius: .5rem; background: rgb(255 255 255 / 96%); box-shadow: var(--shadow-panel); }
@@ -583,3 +582,21 @@ input[type="checkbox"] { accent-color: var(--primary); width: 1rem; height: 1rem
 .extraction-samples li { border-left: 2px solid var(--border); padding-left: .6rem; margin-top: .35rem; }
 .extraction-samples li span { font-size: .75rem; color: var(--muted-foreground); }
 .extraction-samples li p { overflow-wrap: anywhere; }
+
+/* One header for the authoring workspaces: name and object in hand on the left, primary action and assistant on the right. */
+.workspace-titlebar { position: relative; z-index: 45; display: flex; height: 48px; flex: none; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); background: var(--card); padding: 0 12px 0 16px; }
+.workspace-titlebar-title { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; }
+.workspace-titlebar-title h1 { flex: none; font-size: 14px; font-weight: 600; }
+.workspace-titlebar-divider { color: var(--border-strong); }
+.workspace-titlebar-context { display: flex; min-width: 0; align-items: center; gap: 6px; font-size: 13px; color: var(--muted-foreground); }
+.workspace-titlebar-context > * { min-width: 0; }
+.workspace-titlebar-context strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--foreground); }
+.workspace-titlebar-crumb { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: 6px; border-radius: 6px; padding: 4px 6px; font-size: 13px; color: var(--muted-foreground); }
+.workspace-titlebar-crumb:hover { background: var(--muted); color: var(--foreground); }
+.workspace-titlebar-crumb:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.workspace-titlebar-crumb small { flex: none; font-size: 12px; }
+.workspace-titlebar-actions { display: flex; flex: none; align-items: center; gap: 8px; }
+@media (max-width: 640px) { .workspace-titlebar-context small, .workspace-titlebar-crumb small { display: none; } }
+/* While a card is the focus, say so and offer the way back to the whole board. */
+.canvas-focus-banner { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--card); padding: 4px 6px 4px 12px; font-size: 13px; box-shadow: var(--shadow-float); }
+.canvas-focus-banner strong { font-weight: 500; }
