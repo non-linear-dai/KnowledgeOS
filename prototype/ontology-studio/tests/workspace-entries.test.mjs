@@ -22,7 +22,7 @@ test('navigation groups follow the work: author, look up, then govern', () => {
   const members = id => workspaces.filter(item => item.group === id).map(item => item.id);
   assert.deepEqual(members('model'), ['ontology', 'rules', 'templates', 'extraction']);
   assert.deepEqual(members('browse'), ['instances', 'overview']);
-  assert.deepEqual(members('govern'), ['changesets', 'inbox', 'agents']);
+  assert.deepEqual(members('govern'), ['changesets', 'agents']);
   assert(workspaces.every(item => navigationGroups.some(group => group.id === item.group)), 'every workspace sits in a group');
   const order = workspaces.map(item => navigationGroups.findIndex(group => group.id === item.group));
   assert.deepEqual(order, [...order].sort((a, b) => a - b), 'workspaces are listed group by group');
@@ -41,7 +41,7 @@ test('review actions announce a change so the navigation count refreshes', () =>
   const shell = source('../app/workspace-shell.tsx');
   assert.match(shell, /addEventListener\(reviewChangedEvent, load\)/);
   assert.match(shell, /"\/v1\/inbox"/);
-  assert.equal(source('../app/changesets/changesets-workspace.tsx').match(/announceReviewChange\(\)/g).length, 2);
+  assert(source('../app/changesets/changesets-workspace.tsx').match(/announceReviewChange\(\)/g).length >= 2, 'decisions and batch review both announce');
 });
 
 test('signing in happens only in the shared account dialog', () => {
@@ -51,7 +51,7 @@ test('signing in happens only in the shared account dialog', () => {
     assert(!/setSessionToken\(token(Input)?\)/.test(page), `${file} must not sign in by itself`);
   }
   assert(source('../app/account-dialog.tsx').includes('个人访问凭证'), 'access tokens remain available in the account dialog');
-  for (const file of ['../app/instances/instances-workspace.tsx', '../app/templates/template-workspace.tsx', '../app/extraction/extraction-workspace.tsx', '../app/changesets/changesets-workspace.tsx', '../app/agents/agents-workspace.tsx', '../app/inbox/inbox-workspace.tsx']) {
+  for (const file of ['../app/instances/instances-workspace.tsx', '../app/templates/template-workspace.tsx', '../app/extraction/extraction-workspace.tsx', '../app/changesets/changesets-workspace.tsx', '../app/agents/agents-workspace.tsx']) {
     assert(source(file).includes('<SignInPrompt'), `${file} offers the shared sign-in prompt`);
   }
   assert(source('../app/ontology-workspace.tsx').includes('onClick={() => setAccountOpen(true)}>登录</Button>'));

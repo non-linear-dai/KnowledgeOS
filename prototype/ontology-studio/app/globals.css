@@ -393,6 +393,35 @@ input[type="checkbox"] { accent-color: var(--primary); width: 1rem; height: 1rem
 .change-json pre { max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--border); padding: 1rem; background: var(--muted); color: var(--secondary-foreground); font-size: .75rem; line-height: 1.8; }
 .change-field { display: flex; flex-direction: column; gap: .5rem; margin-block: .75rem; font-size: .75rem; color: var(--secondary-foreground); }
 .change-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+/* Review workspace: queue views, risk, field-level differences and a decision bar that stays in view. */
+.review-views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .25rem; margin-top: .25rem; padding: .25rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--card); }
+.review-views button { display: flex; align-items: center; justify-content: space-between; gap: .4rem; min-height: 32px; padding: .3rem .55rem; border-radius: .35rem; color: var(--secondary-foreground); font-size: .8125rem; }
+.review-views button:hover { background: rgb(34 50 75 / 5%); }
+.review-views button[aria-selected="true"] { background: var(--accent); color: var(--primary); font-weight: 600; }
+.review-view-count { min-width: 1.25rem; padding: 0 .3rem; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); font-size: .75rem; font-weight: 500; text-align: center; font-variant-numeric: tabular-nums; }
+.review-views button[aria-selected="true"] .review-view-count { background: var(--card); color: var(--primary); }
+.review-view-note { margin-top: .65rem; color: var(--muted-foreground); font-size: .75rem; line-height: 1.7; }
+.review-risk { display: inline-flex; align-items: center; border-radius: 4px; padding: .05rem .4rem; background: var(--muted); color: var(--muted-foreground); font-size: .75rem; font-weight: 500; }
+.review-risk[data-risk="high"] { background: #fdecec; color: #9b1c1c; }
+.review-risk[data-risk="low"] { background: #eaf6ef; color: #1d6b3f; }
+.change-diff { width: 100%; border-collapse: collapse; font-size: .8125rem; table-layout: fixed; }
+.change-diff th, .change-diff td { padding: .5rem .75rem; border-top: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.change-diff thead th { border-top: 0; color: var(--muted-foreground); font-size: .75rem; font-weight: 500; background: var(--surface-sunken); }
+.change-diff tbody th { width: 28%; color: var(--secondary-foreground); font-weight: 500; }
+.change-diff tr[data-changed="true"] td:last-child { color: var(--foreground); }
+.change-diff tr[data-changed="false"] td { color: var(--muted-foreground); }
+.change-section > .change-diff { border: 1px solid var(--border); border-radius: .4rem; border-collapse: separate; border-spacing: 0; overflow: hidden; }
+.change-operation > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; }
+.change-operation > summary code { color: var(--muted-foreground); font-size: .75rem; }
+.change-operation > summary > span { margin-left: auto; }
+.change-operation > .change-diff { border-top: 1px solid var(--border); }
+.change-decision-bar { flex-shrink: 0; display: flex; flex-direction: column; gap: .5rem; padding: .75rem clamp(1.25rem, 3vw, 3rem); border-top: 1px solid var(--border-strong); background: var(--card); box-shadow: 0 -6px 18px rgb(36 67 112 / 6%); }
+.change-decision-bar > .change-section-note { margin: 0; }
+.change-decision-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .5rem; }
+.change-decision-row > textarea, .change-decision-row > input { flex: 1 1 260px; min-width: 0; min-height: 36px; }
+.review-settings { width: min(340px, calc(100vw - 32px)); }
+.review-settings label { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 20px; }
+.review-settings input[type="checkbox"] { flex: none; margin-top: 3px; }
 .change-empty { display: flex; flex: 1; min-height: 0; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 2rem; text-align: center; color: var(--muted-foreground); background: #fafbfd; }
 .change-empty h2 { font-size: 1rem; font-weight: 500; color: var(--secondary-foreground); }
 .change-empty p { max-width: 310px; font-size: .75rem; line-height: 1.9; }

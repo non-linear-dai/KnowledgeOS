@@ -1,6 +1,6 @@
-/* Agent management, reviewer inbox and the account dialog. */
-.agents-workspace, .inbox-workspace { position: relative; display: flex; height: 100%; min-height: 0; flex-direction: column; overflow-y: auto; background: var(--card); }
-.agents-workspace > .change-empty, .inbox-workspace > .change-empty { min-height: 100%; }
+/* Agent management and the account dialog. */
+.agents-workspace { position: relative; display: flex; height: 100%; min-height: 0; flex-direction: column; overflow-y: auto; background: var(--card); }
+.agents-workspace > .change-empty { min-height: 100%; }
 .agents-header { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: 1rem 1.25rem .75rem; border-bottom: 1px solid var(--border); }
 .agents-header .directory-heading { margin: 0; }
 .agents-header .directory-heading > :last-child { margin-left: 0; }
@@ -10,7 +10,7 @@
 .agent-card { display: flex; flex-direction: column; gap: .45rem; border: 1px solid var(--border); border-radius: 8px; background: var(--card); padding: .85rem 1rem; font-size: .75rem; line-height: 1.6; min-width: 0; }
 .agent-card h3 { display: flex; align-items: center; gap: .4rem; font-size: .8125rem; font-weight: 600; }
 .agent-card h3 svg { width: 15px; height: 15px; color: var(--brand-blue); }
-.agent-card code, .agent-detail code, .inbox-workspace code { font-size: .75rem; overflow-wrap: anywhere; color: var(--secondary-foreground); }
+.agent-card code, .agent-detail code { font-size: .75rem; overflow-wrap: anywhere; color: var(--secondary-foreground); }
 .agent-card small { color: var(--muted-foreground); }
 .agent-card ul { display: flex; flex-direction: column; gap: .3rem; }
 .agent-card li { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
@@ -83,19 +83,6 @@
 .account-switch button { font-size: .75rem; color: var(--primary); }
 .account-switch button:hover { text-decoration: underline; }
 
-.inbox-section { display: flex; flex-direction: column; gap: .6rem; padding: 1rem 1.25rem; }
-.inbox-section + .inbox-section { border-top: 1px solid var(--border); }
-.inbox-section h2 { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; font-size: .8125rem; font-weight: 600; }
-.inbox-section h2 small { font-weight: 400; color: var(--muted-foreground); font-size: .75rem; }
-.inbox-section ul { display: flex; flex-direction: column; gap: .4rem; }
-.inbox-row { display: flex; align-items: flex-start; gap: .75rem; border: 1px solid var(--border); border-radius: 8px; padding: .65rem .8rem; font-size: .75rem; }
-.inbox-row:hover { border-color: #b9cdf0; background: #fafcff; }
-.inbox-risk { flex-shrink: 0; border-radius: 4px; padding: .1rem .4rem; font-size: .75rem; background: var(--muted); color: var(--muted-foreground); }
-.inbox-risk[data-risk=high] { background: #fff1f1; color: #9b1c1c; }
-.inbox-main { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: .2rem; }
-.inbox-main strong { font-weight: 600; overflow-wrap: anywhere; }
-.inbox-main small { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .3rem; color: var(--muted-foreground); }
-.inbox-note { color: #7a4a00 !important; }
 
 @media (max-width: 900px) {
   .agents-header { padding-left: 3.5rem; }
@@ -104,3 +91,11 @@
   .agent-form-row { grid-template-columns: 1fr; }
   .agent-detail { padding: 1rem; }
 }
+
+.agents-status { margin: 0 1.25rem 1rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--surface-sunken); }
+.agents-status > summary { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1.25rem; padding: .6rem .9rem; font-size: .8125rem; color: var(--secondary-foreground); list-style: none; }
+.agents-status > summary::-webkit-details-marker { display: none; }
+.agents-status > summary > span { display: inline-flex; align-items: center; gap: .35rem; }
+.agents-status > summary > small { margin-left: auto; color: var(--primary); font-size: .75rem; }
+.agents-status[open] > summary > small { visibility: hidden; }
+.agents-status > .agents-overview { padding: 0 .9rem .9rem; border-bottom: 0; background: transparent; }

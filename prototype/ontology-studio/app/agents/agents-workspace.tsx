@@ -13,7 +13,7 @@ import { SignInPrompt } from "../sign-in-prompt";
 import { NavigationToggle } from "../workspace-navigation-context";
 import { displayDate } from "../instances/instances-api";
 import { activeCredentials, createAgent, issueCredential, loadDirectory, loadMcpInfo, presetFor, proposalSummary, revokeCredential, rolePresets,
-  slugFromLabel, updateParticipant, updatePolicy, type Directory, type IssuedCredential, type Participant } from "./agents-api";
+  slugFromLabel, updateParticipant, type Directory, type IssuedCredential, type Participant } from "./agents-api";
 import { hostConfig, hostLabels, hosts, type HostId, type McpInfo } from "./host-config";
 
 async function copy(text: string, label: string) {
@@ -93,7 +93,7 @@ function AgentDetail({ agent, info, infoError, onChanged, pendingSetup, onSetupS
       <small>{agent.permissions.join(" · ")}</small></dd></div>
       <div><dt>宿主 / 模型</dt><dd>{agent.host ? hostLabels[agent.host as HostId] ?? agent.host : "—"} · {agent.model || "未填写"}</dd></div>
       <div><dt>最近活动</dt><dd>{agent.last_used_at ? displayDate(agent.last_used_at) : "尚未连接"}</dd></div>
-      <div><dt>提案</dt><dd>{counts.total ? `${counts.total} 项 · 待审 ${counts.pending} · 通过 ${counts.approved} · 驳回/需修改 ${counts.rejected}` : "暂无"}{counts.pending > 0 && <> · <Link href="/inbox">去审核</Link></>}</dd></div></dl>
+      <div><dt>提案</dt><dd>{counts.total ? `${counts.total} 项 · 待审 ${counts.pending} · 通过 ${counts.approved} · 驳回/需修改 ${counts.rejected}` : "暂无"}{counts.pending > 0 && <> · <Link href="/changesets?view=mine">去审核</Link></>}</dd></div></dl>
     <section className="agent-section"><div className="agent-section-head"><h3>凭证</h3><div className="flex items-center gap-2">
       <select aria-label="新凭证用于" value={host} onChange={event => setHost(event.target.value as HostId)}>{hosts.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
       <Button size="sm" disabled={busy || agent.status !== "active"} onClick={() => void act(async () => { setIssued({ issued: await issueCredential(agent.id, hostLabels[host]), host }); }, "已签发凭证")}><KeyRound />签发凭证</Button></div></div>
@@ -105,7 +105,7 @@ function AgentDetail({ agent, info, infoError, onChanged, pendingSetup, onSetupS
 }
 
 export default function AgentsWorkspace({ active }: { active: boolean }) {
-  const { session, setSession } = useWorkspaceSession();
+  const { session } = useWorkspaceSession();
   const [directory, setDirectory] = useState<Directory | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [info, setInfo] = useState<McpInfo | null>(null), [infoError, setInfoError] = useState("");
@@ -129,14 +129,6 @@ export default function AgentsWorkspace({ active }: { active: boolean }) {
   const people = directory?.participants.filter(item => item.kind === "human") ?? [];
   const selected = agents.find(item => item.id === selectedId) ?? agents[0];
   const policy = directory?.policy;
-  async function setSelfReview(value: boolean) {
-    try {
-      const next = await updatePolicy({ self_review_high_risk: value });
-      setDirectory(current => current && { ...current, policy: next });
-      setSession(current => current && { ...current, policy: next });
-      toast.success(value ? "已允许个人模式自审高风险变更" : "已关闭自审");
-    } catch (cause) { toast.error(cause instanceof Error ? cause.message : "无法修改审批策略"); }
-  }
   if (!session || !canManage) return <div className="agents-workspace"><h1 className="sr-only">Agent 管理</h1><div className="workspace-navigation-access"><NavigationToggle /></div>
     {session ? <div className="change-empty"><Bot size={28} strokeWidth={1.3} /><h2>Agent 管理</h2><p>当前账号没有管理权限。请使用本机所有者账号登录。</p></div> : <SignInPrompt icon={<Bot size={25} strokeWidth={1.4} />} title="Agent 管理">登录后登记 Agent、签发凭证并获取各宿主的接入配置。首次使用会创建本机所有者账号。</SignInPrompt>}</div>;
   return <div className="agents-workspace">
@@ -145,15 +137,18 @@ export default function AgentsWorkspace({ active }: { active: boolean }) {
       <p>每个 Agent 以自己的身份通过 MCP 读取知识、提交提案；所有写入都是待你审核的 ChangeSet。</p>
       <Button onClick={() => setCreating(true)}><Plus />登记 Agent</Button></header>
     {error && <div role="alert" className="instance-error"><p>{error}</p></div>}
-    <div className="agents-overview">
-      <section className="agent-card" aria-label="MCP 服务"><h3><Bot aria-hidden="true" />MCP 服务</h3>{info ? <><p>本机 HTTP：<code>{info.http_url}</code></p><p>stdio：<code>{[info.stdio.command, ...info.stdio.args].join(" ")}</code></p></> : <p className="assistant-notice" data-tone="warning">{infoError || "正在读取…"}</p>}
-        <small>只在本机可用（第一期）。ChatGPT 桌面版与 Grok Bot 需公网 HTTPS，计划第二期支持。</small></section>
-      <section className="agent-card" aria-label="审批策略"><h3><ShieldCheck aria-hidden="true" />审批策略 · {policy?.mode === "organization" ? "组织模式" : "个人模式"}</h3>
-        <p>{policy?.mode === "organization" ? "组织模式：Agent 与其负责人视为同一责任方，高风险变更须由另一位成员批准。" : "个人模式：你审核本人名下 Agent 的提案即为独立审核；Agent 之间不相互独立，也不能批准。"}</p>
-        <label className="agent-toggle"><input type="checkbox" checked={policy?.human_final_approval ?? true} disabled readOnly /><span>最终批准与发布须由人完成</span></label>
-        <label className="agent-toggle"><input type="checkbox" checked={policy?.self_review_high_risk ?? false} disabled={!policy || policy.mode !== "personal"} onChange={event => void setSelfReview(event.target.checked)} /><span>允许自审你本人提交的高风险变更（批准记录标注“个人模式自审”；批量审核不适用）</span></label></section>
-      <section className="agent-card" aria-label="人员"><h3><UserRound aria-hidden="true" />人员</h3><ul>{people.map(item => <li key={item.id}>{item.label} <code>{item.id}</code>{item.id === session.principal && <span className="neutral-badge">当前</span>}</li>)}</ul></section>
-    </div>
+    <details className="agents-status">
+      <summary><span><Bot aria-hidden="true" size={14} />MCP 服务{info ? "可用" : infoError ? "不可用" : "检查中"}</span><span><ShieldCheck aria-hidden="true" size={14} />{policy?.mode === "organization" ? "组织模式" : "个人模式"}{policy?.self_review_high_risk ? " · 允许自审" : ""}</span><span><UserRound aria-hidden="true" size={14} />{people.length} 位成员</span><small>展开详情</small></summary>
+      <div className="agents-overview">
+        <section className="agent-card" aria-label="MCP 服务"><h3><Bot aria-hidden="true" />MCP 服务</h3>{info ? <><p>本机 HTTP：<code>{info.http_url}</code></p><p>stdio：<code>{[info.stdio.command, ...info.stdio.args].join(" ")}</code></p></> : <p className="assistant-notice" data-tone="warning">{infoError || "正在读取…"}</p>}
+          <small>只在本机可用（第一期）。ChatGPT 桌面版与 Grok Bot 需公网 HTTPS，计划第二期支持。</small></section>
+        <section className="agent-card" aria-label="审批策略"><h3><ShieldCheck aria-hidden="true" />审批策略 · {policy?.mode === "organization" ? "组织模式" : "个人模式"}</h3>
+          <p>{policy?.mode === "organization" ? "组织模式：Agent 与其负责人视为同一责任方，高风险变更须由另一位成员批准。" : "个人模式：你审核本人名下 Agent 的提案即为独立审核；Agent 之间不相互独立，也不能批准。"}</p>
+          <p>最终批准与发布须由人完成；{policy?.self_review_high_risk ? "已允许自审你本人提交的高风险变更。" : "未开启高风险自审。"}</p>
+          <Link className="logic-link" href="/changesets?view=mine">在「审核 → 审核设置」中修改</Link></section>
+        <section className="agent-card" aria-label="人员"><h3><UserRound aria-hidden="true" />人员</h3><ul>{people.map(item => <li key={item.id}>{item.label} <code>{item.id}</code>{item.id === session.principal && <span className="neutral-badge">当前</span>}</li>)}</ul></section>
+      </div>
+    </details>
     <div className="agents-layout">
       <aside className="agents-list" aria-label="Agent 列表">{agents.length ? <ul>{agents.map(item => {
         const counts = proposalSummary(item.changesets);
