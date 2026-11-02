@@ -547,8 +547,9 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
               {selection.kind === "profile" && <><ProfileEditor draft={draft} onChange={change} assets={assets} disabled={!canPropose} /><TrialPanel kind="profile" properties={assets.concepts.flatMap(item => item.properties).filter((property, index, all) => all.findIndex(other => other.predicate === property.predicate) === index)} draft={draft} canPreview={canPropose} /></>}
               <details className="change-json"><summary>原始配置（提交内容预览）</summary><pre>{JSON.stringify(cleanDraft(selection.kind, draft), null, 2)}</pre></details>
               {dirty && <div className="change-actions"><Button type="button" variant="ghost" size="sm" onClick={discard}>放弃本项修改</Button></div>}
-              <SubmitBar kind={selection.kind} draft={draft} original={file?.exists ? file.document : null} revision={file?.revision ?? ""} canPropose={canPropose}
-                onVersion={version => change(current => ({ ...current, [selection.kind === "card" ? "card_version" : "version"]: version }))} onSubmitted={submittedProposal} assistance={assisted[key]} />
+              {/* The submit bar appears once there is something to submit: an edit, or a file that does not exist yet. */}
+              {(dirty || !file?.exists) && <SubmitBar kind={selection.kind} draft={draft} original={file?.exists ? file.document : null} revision={file?.revision ?? ""} canPropose={canPropose}
+                onVersion={version => change(current => ({ ...current, [selection.kind === "card" ? "card_version" : "version"]: version }))} onSubmitted={submittedProposal} assistance={assisted[key]} />}
             </div>
           </div>
         </article> : <div className="change-empty"><FileText size={28} strokeWidth={1.3} /><h2>{loading ? "正在读取抽取配置…" : "选择说明卡或方案"}</h2><p>抽取说明卡告诉外部 Agent 如何在文档中识别概念与属性；方案声明文档位置与概念的对应关系。修改先检查、再提交审核，发布后进入抽取契约。</p></div>}

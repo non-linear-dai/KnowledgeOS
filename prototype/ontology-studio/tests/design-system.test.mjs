@@ -54,3 +54,21 @@ test('shared styles preserve text sizing, keyboard focus and reduced motion', ()
   assert(css.includes('prefers-reduced-motion: reduce'));
   assert(css.includes('color-scheme: light'), 'keep system dark preference from partially inverting this light theme');
 });
+
+test('no stylesheet sets text smaller than 12px', () => {
+  for (const file of ['../app/globals.css', '../app/rules/rules.css', '../app/assistant/assistant.css', '../app/agents/agents.css']) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+    for (const [, value, unit] of source.matchAll(/font-size:\s*([\d.]+)(rem|px)/g)) {
+      const px = unit === 'rem' ? Number(value) * 16 : Number(value);
+      assert(px >= 12, `${file} sets font-size ${value}${unit}; the smallest step is 12px`);
+    }
+  }
+});
+
+test('surfaces step from navigation to working surface and borders stay visible', () => {
+  const layers = ['sidebar', 'background', 'surface-sunken', 'card'].map(key => luminance(palette[key]));
+  for (let index = 1; index < layers.length; index++) assert(layers[index] > layers[index - 1], 'each layer is lighter than the one beneath it');
+  assert(contrast(palette.border, palette.card) >= 1.3, 'dividers must remain visible on white');
+  assert(contrast(palette['border-strong'], palette.card) > contrast(palette.border, palette.card), 'floating panels use the stronger edge');
+  assert(contrast(palette['muted-foreground'], palette.sidebar) >= 4.5, 'navigation hints stay readable on the navigation layer');
+});
