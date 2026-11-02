@@ -54,7 +54,7 @@ test('Studio exposes sign-in, agent and inbox routes; tokens never persist', () 
   assert.match(proxy, /publicRoutes = new Set\(\["\/health", "\/v1\/auth\/status", "\/v1\/auth\/login", "\/v1\/auth\/setup"\]\)/);
   assert.match(read('../app/api/mcp-info/route.ts'), /KNOWLEDGEOS_MCP_BASE_URL/);
   const nav = load('../app/workspace-navigation.ts');
-  assert.equal(nav.workspaceForPath('/agents'), 'agents'); assert.equal(nav.workspaceForPath('/inbox'), 'inbox');
+  assert.equal(nav.workspaceForPath('/agents'), 'agents'); assert.equal(nav.workspaceForPath('/inbox'), 'changesets');
   for (const file of ['../app/account-dialog.tsx', '../app/agents/agents-workspace.tsx', '../app/knowledgeos-api.ts']) {
     assert.doesNotMatch(read(file), /localStorage|sessionStorage|document\.cookie/, file);
   }

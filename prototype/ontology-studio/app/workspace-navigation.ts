@@ -12,14 +12,17 @@ export const workspaces = [
   { id: "extraction", group: "model", href: "/extraction", label: "抽取配置", description: "说明卡、术语与抽取方案", title: "抽取配置工作台" },
   { id: "instances", group: "browse", href: "/instances", label: "实例浏览", description: "搜索实例与追溯事实", title: "实例搜索查看平台" },
   { id: "overview", group: "browse", href: "/overview", label: "定义总览", description: "注册目录与使用说明", title: "定义总览" },
-  { id: "changesets", group: "govern", href: "/changesets", label: "变更审核", description: "审批、应用与发布", title: "变更审核工作区" },
-  { id: "inbox", group: "govern", href: "/inbox", label: "我的待审", description: "按风险排列待我处理的提案", title: "我的待审" },
+  { id: "changesets", group: "govern", href: "/changesets", label: "审核", description: "待我处理的提案、审批与发布", title: "审核工作区" },
   { id: "agents", group: "govern", href: "/agents", label: "Agent 管理", description: "登记 Agent、凭证与接入配置", title: "Agent 管理" },
 ] as const;
 
 export type WorkspaceId = typeof workspaces[number]["id"];
+/** Earlier addresses that now open another workspace: "我的待审" became the default view of the review workspace. */
+const pathAliases: Record<string, WorkspaceId> = { "/inbox": "changesets" };
+
 export function workspaceForPath(path: string): WorkspaceId | null {
-  return workspaces.find((workspace) => workspace.href === (path.replace(/\/$/, "") || "/"))?.id ?? null;
+  const normalized = path.replace(/\/$/, "") || "/";
+  return workspaces.find((workspace) => workspace.href === normalized)?.id ?? pathAliases[normalized] ?? null;
 }
 
 /** Overview and the whiteboard share one mounted editor, preserving staged edits. */

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { lazy, Suspense, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
-import { BookOpen, Bot, Database, FileText, GitBranch, GitPullRequestArrow, Inbox, Network, PanelLeftClose, Pin, PinOff, Workflow } from "lucide-react";
+import { BookOpen, Bot, Database, FileText, GitBranch, GitPullRequestArrow, Network, PanelLeftClose, Pin, PinOff, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -14,14 +14,13 @@ import { NavigationContext } from "./workspace-navigation-context";
 import { initialNavigationState, navigationPinPreferenceKey, navigationReducer } from "./navigation-state";
 import { AccountDialog } from "./account-dialog";
 
-const icons = { ontology: Network, instances: Database, rules: GitBranch, templates: Workflow, extraction: FileText, changesets: GitPullRequestArrow, inbox: Inbox, agents: Bot, overview: BookOpen };
+const icons = { ontology: Network, instances: Database, rules: GitBranch, templates: Workflow, extraction: FileText, changesets: GitPullRequestArrow, agents: Bot, overview: BookOpen };
 const OntologyWorkspace = lazy(() => import("./ontology-workspace"));
 const ExpertTemplateWorkspace = lazy(() => import("./templates/template-workspace"));
 const InstancesWorkspace = lazy(() => import("./instances/instances-workspace"));
 const ChangesetsWorkspace = lazy(() => import("./changesets/changesets-workspace"));
 const RulesWorkspace = lazy(() => import("./rules/rules-workspace"));
 const ExtractionWorkspace = lazy(() => import("./extraction/extraction-workspace"));
-const InboxWorkspace = lazy(() => import("./inbox/inbox-workspace"));
 const AgentsWorkspace = lazy(() => import("./agents/agents-workspace"));
 
 function NavigationHint({ children, label, enabled }: { children: ReactNode; label: string; enabled: boolean }) {
@@ -117,7 +116,7 @@ function Shell({ children }: { children: ReactNode }) {
           <div className="navigation-section-label">{group.label}</div>
           {workspaces.filter(workspace => workspace.group === group.id).map(workspace => {
             const Icon = icons[workspace.id];
-            const badge = workspace.id === "inbox" && canReview ? reviewBadge(pendingReviews) : "";
+            const badge = workspace.id === "changesets" && canReview ? reviewBadge(pendingReviews) : "";
             const label = badge ? `${workspace.label}（${badge} 项待我处理）` : workspace.label;
             return <div key={workspace.id} className="navigation-entry"><NavigationHint label={label} enabled={collapsed}><Link href={workspace.href} aria-label={badge ? `${workspace.title}，${badge} 项待我处理` : workspace.title} onClick={() => dispatchNavigation({ type: "close" })}
               aria-current={active === workspace.id ? "page" : undefined} className="workspace-link">
@@ -142,7 +141,7 @@ function Shell({ children }: { children: ReactNode }) {
       {workspaces.filter(({ id }) => id !== "overview" && (id === activeSurface || visited.includes(id))).map(({ id, title }) =>
         <section key={id} id={`${id}-surface`} hidden={activeSurface !== id} aria-label={id === "ontology" && active === "overview" ? "定义总览" : title} tabIndex={-1} className="workspace-surface">
           <Suspense fallback={<div className="workspace-loading" role="status">正在打开工作区…</div>}>
-            {id === "ontology" ? <OntologyWorkspace active={activeSurface === id} view={active === "overview" ? "control" : "studio"} /> : id === "instances" ? <InstancesWorkspace active={active === id} /> : id === "rules" ? <RulesWorkspace active={active === id} /> : id === "changesets" ? <ChangesetsWorkspace active={active === id} /> : id === "extraction" ? <ExtractionWorkspace active={active === id} /> : id === "inbox" ? <InboxWorkspace active={active === id} /> : id === "agents" ? <AgentsWorkspace active={active === id} /> : <ExpertTemplateWorkspace active={active === id} />}
+            {id === "ontology" ? <OntologyWorkspace active={activeSurface === id} view={active === "overview" ? "control" : "studio"} /> : id === "instances" ? <InstancesWorkspace active={active === id} /> : id === "rules" ? <RulesWorkspace active={active === id} /> : id === "changesets" ? <ChangesetsWorkspace active={active === id} /> : id === "extraction" ? <ExtractionWorkspace active={active === id} /> : id === "agents" ? <AgentsWorkspace active={active === id} /> : <ExpertTemplateWorkspace active={active === id} />}
           </Suspense>
         </section>)}
       {children}
