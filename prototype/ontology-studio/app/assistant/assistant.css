@@ -12,12 +12,12 @@
 .assistant-caption { font-size: 12px; color: var(--muted-foreground); line-height: 1.7; }
 .assistant-ok { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #16653a; }
 .assistant-summary { border: 1px solid #cfe0fd; border-radius: 8px; background: #f4f8ff; padding: 12px; display: flex; flex-direction: column; gap: 6px; line-height: 1.7; }
-.assistant-summary small { color: var(--muted-foreground); font-size: 11px; }
+.assistant-summary small { color: var(--muted-foreground); font-size: 12px; }
 .assistant-summary h4 { margin-top: 4px; font-size: 12px; font-weight: 600; }
 .assistant-summary ul, .assistant-list, .assistant-callout ul { padding-left: 1.1rem; list-style: disc; font-size: 12px; line-height: 1.8; }
 .assistant-section { display: flex; flex-direction: column; gap: 8px; }
 .assistant-section > h3 { font-size: 13px; font-weight: 600; }
-.assistant-section > h3 small { margin-left: 6px; font-weight: 400; font-size: 11px; color: var(--muted-foreground); }
+.assistant-section > h3 small { margin-left: 6px; font-weight: 400; font-size: 12px; color: var(--muted-foreground); }
 .assistant-issues { display: flex; flex-direction: column; gap: 6px; }
 .assistant-issues li { display: flex; gap: 8px; align-items: flex-start; border-radius: 6px; padding: 7px 9px; font-size: 12px; line-height: 1.7; background: var(--muted); overflow-wrap: anywhere; }
 .assistant-issues li > svg { flex-shrink: 0; margin-top: 4px; }
@@ -51,10 +51,10 @@
 .assistant-options button { border: 1px solid #cfe0fd; border-radius: 999px; background: white; padding: 4px 10px; font-size: 12px; color: var(--primary); }
 .assistant-options button:hover { background: #f4f8ff; }
 .assistant-compose { display: flex; flex-direction: column; gap: 8px; }
-.assistant-kbd { margin-left: 4px; font-size: 10px; opacity: .75; }
+.assistant-kbd { margin-left: 4px; font-size: 12px; opacity: .75; }
 .assistant-metrics { margin-top: 24px; width: min(560px, 100%); text-align: left; display: flex; flex-direction: column; gap: 8px; }
 .assistant-metrics h3 { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
-.assistant-metrics p { font-size: 11px; color: var(--muted-foreground); }
+.assistant-metrics p { font-size: 12px; color: var(--muted-foreground); }
 .assistance-review h3 { display: flex; align-items: center; gap: 6px; }
 @media (max-width: 640px) { .assistant-transcript li { max-width: 100%; } .assistant-table th, .assistant-table td { white-space: normal; } }
 .canvas-assistant-entry { position: absolute; top: 16px; left: 50%; z-index: 30; transform: translateX(-50%); box-shadow: var(--shadow-float); }
