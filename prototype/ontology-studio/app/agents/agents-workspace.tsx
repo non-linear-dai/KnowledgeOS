@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useWorkspaceSession } from "../workspace-session";
+import { SignInPrompt } from "../sign-in-prompt";
 import { NavigationToggle } from "../workspace-navigation-context";
 import { displayDate } from "../instances/instances-api";
 import { activeCredentials, createAgent, issueCredential, loadDirectory, loadMcpInfo, presetFor, proposalSummary, revokeCredential, rolePresets,
@@ -137,7 +138,7 @@ export default function AgentsWorkspace({ active }: { active: boolean }) {
     } catch (cause) { toast.error(cause instanceof Error ? cause.message : "无法修改审批策略"); }
   }
   if (!session || !canManage) return <div className="agents-workspace"><h1 className="sr-only">Agent 管理</h1><div className="workspace-navigation-access"><NavigationToggle /></div>
-    <div className="change-empty"><Bot size={28} strokeWidth={1.3} /><h2>Agent 管理</h2><p>{session ? "当前账号没有管理权限。请使用本机所有者账号登录。" : "从左下角“账户与连接”登录（首次使用会创建本机所有者账号）后，登记 Agent、签发凭证并获取各宿主的接入配置。"}</p></div></div>;
+    {session ? <div className="change-empty"><Bot size={28} strokeWidth={1.3} /><h2>Agent 管理</h2><p>当前账号没有管理权限。请使用本机所有者账号登录。</p></div> : <SignInPrompt icon={<Bot size={25} strokeWidth={1.4} />} title="Agent 管理">登录后登记 Agent、签发凭证并获取各宿主的接入配置。首次使用会创建本机所有者账号。</SignInPrompt>}</div>;
   return <div className="agents-workspace">
     <header className="agents-header"><div className="directory-heading"><NavigationToggle /><h1>Agent 管理</h1>
       <Button variant="ghost" size="icon-sm" aria-label="刷新" title="刷新" disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw className={loading ? "animate-spin" : ""} /></Button></div>

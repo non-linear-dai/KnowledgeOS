@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WorkspaceSession, useWorkspaceSession } from "./workspace-session";
-import { workspaces, workspaceForPath, workspaceSurface, type WorkspaceId } from "./workspace-navigation";
+import { navigationGroups, reviewBadge, reviewChangedEvent, workspaces, workspaceForPath, workspaceSurface, type WorkspaceId } from "./workspace-navigation";
+import { request } from "./knowledgeos-api";
 import { NavigationContext } from "./workspace-navigation-context";
 import { initialNavigationState, navigationPinPreferenceKey, navigationReducer } from "./navigation-state";
 import { AccountDialog } from "./account-dialog";
@@ -36,8 +37,9 @@ function Shell({ children }: { children: ReactNode }) {
   const pinPreference = useRef(false);
   const navigationRef = useRef<HTMLElement>(null);
   const collapsed = !navigation.expanded;
-  const { session, setSession } = useWorkspaceSession();
-  const [accountOpen, setAccountOpen] = useState(false);
+  const { session, setSession, accountOpen, setAccountOpen } = useWorkspaceSession();
+  const [pendingReviews, setPendingReviews] = useState<number | null>(null);
+  const canReview = Boolean(session?.permissions.includes("review"));
 
   function focusNavigationControl() {
     const controls = document.querySelectorAll<HTMLButtonElement>(".workspace-surface:not([hidden]) .workspace-navigation-toggle");
@@ -80,6 +82,23 @@ function Shell({ children }: { children: ReactNode }) {
     if (active) { const surface = workspaceSurface(active); setVisited((previous) => previous.includes(surface) ? previous : [...previous, surface]); }
   }, [active]);
 
+  useEffect(() => {
+    // Keep the review badge current: on sign-in, route changes, window focus, review actions and once a minute.
+    if (!canReview) return;
+    let controller = new AbortController();
+    const load = () => {
+      controller.abort(); controller = new AbortController();
+      const signal = controller.signal;
+      void request<{ data: { counts: { can_approve: number } } }>("/v1/inbox", { signal })
+        .then(result => { if (!signal.aborted) setPendingReviews(result.data.counts.can_approve); })
+        .catch(() => { if (!signal.aborted) setPendingReviews(null); });
+    };
+    load();
+    const timer = window.setInterval(load, 60_000);
+    window.addEventListener("focus", load); window.addEventListener(reviewChangedEvent, load);
+    return () => { controller.abort(); window.clearInterval(timer); window.removeEventListener("focus", load); window.removeEventListener(reviewChangedEvent, load); };
+  }, [canReview, session?.principal, active]);
+
   if (!active) return children;
   const activeSurface = workspaceSurface(active);
   return <NavigationContext.Provider value={{ collapsed, toggle: toggleNavigation }}><div className="knowledge-shell" data-navigation-collapsed={collapsed} data-navigation-pinned={navigation.pinned}>
@@ -94,15 +113,21 @@ function Shell({ children }: { children: ReactNode }) {
         {compactNavigation ? <Button variant="ghost" size="icon-sm" className="navigation-pin" aria-label="收起工作区导航" onClick={toggleNavigation}><PanelLeftClose /></Button> : !collapsed && <NavigationHint label={navigation.pinned ? "取消固定" : "固定展开"} enabled><Button variant="ghost" size="icon-sm" className="navigation-pin" aria-label={navigation.pinned ? "取消固定工作区导航" : "固定展开工作区导航"} aria-pressed={navigation.pinned} onClick={togglePinned}>{navigation.pinned ? <PinOff /> : <Pin />}</Button></NavigationHint>}
       </div>
       <nav className="workspace-links" aria-label="切换工作区">
-        {workspaces.map((workspace, index) => {
-          const Icon = icons[workspace.id];
-          return <div key={workspace.id} className="navigation-entry">{(index === 0 || workspace.id === "changesets" || workspace.id === "inbox") && <div className="navigation-section-label">{index === 0 ? "工作区" : workspace.id === "inbox" ? "协作" : "知识管理"}</div>}<NavigationHint label={workspace.label} enabled={collapsed}><Link href={workspace.href} aria-label={workspace.title} onClick={() => dispatchNavigation({ type: "close" })}
-            aria-current={active === workspace.id ? "page" : undefined} className="workspace-link">
-            <Icon aria-hidden="true" size={19} strokeWidth={1.65} />
-            <span className="workspace-link-copy"><strong>{workspace.label}</strong><span>{workspace.description}</span></span>
-            <span className="workspace-link-short">{workspace.label}</span>
-          </Link></NavigationHint></div>;
-        })}
+        {navigationGroups.map(group => <div key={group.id} className="navigation-group" role="group" aria-label={group.label}>
+          <div className="navigation-section-label">{group.label}</div>
+          {workspaces.filter(workspace => workspace.group === group.id).map(workspace => {
+            const Icon = icons[workspace.id];
+            const badge = workspace.id === "inbox" && canReview ? reviewBadge(pendingReviews) : "";
+            const label = badge ? `${workspace.label}（${badge} 项待我处理）` : workspace.label;
+            return <div key={workspace.id} className="navigation-entry"><NavigationHint label={label} enabled={collapsed}><Link href={workspace.href} aria-label={badge ? `${workspace.title}，${badge} 项待我处理` : workspace.title} onClick={() => dispatchNavigation({ type: "close" })}
+              aria-current={active === workspace.id ? "page" : undefined} className="workspace-link">
+              <Icon aria-hidden="true" size={19} strokeWidth={1.65} />
+              <span className="workspace-link-copy"><strong>{workspace.label}</strong><span>{workspace.description}</span></span>
+              <span className="workspace-link-short">{workspace.label}</span>
+              {badge && <span className="navigation-badge" aria-hidden="true">{badge}</span>}
+            </Link></NavigationHint></div>;
+          })}
+        </div>)}
       </nav>
       <div className="navigation-footer">
         <NavigationHint label="账户与连接" enabled={collapsed}><button className="navigation-account" aria-label="账户与连接" onClick={() => setAccountOpen(true)}>
