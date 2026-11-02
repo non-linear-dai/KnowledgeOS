@@ -84,7 +84,7 @@ function Shell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Keep the review badge current: on sign-in, route changes, window focus, review actions and once a minute.
-    if (!canReview) { setPendingReviews(null); return; }
+    if (!canReview) return;
     let controller = new AbortController();
     const load = () => {
       controller.abort(); controller = new AbortController();
@@ -117,7 +117,7 @@ function Shell({ children }: { children: ReactNode }) {
           <div className="navigation-section-label">{group.label}</div>
           {workspaces.filter(workspace => workspace.group === group.id).map(workspace => {
             const Icon = icons[workspace.id];
-            const badge = workspace.id === "inbox" ? reviewBadge(pendingReviews) : "";
+            const badge = workspace.id === "inbox" && canReview ? reviewBadge(pendingReviews) : "";
             const label = badge ? `${workspace.label}（${badge} 项待我处理）` : workspace.label;
             return <div key={workspace.id} className="navigation-entry"><NavigationHint label={label} enabled={collapsed}><Link href={workspace.href} aria-label={badge ? `${workspace.title}，${badge} 项待我处理` : workspace.title} onClick={() => dispatchNavigation({ type: "close" })}
               aria-current={active === workspace.id ? "page" : undefined} className="workspace-link">
