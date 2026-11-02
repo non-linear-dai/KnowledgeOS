@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "../workspace-session";
+import { SignInPrompt } from "../sign-in-prompt";
 import { CardAssistant, type CardAssistTarget } from "./card-assistant";
 import type { Assistance } from "../assistant/assistant-api";
 import { NavigationToggle } from "../workspace-navigation-context";
@@ -494,7 +495,7 @@ export default function ExtractionWorkspace({ active }: { active: boolean }) {
 
   return <div className="changesets-workspace extraction-workspace">
     {!session && <><h1 className="sr-only">抽取配置</h1><div className="workspace-navigation-access"><NavigationToggle /></div></>}
-    {!session ? <div className="change-empty"><FileText size={28} strokeWidth={1.3} /><h2>抽取配置</h2><p>从左下角“账户与连接”登录后，维护概念抽取说明卡、属性写法和文档抽取方案。修改通过 ChangeSet 审核后才写入真源。</p></div> : <>
+    {!session ? <SignInPrompt icon={<FileText size={25} strokeWidth={1.4} />} title="抽取配置">登录后维护概念抽取说明卡、属性写法和文档抽取方案。修改通过 ChangeSet 审核后才写入真源。</SignInPrompt> : <>
       {error && <div role="alert" className="instance-error"><p>{error}</p><Button variant="outline" size="sm" disabled={loading} onClick={() => setRevision(value => value + 1)}>重试</Button></div>}
       <div className="changesets-layout" data-detail-open={Boolean(selection) || view === "feedback"}>
         <aside className="changeset-directory" aria-label="抽取配置目录">

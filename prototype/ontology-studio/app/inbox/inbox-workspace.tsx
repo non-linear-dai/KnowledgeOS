@@ -6,6 +6,7 @@ import { Bot, Inbox, RefreshCw, ShieldAlert, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { request, type ApprovalPolicy } from "../knowledgeos-api";
 import { useWorkspaceSession } from "../workspace-session";
+import { SignInPrompt } from "../sign-in-prompt";
 import { NavigationToggle } from "../workspace-navigation-context";
 import { displayDate } from "../instances/instances-api";
 import { actorText, assistanceOf, changeCategory, changeStatusLabels, type ChangeRecord } from "../changesets/changesets-api";
@@ -50,7 +51,7 @@ export default function InboxWorkspace({ active }: { active: boolean }) {
     return () => controller.abort();
   }, [active, session, canReview, revision]);
   if (!session || !canReview) return <div className="inbox-workspace"><h1 className="sr-only">我的待审</h1><div className="workspace-navigation-access"><NavigationToggle /></div>
-    <div className="change-empty"><Inbox size={28} strokeWidth={1.3} /><h2>我的待审</h2><p>{session ? "当前账号没有审核权限。" : "从左下角“账户与连接”登录后，在这里按风险处理 Agent 与成员提交的提案。"}</p></div></div>;
+    {session ? <div className="change-empty"><Inbox size={28} strokeWidth={1.3} /><h2>我的待审</h2><p>当前账号没有审核权限。</p></div> : <SignInPrompt icon={<Inbox size={25} strokeWidth={1.4} />} title="我的待审">登录后在这里按风险处理 Agent 与成员提交的提案。</SignInPrompt>}</div>;
   const groups = groupInbox(data?.items ?? []);
   return <div className="inbox-workspace">
     <header className="agents-header"><div className="directory-heading"><NavigationToggle /><h1>我的待审</h1>

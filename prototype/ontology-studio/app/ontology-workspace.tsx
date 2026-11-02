@@ -41,7 +41,6 @@ import {
   GripVertical,
   Focus,
   LayoutGrid,
-  Layers3,
   Link2,
   ListChecks,
   MousePointer2,
@@ -106,6 +105,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "./workspace-session";
+import { ToolHint } from "./tool-hint";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { conceptOptions, currencyOptions, dimensionOptions, modelUnitOptions, outputPredicateOptions, physicalUnitOptions, type RegistryOption } from "./registered-options";
@@ -518,17 +518,14 @@ function stageDefinitionOperation(items: ChangeOperation[], next: OntologyDefini
   return existing ? items.map((item) => item.id === existing.id ? operation : item) : [...items, operation];
 }
 
-function Catalog({ definitions, selectedId, onSelect, onQuickEdit, filterKind, setFilterKind, onCreate, onAssist }: {
+function Catalog({ definitions, selectedId, onSelect, onQuickEdit, filterKind, setFilterKind, onAssist }: {
   definitions: OntologyDefinition[]; selectedId: string | null; onSelect: (id: string) => void;
-  onQuickEdit: (id: string) => void; filterKind: "all" | DefinitionKind; setFilterKind: (kind: "all" | DefinitionKind) => void; onCreate: () => void; onAssist: (tab: AssistantTab) => void;
+  onQuickEdit: (id: string) => void; filterKind: "all" | DefinitionKind; setFilterKind: (kind: "all" | DefinitionKind) => void; onAssist: (tab: AssistantTab) => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       <div className="border-b border-border px-3.5 py-3">
-        <div className="flex items-center justify-between">
-          <div><p className="text-sm font-semibold text-foreground">定义库</p><p className="mt-0.5 text-xs text-muted-foreground">{definitions.length} 项 · ChangeSet 治理</p></div>
-          <Button size="icon-sm" onClick={onCreate} aria-label="新增本体定义" className="rounded-lg bg-primary text-white hover:bg-primary/90"><Plus /></Button>
-        </div>
+        <div><p className="text-sm font-semibold text-foreground">定义库</p><p className="mt-0.5 text-xs text-muted-foreground">{definitions.length} 项 · ChangeSet 治理</p></div>
         <div className="mt-2.5 grid grid-cols-2 gap-1.5">
           <Button size="sm" variant="outline" onClick={() => onAssist("draft")}><Sparkles />助手起草</Button>
           <Button size="sm" variant="outline" onClick={() => onAssist("model")}><Sparkles />建模助手</Button>
@@ -1002,9 +999,7 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
   const searchParams = useSearchParams();
   const [definitions, setDefinitions] = useState<OntologyDefinition[]>([]); const [operations, setOperations] = useState<ChangeOperation[]>([]);
   const [baselineDefinitions, setBaselineDefinitions] = useState<OntologyDefinition[]>([]);
-  const { session, setSession } = useWorkspaceSession();
-  const [loginOpen, setLoginOpen] = useState(false);
-  const [tokenInput, setTokenInput] = useState("");
+  const { session, setSession, setAccountOpen } = useWorkspaceSession();
   const [draftConflict, setDraftConflict] = useState("");
   const operationsRef = useRef(operations);
   const syncSequence = useRef(0);
@@ -1028,7 +1023,6 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
   const [searchOpen, setSearchOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [domain, setDomain] = useState("");
-  const [domainOpen, setDomainOpen] = useState(false);
   const canvasRef = useRef<HTMLElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 720 });
   const [filterPositions, setFilterPositions] = useState<NodePositions>({});
@@ -1119,12 +1113,12 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
   const matchingIds = useMemo(() => new Set(matchingDefinitions.map(definition => definition.id)), [matchingDefinitions]);
   const canvasArea = useMemo(() => {
     const { width, height } = canvasSize;
-    let left = Math.max(76, panels.left ? 92 + Math.min(300, width - 92) : 0, hasFilters && (searchOpen || filterOpen || domainOpen) ? 92 + Math.min(300, width - 100) : 0);
+    let left = Math.max(76, panels.left ? 92 + Math.min(300, width - 92) : 0, hasFilters && (searchOpen || filterOpen) ? 92 + Math.min(300, width - 100) : 0);
     let right = panels.right && selected ? 32 + Math.min(360, width - 92) : 16;
     // Small screens use full panel overlays, leaving no usable area beside them.
     if (width - left - right < 180) { left = 76; right = 16; }
     return { x: left, y: 24, width: Math.max(1, width - left - right), height: Math.max(1, height - 96) };
-  }, [canvasSize, panels.left, panels.right, selected, hasFilters, searchOpen, filterOpen, domainOpen]);
+  }, [canvasSize, panels.left, panels.right, selected, hasFilters, searchOpen, filterOpen]);
   const [allNodes, setAllNodes] = useState<StudioNode[]>([]);
   useEffect(() => {
     const projectedNodes = graphNodes(visibleDefinitions, dependencyEdges, selectedId, selectedIds, nodePositions, showRelatedDefinitions, manageBindings, manageEndpoints);
@@ -1359,10 +1353,6 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
     setConnection("demo"); setMetadata(null); operationsRef.current = []; setOperations([]); setDraftConflict("");
     setDefinitions(initialDefinitions); setBaselineDefinitions(initialDefinitions);
   };
-  const login = async () => {
-    setSessionToken(tokenInput); setTokenInput(""); setLoginOpen(false);
-    await refreshFromBackend(true);
-  };
   const connectionLabel = { connecting: "正在连接", connected: "已连接", demo: "演示模式", unauthorized: "请登录", forbidden: "权限不足", offline: "连接中断", unconfigured: "后端未配置" }[connection];
 
   const visibleNodeIds = nodes.map((node) => node.id).join("|");
@@ -1509,17 +1499,20 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
           <DropdownMenuItem onSelect={() => openAssistant("model")}><Sparkles />建模助手：表单建模与复用检查</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => openAssistant("terms")}><Sparkles />建模助手：业务术语</DropdownMenuItem>
           <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs text-muted-foreground">视图</DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => setExpert((value) => !value)}><Code2 />{expert ? "关闭专家模式" : "开启专家模式"}</DropdownMenuItem>
           {view === "studio" && <DropdownMenuItem onSelect={() => dispatchLayout({ type: "toggle-auto-hide" })}><PanelLeftClose />{workspaceLayout.autoHide ? "关闭侧栏自动收起" : "开启侧栏自动收起"}</DropdownMenuItem>}
-          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={resetLayout}><RotateCcw />复位白板布局</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setHelpOpen(true)}><CircleHelp />白板操作与快捷键</DropdownMenuItem>
-          <DropdownMenuItem onSelect={reset}><RotateCcw />重新载入控制面</DropdownMenuItem>
-          <DropdownMenuItem disabled={syncing || operations.length > 0} onSelect={enterDemo}><LayoutGrid />进入演示模式</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs text-muted-foreground">数据</DropdownMenuLabel>
           <DropdownMenuItem disabled={syncing} onSelect={() => void refreshFromBackend(true)}><RefreshCw />重新同步 · {connectionLabel}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={reset}><RotateCcw />放弃草稿并重新载入</DropdownMenuItem>
+          <DropdownMenuItem disabled={syncing || operations.length > 0} onSelect={enterDemo}><LayoutGrid />进入演示模式</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setHelpOpen(true)}><CircleHelp />白板操作与快捷键</DropdownMenuItem>
         </DropdownMenuContent></DropdownMenu>;
 
-  const catalog = <Catalog definitions={matchingDefinitions} selectedId={selectedId} onSelect={selectDefinition} onQuickEdit={quickEditDefinition} filterKind={filterKind} setFilterKind={kind => changeFilter(() => setFilterKind(kind))} onCreate={() => setCreateOpen(true)} onAssist={openAssistant} />;
+  const catalog = <Catalog definitions={matchingDefinitions} selectedId={selectedId} onSelect={selectDefinition} onQuickEdit={quickEditDefinition} filterKind={filterKind} setFilterKind={kind => changeFilter(() => setFilterKind(kind))} onAssist={openAssistant} />;
   const inspector = <Inspector key={selected?.id ?? "empty"} definition={selected} definitions={definitions} relatedDefinitions={relatedDefinitions} expert={expert} editSignal={editSignal} relatedRequest={relatedRequest} onUpdate={stageUpdate} onDeprecate={deprecateSelected} onDelete={deleteSelected} onSelectRelated={selectDefinition} onCollapse={() => dispatchLayout({ type: "close", side: "right" })} onManageBindings={manageBindings} onManageEndpoints={manageEndpoints} />;
 
   return <TooltipProvider><div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
@@ -1527,33 +1520,35 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
     {view === "studio" && <h1 className="sr-only">本体建模</h1>}
     <div id="workspace-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
     {draftConflict && <Alert variant="destructive"><AlertTitle>编辑冲突</AlertTitle><AlertDescription>{draftConflict}<Button variant="outline" onClick={reset}>放弃草稿并重新载入</Button></AlertDescription></Alert>}
-    <Dialog open={active && loginOpen} onOpenChange={setLoginOpen}><DialogContent><DialogHeader><DialogTitle>登录 KnowledgeOS</DialogTitle><DialogDescription>输入管理员分配的个人访问凭证。凭证仅保留在当前页面内存中，刷新页面后需重新登录。</DialogDescription></DialogHeader><Input type="password" autoComplete="off" aria-label="个人访问凭证" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} /><Button disabled={!tokenInput.trim()} onClick={() => void login()}>登录</Button>{session && <Button variant="outline" onClick={() => { ++syncSequence.current; setSessionToken(""); setSession(null); setConnection("unauthorized"); setDefinitions([]); setBaselineDefinitions([]); setOperations([]); setMetadata(null); setLoginOpen(false); }}>退出登录</Button>}</DialogContent></Dialog>
     <div data-ontology-view="control" hidden={view !== "control"} className="min-h-0 flex-1"><ControlCenter actions={<><NavigationToggle />{workspaceMenu}</>} definitions={definitions} errors={errors} metadata={metadata} connection={connection} onOpenDefinition={(id) => { clearFilters(); selectDefinition(id); router.push("/"); }} onOpenKind={(kind) => { changeFilter(() => { setSearch(""); setFilterKind(kind); setLifecycle("all"); setStorage("all"); }); dispatchLayout({ type: "open", side: "left" }); router.push("/"); }} /></div>
     <div data-ontology-view="studio" hidden={view !== "studio"} className="min-h-0 flex-1">
       <div className="studio-workspace relative h-full min-h-0" data-workspace-focus={workspaceLayout.focused}>
         <main ref={canvasRef} className="@container absolute inset-0 min-w-0 min-h-0 overflow-hidden bg-background">
           <div className="canvas-dock" role="toolbar" aria-label="本体白板工具" aria-orientation="vertical">
             <NavigationToggle />
-            <Button variant={!marqueeMode ? "secondary" : "ghost"} size="icon-sm" title="平移与选择 · V" aria-label="平移与选择" aria-pressed={!marqueeMode} onClick={() => setMarqueeMode(false)}><MousePointer2 /></Button>
-            <Button variant={marqueeMode ? "secondary" : "ghost"} size="icon-sm" title="框选工具 · B" aria-label="框选工具" aria-pressed={marqueeMode} onClick={() => setMarqueeMode(true)}><Scan /></Button>
+            <ToolHint label="平移与选择" shortcut="V"><Button variant={!marqueeMode ? "secondary" : "ghost"} size="icon-sm" aria-label="平移与选择" aria-pressed={!marqueeMode} onClick={() => setMarqueeMode(false)}><MousePointer2 /></Button></ToolHint>
+            <ToolHint label="框选" shortcut="B"><Button variant={marqueeMode ? "secondary" : "ghost"} size="icon-sm" aria-label="框选工具" aria-pressed={marqueeMode} onClick={() => setMarqueeMode(true)}><Scan /></Button></ToolHint>
             <span className="canvas-dock-separator" />
-            <Button size="icon-sm" aria-label="新增定义" title="新增定义 · N" onClick={() => setCreateOpen(true)}><Plus /></Button>
-            <Popover open={active && searchOpen} onOpenChange={setSearchOpen}><PopoverTrigger asChild><Button variant={search ? "secondary" : "ghost"} size="icon-sm" aria-label="搜索当前白板" title="搜索白板 · /"><Search /></Button></PopoverTrigger><PopoverContent side="right" align="start" className="canvas-tool-popover space-y-3"><h2 className="text-sm font-medium">搜索白板</h2><Input ref={searchInputRef} autoFocus aria-label="搜索当前白板" placeholder="搜索名称、ID 或说明…" value={search} onChange={event => changeFilter(() => setSearch(event.target.value))} />{search && <Button variant="ghost" size="sm" onClick={() => changeFilter(() => setSearch(""))}>清空搜索</Button>}<Button variant="outline" size="sm" className="w-full" aria-label="搜索定义与快速命令" onClick={() => { setSearchOpen(false); setCommandOpen(true); }}>定义与快捷命令<span className="ml-auto text-xs text-muted-foreground">⌘ / Ctrl K</span></Button></PopoverContent></Popover>
-            <Popover open={active && domainOpen} onOpenChange={setDomainOpen}><PopoverTrigger asChild><Button variant={domain ? "secondary" : "ghost"} size="icon-sm" aria-label="选择工作领域" title={`工作领域：${currentDomain ? workDomainLabel(currentDomain) : "全部领域"}`}><Layers3 /></Button></PopoverTrigger><PopoverContent side="right" align="start" className="canvas-tool-popover space-y-3"><h2 className="text-sm font-medium">工作领域</h2><p className="text-xs leading-5 text-muted-foreground">聚焦领域关联的概念、判断、关系和模型。</p><div role="group" aria-label="工作领域选项" className="space-y-1">{[{ id: "", label: "全部领域" }, ...domains].map(item => <Button key={item.id} variant={domain === item.id ? "secondary" : "ghost"} size="sm" className="w-full justify-between" aria-pressed={domain === item.id} onClick={() => { changeFilter(() => setDomain(item.id)); setDomainOpen(false); }}>{workDomainLabel(item)}{domain === item.id && <Check />}</Button>)}</div>{!domains.length && <p className="text-xs text-muted-foreground">{definitions.length ? "当前知识库尚未配置工作领域。" : "连接知识库后可选择工作领域。"}</p>}</PopoverContent></Popover>
-            <Popover open={active && filterOpen} onOpenChange={setFilterOpen}><PopoverTrigger asChild><Button variant={filterKind !== "all" || lifecycle !== "all" || storage !== "all" ? "secondary" : "ghost"} size="icon-sm" aria-label="筛选本体定义" title="筛选类型、生命周期与存储模式"><SlidersHorizontal /></Button></PopoverTrigger><PopoverContent side="right" align="start" className="canvas-tool-popover space-y-4"><h2 className="text-sm font-medium">筛选定义</h2><div className="canvas-kind-options" role="group" aria-label="本体类型图例">{allKinds.map(kind => <button key={kind} aria-label={`按类型筛选${kindMeta[kind].label}`} aria-pressed={filterKind === kind} onClick={() => changeFilter(() => setFilterKind(filterKind === kind ? "all" : kind))}><span style={{ background: kindMeta[kind].color }} />{kindMeta[kind].label}</button>)}</div>
+            <ToolHint label="新增定义" shortcut="N"><Button size="icon-sm" aria-label="新增定义" onClick={() => setCreateOpen(true)}><Plus /></Button></ToolHint>
+            <span className="canvas-dock-separator" />
+            <Popover open={active && searchOpen} onOpenChange={setSearchOpen}><PopoverTrigger asChild><ToolHint label="搜索白板" shortcut="/"><Button variant={search ? "secondary" : "ghost"} size="icon-sm" aria-label="搜索当前白板"><Search /></Button></ToolHint></PopoverTrigger><PopoverContent side="right" align="start" className="canvas-tool-popover space-y-3"><h2 className="text-sm font-medium">搜索白板</h2><Input ref={searchInputRef} autoFocus aria-label="搜索当前白板" placeholder="搜索名称、ID 或说明…" value={search} onChange={event => changeFilter(() => setSearch(event.target.value))} />{search && <Button variant="ghost" size="sm" onClick={() => changeFilter(() => setSearch(""))}>清空搜索</Button>}<Button variant="outline" size="sm" className="w-full" aria-label="搜索定义与快速命令" onClick={() => { setSearchOpen(false); setCommandOpen(true); }}>定义与快捷命令<span className="ml-auto text-xs text-muted-foreground">⌘ / Ctrl K</span></Button></PopoverContent></Popover>
+            <Popover open={active && filterOpen} onOpenChange={setFilterOpen}><ToolHint label={currentDomain ? `视图：${workDomainLabel(currentDomain)}` : "视图与筛选"}><PopoverTrigger asChild><Button variant={domain || filterKind !== "all" || lifecycle !== "all" || storage !== "all" ? "secondary" : "ghost"} size="icon-sm" aria-label="视图与筛选"><SlidersHorizontal /></Button></PopoverTrigger></ToolHint><PopoverContent side="right" align="start" className="canvas-tool-popover space-y-4"><h2 className="text-sm font-medium">视图与筛选</h2>
+              <section className="space-y-2"><h3 className="text-xs font-medium text-muted-foreground">工作领域</h3><div role="group" aria-label="工作领域选项" className="space-y-1">{[{ id: "", label: "全部领域" }, ...domains].map(item => <Button key={item.id} variant={domain === item.id ? "secondary" : "ghost"} size="sm" className="w-full justify-between" aria-pressed={domain === item.id} onClick={() => changeFilter(() => setDomain(item.id))}>{workDomainLabel(item)}{domain === item.id && <Check />}</Button>)}</div>{!domains.length && <p className="text-xs text-muted-foreground">{definitions.length ? "当前知识库尚未配置工作领域。" : "连接知识库后可选择工作领域。"}</p>}</section>
+              <section className="space-y-2"><h3 className="text-xs font-medium text-muted-foreground">类型</h3><div className="canvas-kind-options" role="group" aria-label="本体类型图例">{allKinds.map(kind => <button key={kind} aria-label={`按类型筛选${kindMeta[kind].label}`} aria-pressed={filterKind === kind} onClick={() => changeFilter(() => setFilterKind(filterKind === kind ? "all" : kind))}><span style={{ background: kindMeta[kind].color }} />{kindMeta[kind].label}</button>)}</div></section>
               <Choice label="生命周期" value={lifecycle} options={["all", "draft", "active", "deprecated", "merged", "retired"]} optionLabels={{all:"全部状态",draft:"草稿",active:"已启用",deprecated:"已弃用",merged:"已合并",retired:"已退役"}} onChange={value => changeFilter(() => setLifecycle(value as "all" | Lifecycle))} />
-              <Choice label="存储模式" value={storage} options={["all","attr","assertion"]} optionLabels={{all:"全部存储",attr:"Attribute · 稳定属性",assertion:"Assertion · 判断断言"}} onChange={value => changeFilter(() => setStorage(value))} /><Button variant="ghost" size="sm" className="w-full" onClick={() => changeFilter(() => { setFilterKind("all"); setLifecycle("all"); setStorage("all"); })}>清除筛选</Button>
+              <Choice label="存储模式" value={storage} options={["all","attr","assertion"]} optionLabels={{all:"全部存储",attr:"Attribute · 稳定属性",assertion:"Assertion · 判断断言"}} onChange={value => changeFilter(() => setStorage(value))} /><Button variant="ghost" size="sm" className="w-full" onClick={() => changeFilter(() => { setDomain(""); setFilterKind("all"); setLifecycle("all"); setStorage("all"); })}>清除全部</Button>
             </PopoverContent></Popover>
-            <Button variant={panels.left ? "secondary" : "ghost"} size="icon-sm" aria-label={panels.left ? "收起左侧目录" : "展开左侧目录"} title="定义目录 · [" aria-pressed={panels.left} onClick={() => dispatchLayout({ type: "toggle", side: "left" })}><LayoutGrid /></Button>
-            {selected && <Button variant={panels.right ? "secondary" : "ghost"} size="icon-sm" aria-label={panels.right ? "隐藏属性详情" : "显示属性详情"} title="属性详情 · ]" aria-pressed={panels.right} onClick={() => dispatchLayout({ type: "toggle", side: "right" })}><PanelRightClose /></Button>}
             <span className="canvas-dock-separator" />
-            <Button variant={workspaceLayout.focused ? "secondary" : "ghost"} size="icon-sm" aria-label={workspaceLayout.focused ? "退出专注工作区" : "专注工作区"} title="专注工作区 · Shift F" aria-pressed={workspaceLayout.focused} onClick={() => dispatchLayout({ type: "toggle-focus" })}><Focus /></Button>
-            <Button variant={assistantOpen ? "secondary" : "ghost"} size="icon-sm" aria-label="建模助手 · 助手起草" title="建模助手 · 助手起草" onClick={() => openAssistant("draft")}><Sparkles /></Button>
+            <ToolHint label="定义目录" shortcut="["><Button variant={panels.left ? "secondary" : "ghost"} size="icon-sm" aria-label={panels.left ? "收起左侧目录" : "展开左侧目录"} aria-pressed={panels.left} onClick={() => dispatchLayout({ type: "toggle", side: "left" })}><LayoutGrid /></Button></ToolHint>
+            {selected && <ToolHint label="属性详情" shortcut="]"><Button variant={panels.right ? "secondary" : "ghost"} size="icon-sm" aria-label={panels.right ? "隐藏属性详情" : "显示属性详情"} aria-pressed={panels.right} onClick={() => dispatchLayout({ type: "toggle", side: "right" })}><PanelRightClose /></Button></ToolHint>}
+            <ToolHint label={workspaceLayout.focused ? "退出专注" : "专注工作区"} shortcut="⇧F"><Button variant={workspaceLayout.focused ? "secondary" : "ghost"} size="icon-sm" aria-label={workspaceLayout.focused ? "退出专注工作区" : "专注工作区"} aria-pressed={workspaceLayout.focused} onClick={() => dispatchLayout({ type: "toggle-focus" })}><Focus /></Button></ToolHint>
+            <span className="canvas-dock-separator" />
+            <ToolHint label="建模助手"><Button variant={assistantOpen ? "secondary" : "ghost"} size="icon-sm" aria-label="建模助手 · 助手起草" onClick={() => openAssistant("draft")}><Sparkles /></Button></ToolHint>
             {workspaceMenu}
           </div>
           <Button size="sm" className="canvas-assistant-entry" aria-label="助手起草概念、属性与关系" title="让助手依据业务材料起草概念、属性与关系" onClick={() => openAssistant("draft")}><Sparkles />助手起草</Button>
           <div className="absolute inset-0">
-            {!definitions.length && <div className="canvas-empty-state"><div><Network className="mx-auto size-8 text-muted-foreground" strokeWidth={1.2} /><h2>从清晰的知识结构开始</h2><p>{syncing ? "正在连接知识库…" : connection === "unconfigured" ? "配置后端连接后，即可维护概念、关系与判断类型。" : connection === "unauthorized" ? "登录账户，打开本体建模白板。" : "暂时无法加载知识结构，请检查连接后重试。"}</p><div className="flex justify-center gap-2"><Button onClick={() => setLoginOpen(true)}>连接知识库</Button><Button variant="outline" disabled={syncing || operations.length > 0} onClick={enterDemo}>查看建模演示</Button></div></div></div>}
+            {!definitions.length && <div className="canvas-empty-state"><div><Network className="mx-auto size-8 text-muted-foreground" strokeWidth={1.2} /><h2>从清晰的知识结构开始</h2><p>{syncing ? "正在连接知识库…" : connection === "unconfigured" ? "配置后端连接后，即可维护概念、关系与判断类型。" : connection === "unauthorized" ? "登录账户，打开本体建模白板。" : "暂时无法加载知识结构，请检查连接后重试。"}</p><div className="flex justify-center gap-2"><Button onClick={() => setAccountOpen(true)}>登录</Button><Button variant="outline" disabled={syncing || operations.length > 0} onClick={enterDemo}>查看建模演示</Button></div></div></div>}
             <ReactFlow<StudioNode, StudioEdge>
               nodes={nodes}
               edges={edges}

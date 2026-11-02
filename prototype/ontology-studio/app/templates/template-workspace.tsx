@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ArrowRight, Check, CheckCheck, CircleAlert, ClipboardPaste, Copy, FilePlus2, FlaskConical,
-  BookOpen, Focus, GitBranch, GripVertical, Layers3, LibraryBig, Loader2, LockKeyhole, PanelLeftClose, PanelLeftOpen, PanelRightClose, Scan, Plus,
+  BookOpen, Focus, GitBranch, GripVertical, Layers3, LibraryBig, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Scan, Plus,
   Redo2, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Undo2, Workflow, X, Table2, Calculator, Diamond, ChevronDown, ChevronLeft, ChevronRight, ListTree, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -14,7 +14,8 @@ import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "../workspace-session";
-import { loadSession, setSessionToken } from "../knowledgeos-api";
+import { SignInPrompt } from "../sign-in-prompt";
+import { ToolHint } from "../tool-hint";
 import { initialWorkspaceLayout, visibleWorkspacePanels, workspaceLayoutReducer } from "../workspace-layout";
 import { BatchProperties } from "./batch-properties";
 import { ConditionEditor, FactRows, OperationEditor } from "./editor-fields";
@@ -45,7 +46,7 @@ function blankTemplate(catalog?: Catalog, reserved: string[] = []): ExpertTempla
 function sameIds(a: string[], b: string[]) { return a.length === b.length && a.every((id) => b.includes(id)); }
 
 export default function ExpertTemplateWorkspace({ active }: { active: boolean }) {
-  const { session, setSession } = useWorkspaceSession();
+  const { session } = useWorkspaceSession();
   const router = useRouter();
   const params = useSearchParams();
   const followedTemplate = useRef("");
@@ -53,7 +54,6 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
   const [helpOpen, setHelpOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
   const [assistance, setAssistance] = useState<Assistance | null>(null);
-  const [tokenInput, setTokenInput] = useState("");
   const [catalog, setCatalog] = useState<Catalog>(emptyCatalog);
   const [changesets, setChangesets] = useState<TemplateChangeSet[]>([]);
   const [template, setTemplate] = useState<ExpertTemplate>(blankTemplate);
@@ -228,22 +228,24 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
     setCatalog(nextCatalog); setChangesets(nextChanges);
     return { catalog: nextCatalog, changesets: nextChanges };
   }
+  const startedFor = useRef("");
   useEffect(() => {
     if (!active || !session) return;
     let cancelled = false;
     void Promise.all([loadTemplateCatalog(), loadTemplateChangeSets()]).then(([nextCatalog, nextChanges]) => {
-      if (!cancelled) { setCatalog(nextCatalog); setChangesets(nextChanges); }
+      if (cancelled) return;
+      setCatalog(nextCatalog); setChangesets(nextChanges);
+      // First load after signing in: reserve a fresh draft key, and show the template list unless a template is being opened.
+      if (startedFor.current === session.principal) return;
+      startedFor.current = session.principal;
+      if (!history.current.past.length && !readOnly) resetHistory(blankTemplate(nextCatalog, nextChanges.flatMap((change) => change.patch?.template?.id ? [change.patch.template.id] : [])));
+      if (!params.get("template")) setPanel("templates");
     }).catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "无法加载模板目录"); });
     return () => { cancelled = true; };
+  // Runs once per signed-in principal; the draft and panel helpers are stable for that purpose.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, session?.principal]);
 
-  async function login() {
-    setBusy(true); setError("");
-    try { setSessionToken(tokenInput); const user = await loadSession(); setSession(user); setTokenInput(""); const loaded = await refresh();
-      if (!history.current.past.length && !readOnly) resetHistory(blankTemplate(loaded.catalog, loaded.changesets.flatMap((change) => change.patch?.template?.id ? [change.patch.template.id] : []))); }
-    catch (cause) { setSessionToken(""); setSession(null); setError(cause instanceof Error ? cause.message : "登录失败"); }
-    finally { setBusy(false); }
-  }
   async function openTemplate(id: string) {
     setBusy(true); setError("");
     try { const loaded = await loadTemplate(id); resetHistory(loaded); setSourceTemplate(loaded); setReadOnly(true); setProposalView(false);
@@ -400,24 +402,19 @@ export default function ExpertTemplateWorkspace({ active }: { active: boolean })
     <TemplateSubmitDialog open={active && submitOpen} onOpenChange={setSubmitOpen} template={template} editable={editable} busy={busy} error={error} reason={reason} onReasonChange={setReason} semanticChanges={semanticChanges}
       onExpectedChange={(id, expected) => update(copy => { const sample = copy.cases.find(item => item.id === id); if (sample) sample.expected_operations = expected; })}
       onEditCase={id => { setCaseId(id); setSubmitOpen(false); setPanel("cases"); }} onSubmit={submit} />
-    {!session ? <section className="template-login panel-surface m-auto p-6 sm:p-8">
-      <span className="mb-5 flex size-12 items-center justify-center rounded-xl bg-accent text-primary"><LockKeyhole className="size-6" /></span><h2 className="text-2xl font-semibold tracking-tight">进入专家工艺工作台</h2>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">用工艺白板编排标准路线。模板编写、独立审核和发布按角色授权。</p>
-      <div className="mt-6 flex flex-col gap-3"><Input type="password" autoComplete="current-password" aria-label="个人访问凭证" placeholder="粘贴个人访问凭证" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void login(); }} /><Button disabled={!tokenInput.trim() || busy} onClick={() => void login()}>{busy ? <Loader2 className="size-4 animate-spin" /> : "登录"}</Button></div>
-      {error && <p role="alert" className="mt-3 text-sm text-rose-600">{error}</p>}
-    </section> : <div id="template-workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
+    {!session ? <SignInPrompt icon={<Workflow size={25} strokeWidth={1.4} />} title="专家模板">登录后用工艺白板编排标准路线。模板编写、独立审核和发布按角色授权。</SignInPrompt> : <div id="template-workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
       <div className="canvas-dock" role="toolbar" aria-label="工艺白板工具" aria-orientation="vertical">
         <NavigationToggle />
-        {editable && <Button size="icon-sm" aria-label="下一工序" title="下一工序 · N" onClick={() => append(selected || undefined)}><Plus /></Button>}
-        <Button size="icon-sm" variant={panel === "outline" && leftPanelVisible ? "secondary" : "ghost"} aria-label="工艺目录" title="工艺目录 · ⌘ / Ctrl K" onClick={openOutline}><ListTree /></Button>
-        <Button size="icon-sm" variant={panel === "templates" && leftPanelVisible ? "secondary" : "ghost"} aria-label="路线模板" title="路线模板" onClick={() => togglePanel("templates")}><Workflow /></Button>
-        <Button size="icon-sm" variant={panel === "operations" && leftPanelVisible ? "secondary" : "ghost"} aria-label="标准工序库" title="标准工序库" onClick={() => { setLibraryMode("insert"); togglePanel("operations"); }}><LibraryBig /></Button>
-        <Button size="icon-sm" variant={panel === "cases" && leftPanelVisible ? "secondary" : "ghost"} aria-label="案例试展开" title="案例试展开" onClick={() => togglePanel("cases")}><FlaskConical /></Button>
-        {canEdit && <Button size="icon-sm" variant={interviewOpen ? "secondary" : "ghost"} aria-label="工艺访谈助手" title="工艺访谈助手" onClick={() => setInterviewOpen(true)}><Sparkles /></Button>}
-        {inspectorAvailable && <Button size="icon-sm" variant={showInspector ? "secondary" : "ghost"} aria-label={showInspector ? "隐藏工序属性" : "显示工序属性"} title="工序属性 · ]" aria-pressed={showInspector} onClick={() => togglePanel("properties")}><SlidersHorizontal /></Button>}
-        {editable && <><span className="canvas-dock-separator" /><Button size="icon-sm" variant="ghost" aria-label="撤销" title="撤销 · ⌘ Z" disabled={!undoAvailable} onClick={() => undo()}><Undo2 /></Button><Button size="icon-sm" variant="ghost" aria-label="重做" title="重做 · ⌘ ⇧ Z" disabled={!redoAvailable} onClick={() => undo(true)}><Redo2 /></Button></>}
+        {editable && <ToolHint label="下一工序" shortcut="N"><Button size="icon-sm" aria-label="下一工序" onClick={() => append(selected || undefined)}><Plus /></Button></ToolHint>}
+        <ToolHint label="工艺目录" shortcut="⌘K"><Button size="icon-sm" variant={panel === "outline" && leftPanelVisible ? "secondary" : "ghost"} aria-label="工艺目录" onClick={openOutline}><ListTree /></Button></ToolHint>
+        <ToolHint label="路线模板"><Button size="icon-sm" variant={panel === "templates" && leftPanelVisible ? "secondary" : "ghost"} aria-label="路线模板" onClick={() => togglePanel("templates")}><Workflow /></Button></ToolHint>
+        <ToolHint label="标准工序库"><Button size="icon-sm" variant={panel === "operations" && leftPanelVisible ? "secondary" : "ghost"} aria-label="标准工序库" onClick={() => { setLibraryMode("insert"); togglePanel("operations"); }}><LibraryBig /></Button></ToolHint>
+        <ToolHint label="案例试展开"><Button size="icon-sm" variant={panel === "cases" && leftPanelVisible ? "secondary" : "ghost"} aria-label="案例试展开" onClick={() => togglePanel("cases")}><FlaskConical /></Button></ToolHint>
+        {canEdit && <ToolHint label="工艺访谈助手"><Button size="icon-sm" variant={interviewOpen ? "secondary" : "ghost"} aria-label="工艺访谈助手" onClick={() => setInterviewOpen(true)}><Sparkles /></Button></ToolHint>}
+        {inspectorAvailable && <ToolHint label="工序属性" shortcut="]"><Button size="icon-sm" variant={showInspector ? "secondary" : "ghost"} aria-label={showInspector ? "隐藏工序属性" : "显示工序属性"} aria-pressed={showInspector} onClick={() => togglePanel("properties")}><SlidersHorizontal /></Button></ToolHint>}
+        {editable && <><span className="canvas-dock-separator" /><ToolHint label="撤销" shortcut="⌘Z"><Button size="icon-sm" variant="ghost" aria-label="撤销" disabled={!undoAvailable} onClick={() => undo()}><Undo2 /></Button></ToolHint><ToolHint label="重做" shortcut="⌘⇧Z"><Button size="icon-sm" variant="ghost" aria-label="重做" disabled={!redoAvailable} onClick={() => undo(true)}><Redo2 /></Button></ToolHint></>}
         <span className="canvas-dock-separator" />
-        <Button size="icon-sm" variant="ghost" aria-label="提交模板变更" title="提交模板变更" disabled={busy || !editable || Boolean(draftId)} onClick={() => { setError(""); setSubmitOpen(true); }}><Save /></Button>
+        <ToolHint label="提交模板变更"><Button size="icon-sm" variant="ghost" aria-label="提交模板变更" disabled={busy || !editable || Boolean(draftId)} onClick={() => { setError(""); setSubmitOpen(true); }}><Save /></Button></ToolHint>
         <DropdownMenu><DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label="更多工艺工作台操作" title="更多工艺操作"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent side="right" align="end" className="max-h-[80dvh] w-60 overflow-y-auto"><DropdownMenuLabel className="truncate">{template.label} · v{template.version}</DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => setPanel("settings")}><Settings2 />模板名称与设置</DropdownMenuItem><DropdownMenuItem onSelect={() => setPanel("decisions")}><Table2 />决策表</DropdownMenuItem><DropdownMenuItem onSelect={() => setPanel("costs")}><Calculator />成本试算</DropdownMenuItem>
           {editable && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => addGroup()}><Layers3 />添加重复组</DropdownMenuItem><DropdownMenuItem onSelect={() => addGroup("conditional", false)}><Workflow />添加工艺阶段</DropdownMenuItem><DropdownMenuItem onSelect={() => addGroup("conditional")}><Diamond />添加条件工序组</DropdownMenuItem><DropdownMenuItem onSelect={() => setPanel("sequence")}><ClipboardPaste />批量添加工序</DropdownMenuItem></>}

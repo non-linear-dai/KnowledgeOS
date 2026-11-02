@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, Copy, Database, Braces, Calculator, FileText, Link2, Loader2, LockKeyhole, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, Copy, Database, Braces, Calculator, FileText, Link2, Loader2, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ApiError, loadSession, loadStudioSnapshot, setSessionToken } from "../knowledgeos-api";
+import { ApiError, loadStudioSnapshot } from "../knowledgeos-api";
 import { useWorkspaceSession } from "../workspace-session";
 import { defaultInstanceFilters, displayDate, displayValue, loadInstanceDetail, loadInstances, type InstanceDetail, type InstanceFilters, type InstancePage, type InstanceSelection, type InstanceKind, instanceKindLabels, instanceSourceLabels, instanceStatusLabels } from "./instances-api";
 
 import { NavigationToggle } from "../workspace-navigation-context";
+import { SignInPrompt } from "../sign-in-prompt";
 import { RecordInspector } from "./record-inspector";
 import { workDomainLabel } from "../work-domains";
 
@@ -23,26 +24,7 @@ const assertionLabels: Record<string, string> = { confirmed: "已确认", propos
 const gapLabels: Record<string, string> = { no_current_assertions: "暂无当前有效的已确认事实", draft_node: "此实例仍为草稿" };
 
 function ConnectionForm() {
-  const { setSession } = useWorkspaceSession();
-  const [token, setToken] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function login(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
-    try { setSessionToken(token); const identity = await loadSession(); setSession(identity); setToken(""); }
-    catch (cause) { setSessionToken(""); setError(cause instanceof Error ? cause.message : "无法登录知识库"); }
-    finally { setBusy(false); }
-  }
-  return <div className="instance-connection"><form onSubmit={(event) => void login(event)} className="connection-card">
-    <span className="connection-icon"><Database size={25} strokeWidth={1.4} /></span>
-    <span className="workspace-eyebrow">实例工作区</span><h2>连接你的知识库</h2>
-    <p>统一查看概念、关系、判断和模型运行，搜索名称与内容，追溯来源及关联。</p>
-    <label htmlFor="instances-token">个人访问凭证</label>
-    <Input id="instances-token" type="password" autoComplete="off" placeholder="输入个人访问凭证" value={token} onChange={(event) => setToken(event.target.value)} disabled={busy} />
-    <Button className="w-full" type="submit" disabled={busy || !token.trim()}>{busy ? <Loader2 className="size-4 animate-spin" /> : <LockKeyhole className="size-4" />}连接知识库</Button>
-    <span className="connection-note">所有工作区共享当前登录会话</span>
-    {error && <p role="alert" className="connection-error">{error}</p>}
-  </form></div>;
+  return <div className="instance-connection"><SignInPrompt icon={<Database size={25} strokeWidth={1.4} />} title="实例浏览">登录后统一查看概念、关系、判断和模型运行，搜索名称与内容，追溯来源及关联。</SignInPrompt></div>;
 }
 
 function InstanceInspector({ id, labels, onClose, onNavigate, revision }: { id: string; labels: Record<string, string>; onClose: () => void; onNavigate: (id: string) => void; revision: number }) {
