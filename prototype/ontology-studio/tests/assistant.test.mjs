@@ -99,14 +99,21 @@ test('Studio proxies expose authoring and assistant routes only', () => {
   assert.match(assistant, /KNOWLEDGEOS_ASSISTANT_BASE_URL/);
 });
 
-test('ontology whiteboard exposes visible assistant entries', () => {
+test('ontology whiteboard has one assistant entry, in the title bar, and a docked panel', () => {
   const source = readFileSync(new URL('../app/ontology-workspace.tsx', import.meta.url), 'utf8');
-  assert.match(source, /className="canvas-assistant-entry".*onClick=\{\(\) => openAssistant\("draft"\)\}><Sparkles \/>助手起草<\/Button>/);
-  assert.match(source, /aria-label="建模助手 · 助手起草".*><Sparkles \/><\/Button>/);
-  assert.match(source, /onAssist\("draft"\)\}><Sparkles \/>助手起草<\/Button>/);
-  assert.match(source, /openAssistant\("draft"\); setCommandOpen\(false\)/);
+  assert.match(source, /<WorkspaceTitleBar title="本体建模"/);
+  assert.match(source, /assistant=\{\{ open: assistantOpen, onToggle: toggleAssistant \}\}/);
+  assert(!source.includes('canvas-assistant-entry'), 'the floating canvas button is gone');
+  assert(!source.includes('aria-label="建模助手 · 助手起草"'), 'the toolbar sparkle is gone');
+  assert(!/onAssist[=(]/.test(source), 'the catalog no longer repeats assistant buttons');
+  assert(!/DropdownMenuItem[^\n]*openAssistant/.test(source), 'the More menu no longer lists assistant tasks');
+  assert.equal(source.match(/<CommandItem[^\n]*openAssistant/g).length, 1, 'the command palette keeps one "open assistant"');
+  assert.match(source, /isAssistantShortcut\(event\)/);
+  assert.match(source, /hidden=\{!panels\.right \|\| assistantOpen\}/, 'details and assistant share the right-hand slot');
   assert.doesNotMatch(source, /aria-label="建模助手".*><CircleHelp \/>/);
   const assistant = readFileSync(new URL('../app/semantic-assistant.tsx', import.meta.url), 'utf8');
-  assert.match(assistant, /initialTab = 'model'/);
+  assert.match(assistant, /<AssistantDock /);
+  assert(!assistant.includes('<Dialog'), 'the assistant is no longer a modal dialog');
   assert.match(assistant, /\['draft', '助手起草'\]/);
+  assert.match(assistant, /在审核中查看/);
 });

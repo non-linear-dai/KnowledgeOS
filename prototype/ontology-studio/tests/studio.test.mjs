@@ -93,8 +93,8 @@ test('overview navigation is not duplicated in its hero and hidden inspectors re
   assert(!overview.includes('onOpenStudio'));
   assert(!overview.includes('onOpenReview'));
   assert(!overview.includes('进入结构白板'));
-  assert(studio.includes('hidden={!panels.right}'));
-  assert(template.includes('hidden={!showInspector}'));
+  assert(studio.includes('hidden={!panels.right || assistantOpen}'), 'the inspector stays mounted while the assistant takes its slot');
+  assert(template.includes('hidden={!showInspector || (canEdit && interviewOpen)}'));
   assert(!studio.includes('onCollapse={clearSelection}'));
 });
 

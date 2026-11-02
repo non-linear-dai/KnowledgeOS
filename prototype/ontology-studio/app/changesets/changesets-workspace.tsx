@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowLeft, Check, FileCheck2, FlaskConical, GitPullRequestArrow, Loader2, RefreshCw, Search, Settings2, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, FileCheck2, FlaskConical, GitPullRequestArrow, Loader2, RefreshCw, Search, Settings2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,7 @@ import { RouteCanvas } from "../templates/route-canvas";
 import { actorText, assistanceOf, batchReviewRecords, changeCategory, changeStatusLabels, isTemplateChange, loadChangeRecords, reviewAccess, supportsSourceApplication, type ChangeRecord } from "./changesets-api";
 import { AssistanceSection, AssistantMetrics } from "./assistance-review";
 import { isPending, nextAfter, parseReviewView, queueFor, reviewViews, riskLabels, viewCounts, type ReviewView } from "./review-queue";
-import { operationRows, operationTarget, patchRows, type DiffRow } from "./change-diff";
+import { operationRows, operationTarget, patchRows, workspaceLink, type DiffRow } from "./change-diff";
 import { updatePolicy } from "../agents/agents-api";
 import { previewLogic, object, type LogicDocument, type LogicKind, type TestReport } from "../rules/logic-api";
 
@@ -138,7 +138,7 @@ function ChangeDetail({ change, blocked, onAction, onBack }: { change: ChangeRec
   return <article ref={detailRef} tabIndex={-1} className="change-detail outline-none" aria-label="变更详情" onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onBack(); } }}>
     <div className="change-detail-topline"><span className="detail-navigation-access"><NavigationToggle /></span><Button className="change-back" size="sm" variant="ghost" onClick={onBack}><ArrowLeft />返回队列</Button><span>{changeCategory(change)}</span><code>{change.id}</code></div>
     <div className="change-detail-content">
-      <div className="change-title"><div className="flex flex-wrap items-center gap-2"><span className="neutral-badge">{changeStatusLabels[change.status] ?? change.status}</span><span className="review-risk" data-risk={change.risk}>{riskLabels[change.risk] ?? change.risk}{change.risk === "high" ? " · 独立审核" : ""}</span></div><h2>{change.title}</h2><p>{change.reason}</p><span>{actorText(change)} · {displayDate(change.created_at)}</span></div>
+      <div className="change-title"><div className="flex flex-wrap items-center gap-2"><span className="neutral-badge">{changeStatusLabels[change.status] ?? change.status}</span><span className="review-risk" data-risk={change.risk}>{riskLabels[change.risk] ?? change.risk}{change.risk === "high" ? " · 独立审核" : ""}</span></div><h2>{change.title}</h2><p>{change.reason}</p><span>{actorText(change)} · {displayDate(change.created_at)}</span>{(() => { const link = workspaceLink(changeCategory(change), change); return link && <Link className="logic-link" href={link.href}>{link.label}<ArrowUpRight size={13} aria-hidden="true" /></Link>; })()}</div>
       <ol className="change-progress" aria-label="变更发布流程">{["提交提案", "独立审核", "应用真源", "验证发布"].map((label, index) => <li key={label} data-complete={index === 0 || index === 1 && ["approved", "published"].includes(change.status) || index === 2 && Boolean(change.source_revision) || index === 3 && change.status === "published"}><span>{index + 1}</span>{label}</li>)}</ol>
       {assistanceOf(change) && <AssistanceSection assistance={assistanceOf(change)!} />}
       {change.operations.length > 0 && <OperationDiffs operations={change.operations} />}

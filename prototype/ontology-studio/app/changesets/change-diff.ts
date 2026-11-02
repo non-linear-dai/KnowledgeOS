@@ -73,3 +73,24 @@ export function patchRows(patch: unknown): PatchRow[] {
   return ops.map(item => record(item)).filter(item => typeof item.path === "string")
     .map(item => ({ op: changeTypeLabel(item.op), path: String(item.path), value: displayValue(item.value) }));
 }
+
+/** Where a reviewer can see the proposal's object in its own workspace, when that object already exists there. */
+export function workspaceLink(category: string, change: { operations: Record<string, unknown>[]; patch?: Record<string, unknown> | null }): { href: string; label: string } | null {
+  const operation = change.operations[0];
+  if (category === "本体与定义" && operation) {
+    const id = operationTarget(operation).id;
+    return id && operation.type !== "create" ? { href: `/?${new URLSearchParams({ definition: id })}`, label: "在白板中打开" } : null;
+  }
+  if (category === "业务逻辑" && operation && operation.type !== "create") {
+    const after = record(operation.after), before = record(operation.before);
+    const id = String(after.id ?? before.id ?? "");
+    const kind = String(operation.targetKind ?? operation.target_kind ?? change.patch?.kind ?? "");
+    const definition = id.includes(":") ? id : kind && id ? `${kind}:${id}` : "";
+    return definition ? { href: `/rules?${new URLSearchParams({ definition })}`, label: "在规则与决策中打开" } : null;
+  }
+  if (category === "专家模板") {
+    const id = String(record(change.patch?.template).id ?? "");
+    return id ? { href: `/templates?${new URLSearchParams({ template: id })}`, label: "在工艺模板中打开" } : null;
+  }
+  return null;
+}

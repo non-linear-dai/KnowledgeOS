@@ -4,7 +4,9 @@ import { SemanticAssistant, type AssistantTab } from "./semantic-assistant";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { NavigationToggle } from "./workspace-navigation-context";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { WorkspaceTitleBar, isAssistantShortcut } from "./workspace-title-bar";
+import { PanelTabs } from "./assistant/assistant-panel";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   BaseEdge,
   applyNodeChanges,
@@ -518,18 +520,14 @@ function stageDefinitionOperation(items: ChangeOperation[], next: OntologyDefini
   return existing ? items.map((item) => item.id === existing.id ? operation : item) : [...items, operation];
 }
 
-function Catalog({ definitions, selectedId, onSelect, onQuickEdit, filterKind, setFilterKind, onAssist }: {
+function Catalog({ definitions, selectedId, onSelect, onQuickEdit, filterKind, setFilterKind }: {
   definitions: OntologyDefinition[]; selectedId: string | null; onSelect: (id: string) => void;
-  onQuickEdit: (id: string) => void; filterKind: "all" | DefinitionKind; setFilterKind: (kind: "all" | DefinitionKind) => void; onAssist: (tab: AssistantTab) => void;
+  onQuickEdit: (id: string) => void; filterKind: "all" | DefinitionKind; setFilterKind: (kind: "all" | DefinitionKind) => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       <div className="border-b border-border px-3.5 py-3">
         <div><p className="text-sm font-semibold text-foreground">定义库</p><p className="mt-0.5 text-xs text-muted-foreground">{definitions.length} 项 · ChangeSet 治理</p></div>
-        <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-          <Button size="sm" variant="outline" onClick={() => onAssist("draft")}><Sparkles />助手起草</Button>
-          <Button size="sm" variant="outline" onClick={() => onAssist("model")}><Sparkles />建模助手</Button>
-        </div>
       </div>
       <div className="flex flex-wrap gap-1 border-b border-border p-2.5">
         <button onClick={() => setFilterKind("all")} className={cn("catalog-filter", filterKind === "all" && "catalog-filter-active")}>全部</button>
@@ -877,10 +875,10 @@ function ModelHistoryPanel({ definition, onUpdate }: { definition: OntologyDefin
   </section>;
 }
 
-function Inspector({ definition, definitions, relatedDefinitions, expert, editSignal, relatedRequest, onUpdate, onDeprecate, onDelete, onSelectRelated, onCollapse, onManageBindings, onManageEndpoints }: {
+function Inspector({ definition, definitions, relatedDefinitions, expert, editSignal, relatedRequest, onUpdate, onDeprecate, onDelete, onSelectRelated, onCollapse, onManageBindings, onManageEndpoints, onAssistant }: {
   definition: OntologyDefinition | null; definitions: OntologyDefinition[]; relatedDefinitions: OntologyDefinition[]; expert: boolean; editSignal: number; relatedRequest: { id: string } | null;
   onUpdate: (next: OntologyDefinition, type?: ChangeOperationType) => void; onDeprecate: () => void; onDelete: () => void;
-  onSelectRelated: (id: string) => void; onCollapse: () => void; onManageBindings: (id: string) => void; onManageEndpoints: (id: string) => void;
+  onSelectRelated: (id: string) => void; onCollapse: () => void; onManageBindings: (id: string) => void; onManageEndpoints: (id: string) => void; onAssistant: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -907,7 +905,7 @@ function Inspector({ definition, definitions, relatedDefinitions, expert, editSi
   const update = (field: "label" | "description" | "lifecycle", value: string) => onUpdate({ ...definition, [field]: value });
   const updateConfig = (field: string, value: string | null) => onUpdate({ ...definition, config: { ...definition.config, [field]: value } });
   return <div className="relative flex h-full min-h-0 flex-col bg-card">
-    <div className="border-b border-border px-4 py-3"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-semibold text-muted-foreground">详情面板</p><Button variant="ghost" size="icon-xs" onClick={onCollapse} aria-label="收起右侧详情"><PanelRightClose /></Button></div><div className="flex items-start justify-between gap-3">
+    <div className="border-b border-border px-4 py-3"><div className="mb-3 flex items-center justify-between gap-2"><PanelTabs active="detail" detail={{ label: definition.label, onShow: () => undefined }} onAssistant={onAssistant} /><Button variant="ghost" size="icon-xs" onClick={onCollapse} aria-label="收起右侧详情"><PanelRightClose /></Button></div><div className="flex items-start justify-between gap-3">
       <div className="flex min-w-0 gap-3"><span className="flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white" style={{ background: meta.color }}>{meta.short}</span><div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate font-semibold">{definition.label}</h2>{definition.readOnly && <Badge variant="outline">只读</Badge>}</div><p className="mt-1 truncate font-mono text-xs text-muted-foreground">{definition.id}</p></div></div>
       {editable && <Button variant={editing ? "secondary" : "outline"} size="sm" className="rounded-lg" onClick={() => setEditing(!editing)}><PencilLine />{editing ? "完成" : "编辑"}</Button>}
     </div></div>
@@ -1012,7 +1010,8 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
   const chooseNodes = (ids: string[]) => { selectedIdsRef.current = ids; setSelectedIds(ids); setSelectedId(ids.at(-1) ?? null); };
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantTab, setAssistantTab] = useState<AssistantTab>("draft");
-  const openAssistant = (tab: AssistantTab) => { setAssistantTab(tab); setAssistantOpen(true); };
+  const openAssistant = (tab?: AssistantTab) => { if (tab) setAssistantTab(tab); setAssistantOpen(true); };
+  const toggleAssistant = useCallback(() => setAssistantOpen(value => !value), []);
   const [expert, setExpert] = useState(false); const [createOpen, setCreateOpen] = useState(false); const [submitOpen, setSubmitOpen] = useState(false); const [flow, setFlow] = useState<ReactFlowInstance<StudioNode, StudioEdge> | null>(null);
   const [workspaceLayout, dispatchLayout] = useReducer(workspaceLayoutReducer, initialWorkspaceLayout);
   const panels = visibleWorkspacePanels(workspaceLayout);
@@ -1413,6 +1412,7 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
       const target = event.target as HTMLElement | null;
       const typing = target?.closest("input, textarea, select, [contenteditable='true']");
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); return; }
+      if (isAssistantShortcut(event)) { event.preventDefault(); toggleAssistant(); return; }
       if (typing || view !== "studio" || target?.closest("[role='dialog'],[role='menu'],[role='listbox']")) return;
       if (event.shiftKey && event.key.toLowerCase() === "f") { event.preventDefault(); dispatchLayout({ type: "toggle-focus" }); return; }
       if (event.key === "/") { event.preventDefault(); setSearchOpen(true); }
@@ -1422,13 +1422,13 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
       else if (event.key.toLowerCase() === "f" && selectedId) { event.preventDefault(); setFocusMode((value) => !value); }
       else if (event.key === "[") { event.preventDefault(); dispatchLayout({ type: "toggle", side: "left" }); }
       else if (event.key === "]" && selectedId) { event.preventDefault(); dispatchLayout({ type: "toggle", side: "right" }); }
-      else if (event.key === "Escape") { if (workspaceLayout.focused) dispatchLayout({ type: "toggle-focus" }); else clearSelection(); }
+      else if (event.key === "Escape") { if (target?.closest(".assistant-dock")) return; if (workspaceLayout.focused) dispatchLayout({ type: "toggle-focus" }); else clearSelection(); }
       else if (event.shiftKey && event.key === "1") { event.preventDefault(); fitVisibleCanvas(); }
       else if (event.shiftKey && event.key === "2" && selectedId) { event.preventDefault(); const node = allNodes.find((item) => item.id === selectedId); if (node) flow?.fitView({ nodes: [node], padding: .7, duration: 320, maxZoom: 1.15 }); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active, allNodes, nodes, canvasArea, flow, focusMode, selectedId, workspaceLayout.focused, view]);
+  }, [active, allNodes, nodes, canvasArea, flow, focusMode, selectedId, workspaceLayout.focused, view, toggleAssistant]);
 
   useEffect(() => {
     const modelContext = (document as Document & { modelContext?: ModelContextRegistration }).modelContext;
@@ -1495,10 +1495,6 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
 
   const workspaceMenu = <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="更多工作台操作"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent side="right" align="start" className="w-60">
           <DropdownMenuLabel>本体建模 · {connectionLabel}</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={() => openAssistant("draft")}><Sparkles />助手起草（概念、属性、关系）</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => openAssistant("model")}><Sparkles />建模助手：表单建模与复用检查</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => openAssistant("terms")}><Sparkles />建模助手：业务术语</DropdownMenuItem>
-          <DropdownMenuSeparator />
           <DropdownMenuLabel className="text-xs text-muted-foreground">视图</DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => setExpert((value) => !value)}><Code2 />{expert ? "关闭专家模式" : "开启专家模式"}</DropdownMenuItem>
           {view === "studio" && <DropdownMenuItem onSelect={() => dispatchLayout({ type: "toggle-auto-hide" })}><PanelLeftClose />{workspaceLayout.autoHide ? "关闭侧栏自动收起" : "开启侧栏自动收起"}</DropdownMenuItem>}
@@ -1512,17 +1508,20 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
           <DropdownMenuItem onSelect={() => setHelpOpen(true)}><CircleHelp />白板操作与快捷键</DropdownMenuItem>
         </DropdownMenuContent></DropdownMenu>;
 
-  const catalog = <Catalog definitions={matchingDefinitions} selectedId={selectedId} onSelect={selectDefinition} onQuickEdit={quickEditDefinition} filterKind={filterKind} setFilterKind={kind => changeFilter(() => setFilterKind(kind))} onAssist={openAssistant} />;
-  const inspector = <Inspector key={selected?.id ?? "empty"} definition={selected} definitions={definitions} relatedDefinitions={relatedDefinitions} expert={expert} editSignal={editSignal} relatedRequest={relatedRequest} onUpdate={stageUpdate} onDeprecate={deprecateSelected} onDelete={deleteSelected} onSelectRelated={selectDefinition} onCollapse={() => dispatchLayout({ type: "close", side: "right" })} onManageBindings={manageBindings} onManageEndpoints={manageEndpoints} />;
+  const catalog = <Catalog definitions={matchingDefinitions} selectedId={selectedId} onSelect={selectDefinition} onQuickEdit={quickEditDefinition} filterKind={filterKind} setFilterKind={kind => changeFilter(() => setFilterKind(kind))} />;
+  const inspector = <Inspector key={selected?.id ?? "empty"} definition={selected} definitions={definitions} relatedDefinitions={relatedDefinitions} expert={expert} editSignal={editSignal} relatedRequest={relatedRequest} onUpdate={stageUpdate} onDeprecate={deprecateSelected} onDelete={deleteSelected} onSelectRelated={selectDefinition} onCollapse={() => dispatchLayout({ type: "close", side: "right" })} onManageBindings={manageBindings} onManageEndpoints={manageEndpoints} onAssistant={() => openAssistant()} />;
 
   return <TooltipProvider><div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
     <a className="skip-link" href="#workspace-content">跳到工作区</a>
-    {view === "studio" && <h1 className="sr-only">本体建模</h1>}
     <div id="workspace-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
     {draftConflict && <Alert variant="destructive"><AlertTitle>编辑冲突</AlertTitle><AlertDescription>{draftConflict}<Button variant="outline" onClick={reset}>放弃草稿并重新载入</Button></AlertDescription></Alert>}
     <div data-ontology-view="control" hidden={view !== "control"} className="min-h-0 flex-1"><ControlCenter actions={<><NavigationToggle />{workspaceMenu}</>} definitions={definitions} errors={errors} metadata={metadata} connection={connection} onOpenDefinition={(id) => { clearFilters(); selectDefinition(id); router.push("/"); }} onOpenKind={(kind) => { changeFilter(() => { setSearch(""); setFilterKind(kind); setLifecycle("all"); setStorage("all"); }); dispatchLayout({ type: "open", side: "left" }); router.push("/"); }} /></div>
-    <div data-ontology-view="studio" hidden={view !== "studio"} className="min-h-0 flex-1">
-      <div className="studio-workspace relative h-full min-h-0" data-workspace-focus={workspaceLayout.focused}>
+    <div data-ontology-view="studio" hidden={view !== "studio"} className="flex min-h-0 flex-1 flex-col">
+      <WorkspaceTitleBar title="本体建模" context={selected ? <><span className="size-2 flex-none rounded-full" style={{ background: kindMeta[selected.kind].color }} aria-hidden="true" /><small>{kindMeta[selected.kind].label}</small><strong>{selected.label}</strong></> : <small>{currentDomain ? `${workDomainLabel(currentDomain)} · ` : ""}{domainDefinitions.length} 项定义</small>}
+        assistant={{ open: assistantOpen, onToggle: toggleAssistant }}>
+        {operations.length > 0 && <Button size="sm" disabled={errors.length > 0} onClick={() => setSubmitOpen(true)}><Send />提交 {operations.length} 项变更</Button>}
+      </WorkspaceTitleBar>
+      <div className="studio-workspace relative min-h-0 flex-1" data-workspace-focus={workspaceLayout.focused}>
         <main ref={canvasRef} className="@container absolute inset-0 min-w-0 min-h-0 overflow-hidden bg-background">
           <div className="canvas-dock" role="toolbar" aria-label="本体白板工具" aria-orientation="vertical">
             <NavigationToggle />
@@ -1543,10 +1542,8 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
             {selected && <ToolHint label="属性详情" shortcut="]"><Button variant={panels.right ? "secondary" : "ghost"} size="icon-sm" aria-label={panels.right ? "隐藏属性详情" : "显示属性详情"} aria-pressed={panels.right} onClick={() => dispatchLayout({ type: "toggle", side: "right" })}><PanelRightClose /></Button></ToolHint>}
             <ToolHint label={workspaceLayout.focused ? "退出专注" : "专注工作区"} shortcut="⇧F"><Button variant={workspaceLayout.focused ? "secondary" : "ghost"} size="icon-sm" aria-label={workspaceLayout.focused ? "退出专注工作区" : "专注工作区"} aria-pressed={workspaceLayout.focused} onClick={() => dispatchLayout({ type: "toggle-focus" })}><Focus /></Button></ToolHint>
             <span className="canvas-dock-separator" />
-            <ToolHint label="建模助手"><Button variant={assistantOpen ? "secondary" : "ghost"} size="icon-sm" aria-label="建模助手 · 助手起草" onClick={() => openAssistant("draft")}><Sparkles /></Button></ToolHint>
             {workspaceMenu}
           </div>
-          <Button size="sm" className="canvas-assistant-entry" aria-label="助手起草概念、属性与关系" title="让助手依据业务材料起草概念、属性与关系" onClick={() => openAssistant("draft")}><Sparkles />助手起草</Button>
           <div className="absolute inset-0">
             {!definitions.length && <div className="canvas-empty-state"><div><Network className="mx-auto size-8 text-muted-foreground" strokeWidth={1.2} /><h2>从清晰的知识结构开始</h2><p>{syncing ? "正在连接知识库…" : connection === "unconfigured" ? "配置后端连接后，即可维护概念、关系与判断类型。" : connection === "unauthorized" ? "登录账户，打开本体建模白板。" : "暂时无法加载知识结构，请检查连接后重试。"}</p><div className="flex justify-center gap-2"><Button onClick={() => setAccountOpen(true)}>登录</Button><Button variant="outline" disabled={syncing || operations.length > 0} onClick={enterDemo}>查看建模演示</Button></div></div></div>}
             <ReactFlow<StudioNode, StudioEdge>
@@ -1580,6 +1577,7 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
             >
               <Background color="#d4dfef" gap={24} size={1} />
               <Controls onFitView={fitVisibleCanvas} className="!overflow-hidden !rounded-lg !border !border-border !bg-white !shadow-md" />
+              {focusMode && selected && <Panel position="top-center"><div className="canvas-focus-banner" role="status">正在查看 <strong>{selected.label}</strong> 的关联<Button variant="ghost" size="sm" className="h-7" onClick={() => setFocusMode(false)}>显示全部</Button></div></Panel>}
               {hasFilters && <Panel position="top-right"><div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs shadow-sm"><span role="status">{currentDomain && `${workDomainLabel(currentDomain)} · `}显示 {nodes.length} / {domainDefinitions.length} 项</span><Button variant="ghost" size="icon-sm" aria-label="清除搜索与筛选" title="清除搜索与筛选" onClick={clearFilters}><X /></Button></div></Panel>}
               <Panel position="bottom-left" className="!bottom-3 !left-16 hidden @min-[720px]:block"><div className="rounded-lg border border-border bg-white/95 px-2.5 py-1.5 text-xs text-accent-foreground shadow-sm"><b>{selected?.kind === "domain" ? "领域入口：" : selected?.kind === "relation" ? "关系建模：" : "建模路径："}</b>{selected?.kind === "domain" ? "先确认概念，再展开其关系与判断。" : selected?.kind === "relation" ? `${relationModeLabel(selected.relationMode)}；${(selected.endpoints ?? []).length ? "箭头由源概念指向目标概念。" : "尚未声明 domain/range。"}` : "概念连接判断类型，并通过有向关系连接其他概念。"}</div></Panel>
             </ReactFlow>
@@ -1588,7 +1586,9 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
           {operations.length > 0 && <div className="absolute bottom-4 left-1/2 z-20 flex w-[min(480px,calc(100%-24px))] -translate-x-1/2 items-center gap-3 rounded-xl border border-white/10 bg-ink p-3 text-white shadow-xl"><div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/10"><GitCompareArrows className="size-4 text-blue-200" /></div><div className="min-w-0 flex-1"><p className="text-xs font-semibold">{operations.length} 项变更待提交</p><p className="truncate text-xs text-slate-300">{errors.length ? `${errors.length} 个错误需要修复` : warnings.length ? `${warnings.length} 个警告` : "校验通过"}</p></div><Button size="sm" disabled={errors.length > 0} onClick={() => setSubmitOpen(true)} className="h-8 rounded-lg bg-primary text-white hover:bg-primary">查看并提交<ArrowRight /></Button></div>}
         </main>
         <aside hidden={!panels.left} className="canvas-catalog-panel canvas-context-panel" aria-label="本体定义目录">{catalog}</aside>
-        {selected && <aside hidden={!panels.right} className="canvas-inspector-panel canvas-context-panel" aria-label={`${selected.label} 属性详情`}>{inspector}</aside>}
+        {selected && <aside hidden={!panels.right || assistantOpen} className="canvas-inspector-panel canvas-context-panel" aria-label={`${selected.label} 属性详情`}>{inspector}</aside>}
+        <SemanticAssistant open={active && assistantOpen} onOpenChange={setAssistantOpen} initialTab={assistantTab} onTabChange={setAssistantTab} definitions={baselineDefinitions} canPropose={connection === "connected" && Boolean(session?.permissions.includes("propose"))} onSubmitted={() => refreshFromBackend(false)}
+          detail={selected ? { label: selected.label, onShow: () => { setAssistantOpen(false); dispatchLayout({ type: "open", side: "right" }); } } : undefined} />
       </div>
     </div>
     </div>
@@ -1599,8 +1599,7 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
         <CommandEmpty>没有匹配的定义或命令。</CommandEmpty>
         <CommandGroup heading="白板动作">
           <CommandItem onSelect={() => { setCreateOpen(true); setCommandOpen(false); }}><Plus />新增本体定义<CommandShortcut>N</CommandShortcut></CommandItem>
-          <CommandItem onSelect={() => { openAssistant("draft"); setCommandOpen(false); }}><Sparkles />助手起草概念、属性与关系</CommandItem>
-          <CommandItem onSelect={() => { openAssistant("model"); setCommandOpen(false); }}><Sparkles />打开建模助手</CommandItem>
+          <CommandItem onSelect={() => { openAssistant(); setCommandOpen(false); }}><Sparkles />打开助手<CommandShortcut>⌘J</CommandShortcut></CommandItem>
           <CommandItem onSelect={() => { clearFilters(); setCommandOpen(false); requestAnimationFrame(() => flow?.fitView({ padding: .18, duration: 320, maxZoom: .9 })); }}><LayoutGrid />显示全部定义<CommandShortcut>Esc</CommandShortcut></CommandItem>
           <CommandItem disabled={!selectedId} onSelect={() => { if (selectedId) setFocusMode(true); setCommandOpen(false); }}><Focus />聚焦所选关联<CommandShortcut>F</CommandShortcut></CommandItem>
           <CommandItem onSelect={() => { dispatchLayout({ type: "toggle", side: "left" }); setCommandOpen(false); }}><PanelLeftClose />切换左侧栏<CommandShortcut>[</CommandShortcut></CommandItem>
@@ -1612,7 +1611,6 @@ function OntologyStudio({ active, view }: { active: boolean; view: "studio" | "c
         </CommandGroup>
       </CommandList>
     </CommandDialog>
-    <SemanticAssistant open={active && assistantOpen} onOpenChange={setAssistantOpen} initialTab={assistantTab} definitions={baselineDefinitions} canPropose={connection === "connected" && Boolean(session?.permissions.includes("propose"))} onSubmitted={() => refreshFromBackend(false)} />
     <CreateDialog open={active && createOpen} onOpenChange={setCreateOpen} definitions={definitions} onCreate={createDefinition} /><ConceptBindingsDialog open={active && Boolean(bindingConceptId)} onOpenChange={(value) => { if (!value) setBindingConceptId(null); }} concept={bindingConcept} definitions={definitions} onUpdateConcept={stageUpdate} onCreateAndBind={createAndBindPredicate} /><RelationEndpointsDialog open={active && Boolean(endpointRelationId)} onOpenChange={(value) => { if (!value) setEndpointRelationId(null); }} relation={endpointRelation} definitions={definitions} onUpdateRelation={stageUpdate} onCreateAndBind={createAndBindReificationPredicate} /><SubmitDialog busy={mutationBusy} open={active && submitOpen} onOpenChange={setSubmitOpen} operations={operations} warnings={warnings} onSubmit={submit} />
   </div></TooltipProvider>;
 }

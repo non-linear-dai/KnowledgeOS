@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AssistantSheet, AssistantStatusNotice, Busy, IssueList, SuggestionSummary, useAssistantStatus } from "../assistant/assistant-panel";
+import { AssistantDock, AssistantStatusNotice, Busy, IssueList, SuggestionSummary, useAssistantStatus } from "../assistant/assistant-panel";
 import { requestSuggestion, resolvedCount, withAccepted, type Assistance, type CardOutput, type Suggestion } from "../assistant/assistant-api";
 
 export type CardAssistTarget = { concept: string; label: string; suggestionIds: string[] };
@@ -31,7 +31,7 @@ export function CardAssistant({ target, onClose, canPropose, onAdopt }: { target
   }
   const counts = suggestion ? resolvedCount(suggestion.check) : null;
   const resolves = (suggestion?.check.analysis.resolves ?? []) as { id: string; text: string; kind: string }[];
-  return <AssistantSheet open={open} onOpenChange={value => { if (!value) { controller.current?.abort(); onClose(); } }} title={`助手起草说明卡 · ${target?.label ?? ""}`}
+  return <AssistantDock open={open} onOpenChange={value => { if (!value) { controller.current?.abort(); onClose(); } }} title={`助手起草说明卡 · ${target?.label ?? ""}`}
     description="根据已提案抽取的反馈，起草说明卡修改；KnowledgeOS 试算规范化并计算能解决哪些建议。">
     <AssistantStatusNotice status={status} error={statusError} sends={`该概念的属性定义、当前说明卡与待处理建议${status?.send_document_samples === false ? "（不含原文样例）" : "，以及建议附带的原文样例片段"}`} />
     <p className="assistant-caption">{target?.suggestionIds.length ? `处理所选的 ${target.suggestionIds.length} 条建议。` : "处理该概念全部待处理建议（最多 40 条）。"}</p>
@@ -47,5 +47,5 @@ export function CardAssistant({ target, onClose, canPropose, onAdopt }: { target
       <div className="assistant-adopt"><p>采纳后在说明卡编辑器中核对，再检查并提交审核。</p>
         <Button disabled={!suggestion.check.submitted || !target} onClick={() => { if (!target) return; onAdopt(target.concept, suggestion.check.submitted as Record<string, unknown>, withAccepted(suggestion.assistance, suggestion.output.changes.length)); onClose(); }}><Check />采纳到说明卡草稿</Button></div>
     </>}
-  </AssistantSheet>;
+  </AssistantDock>;
 }

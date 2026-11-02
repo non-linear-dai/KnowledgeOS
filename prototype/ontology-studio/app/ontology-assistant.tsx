@@ -1,7 +1,6 @@
 'use client';
 import { useRef, useState } from 'react';
 import { Check, RefreshCw, Sparkles } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,7 +21,7 @@ export function SimilarDefinitions({ entries }: { entries: SimilarEntry[] }) {
 
 type Operation = { operation: { type: string; targetKind: string; targetId: string; after?: JsonObject }; evidence: { quote: string }[] };
 
-export function OntologyDraftTab({ canPropose, onSubmitted, onClose }: { canPropose: boolean; onSubmitted: () => Promise<unknown>; onClose: () => void }) {
+export function OntologyDraftTab({ canPropose, onSubmitted, notify }: { canPropose: boolean; onSubmitted: () => Promise<unknown>; notify: (message: string) => void }) {
   const { status, error: statusError, ready } = useAssistantStatus(true);
   const [goal, setGoal] = useState(''); const [material, setMaterial] = useState('');
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
@@ -52,7 +51,7 @@ export function OntologyDraftTab({ canPropose, onSubmitted, onClose }: { canProp
     key.current ||= crypto.randomUUID();
     const assistance = withAccepted(suggestion.assistance, selected.length);
     await ontologyPropose(suggestion.ontology_request as OntologyRequest, filtered, reason.trim() || `助手起草：${goal.trim()}`, key.current, assistance);
-    toast.success('已提交审核，另一位审核人批准后生效'); setSuggestion(null); setCheck(null); await onSubmitted(); onClose();
+    notify('已提交审核，另一位审核人批准后生效'); setSuggestion(null); setCheck(null); await onSubmitted();
   });
   const notes = Object.fromEntries((suggestion?.output.notes ?? []).map(note => [note.target_id, note]));
 

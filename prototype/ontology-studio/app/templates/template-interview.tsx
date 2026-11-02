@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { Check, RotateCcw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { AssistantSheet, AssistantStatusNotice, Busy, IssueList, useAssistantStatus } from "../assistant/assistant-panel";
+import { AssistantDock, type DockDetail, AssistantStatusNotice, Busy, IssueList, useAssistantStatus } from "../assistant/assistant-panel";
 import { nextTurns, normalizeTemplate, requestSuggestion, withAccepted, type Assistance, type InterviewOutput, type InterviewTurn, type Suggestion } from "../assistant/assistant-api";
 import type { ExpertTemplate } from "./template-api";
 
-export function TemplateInterview({ open, onOpenChange, current, editable, onApply }: {
-  open: boolean; onOpenChange: (open: boolean) => void; current: ExpertTemplate; editable: boolean;
+export function TemplateInterview({ open, onOpenChange, current, editable, onApply, detail }: {
+  open: boolean; onOpenChange: (open: boolean) => void; detail?: DockDetail; current: ExpertTemplate; editable: boolean;
   onApply: (template: ExpertTemplate, assistance: Assistance) => void;
 }) {
   const { status, error: statusError, ready } = useAssistantStatus(open);
@@ -48,7 +48,7 @@ export function TemplateInterview({ open, onOpenChange, current, editable, onApp
     onApply(draft, withAccepted(latest.assistance, (latest.output.changes ?? []).length));
   }
   const output = latest?.output;
-  return <AssistantSheet open={open} onOpenChange={value => { if (!value) controller.current?.abort(); onOpenChange(value); }} title="工艺访谈助手"
+  return <AssistantDock open={open} detail={detail} onOpenChange={value => { if (!value) controller.current?.abort(); onOpenChange(value); }} title="工艺访谈助手"
     description="像访谈一样描述工艺；助手追问缺失的计价基准、重复条件与样例，并整理成路线草稿。工序数量等关键数据始终以专家回答为准。">
     <AssistantStatusNotice status={status} error={statusError} sends={`已发布工序与时间模型目录、您的回答${continueCurrent ? "，以及当前白板中的模板草稿" : ""}`} />
     {current.steps.length > 0 && <label className="assistant-toggle"><input type="checkbox" checked={continueCurrent} disabled={busy} onChange={event => setContinueCurrent(event.target.checked)} />基于当前白板「{current.label || current.id}」继续完善</label>}
@@ -69,5 +69,5 @@ export function TemplateInterview({ open, onOpenChange, current, editable, onApp
       <IssueList issues={latest.check.issues} empty="模板通过校验，样例展开与专家预期一致。" />
       <div className="assistant-adopt"><p>{editable ? "应用后可撤销；在白板中继续编辑，再提交审核。" : "当前模板为只读，请先新建模板或创建新版本。"}</p><Button disabled={!editable} onClick={apply}><Check />应用到白板</Button></div>
     </section>}
-  </AssistantSheet>;
+  </AssistantDock>;
 }
